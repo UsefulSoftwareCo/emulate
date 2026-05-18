@@ -671,6 +671,8 @@ importers:
         specifier: ^5.7
         version: 5.9.3
 
+  tests/sdk-js: {}
+
 packages:
 
   '@ai-sdk/gateway@3.0.93':

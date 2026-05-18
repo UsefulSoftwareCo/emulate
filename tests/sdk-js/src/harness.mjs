@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
-import { access } from "node:fs/promises";
+import { access, mkdtemp, rm } from "node:fs/promises";
 import net from "node:net";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -78,6 +79,16 @@ export async function startRuntime(options = {}) {
   });
   const logs = captureLogs(child, options.logLimitBytes ?? DEFAULT_LOG_LIMIT_BYTES);
   const exit = waitForExit(child);
+  let stopped = false;
+  const stop = async () => {
+    if (stopped) return;
+    stopped = true;
+    try {
+      await stopChild(child, exit, options.stopTimeoutMs);
+    } finally {
+      await spec.cleanup?.();
+    }
+  };
   const readinessPath = options.readinessPath ?? env.EMULATE_SDK_READY_PATH ?? spec.readinessPath;
   const readyUrl = new URL(readinessPath, `${baseUrl}/`).toString();
 
@@ -93,7 +104,7 @@ export async function startRuntime(options = {}) {
       }),
     ]);
   } catch (err) {
-    await stopChild(child, exit, options.stopTimeoutMs);
+    await stop();
     throw withRuntimeLogs(err, spec.label, logs);
   }
 
@@ -105,7 +116,7 @@ export async function startRuntime(options = {}) {
     readyUrl,
     runtime,
     service,
-    stop: () => stopChild(child, exit, options.stopTimeoutMs),
+    stop,
   };
 }
 
@@ -165,6 +176,7 @@ async function typeScriptCommand(options) {
   const cliPath =
     options.cliPath ?? options.env.EMULATE_TYPESCRIPT_CLI ?? path.join(repoRoot, "packages/emulate/dist/index.js");
   await assertExecutableFile(cliPath, "TypeScript CLI");
+  const workingDirectory = await runtimeWorkingDirectory(options);
   return {
     args: [
       cliPath,
@@ -177,7 +189,8 @@ async function typeScriptCommand(options) {
       options.baseUrl,
     ],
     command: process.execPath,
-    cwd: repoRoot,
+    cwd: workingDirectory.cwd,
+    cleanup: workingDirectory.cleanup,
     label: "TypeScript runtime",
     readinessPath: "/rate_limit",
   };
@@ -189,12 +202,27 @@ async function goCommand(options) {
     throw new Error("Go runtime selected but no binary was provided");
   }
   await assertExecutableFile(binary, "Go runtime binary");
+  const workingDirectory = await runtimeWorkingDirectory(options);
   return {
     args: ["start", "--port", String(options.port), "--service", options.service, "--base-url", options.baseUrl],
     command: binary,
-    cwd: repoRoot,
+    cwd: workingDirectory.cwd,
+    cleanup: workingDirectory.cleanup,
     label: "Go runtime",
     readinessPath: "/_emulate/health",
+  };
+}
+
+async function runtimeWorkingDirectory(options) {
+  if (options.cwd) {
+    return { cwd: options.cwd, cleanup: null };
+  }
+  const cwd = await mkdtemp(path.join(os.tmpdir(), "emulate-sdk-js-"));
+  return {
+    cwd,
+    cleanup: async () => {
+      await rm(cwd, { recursive: true, force: true });
+    },
   };
 }
 
