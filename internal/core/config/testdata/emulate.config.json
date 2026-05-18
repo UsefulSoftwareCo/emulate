@@ -1,0 +1,10 @@
+{
+  "tokens": {
+    "test_token_admin": {
+      "login": "admin"
+    }
+  },
+  "github": {
+    "users": []
+  }
+}

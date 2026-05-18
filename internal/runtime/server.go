@@ -5,6 +5,7 @@ import (
 
 	corehttp "github.com/vercel-labs/emulate/internal/core/http"
 	"github.com/vercel-labs/emulate/internal/core/store"
+	"github.com/vercel-labs/emulate/internal/core/ui"
 )
 
 const HealthPath = "/_emulate/health"
@@ -44,6 +45,7 @@ func NewServer(options ServerOptions) *Server {
 	}
 
 	router := corehttp.NewRouter()
+	ui.RegisterAssetRoutes(router)
 	router.Get(HealthPath, func(c *corehttp.Context) {
 		c.JSON(http.StatusOK, map[string]any{
 			"ok":       true,

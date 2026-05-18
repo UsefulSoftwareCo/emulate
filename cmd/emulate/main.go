@@ -10,25 +10,18 @@ import (
 	nethttp "net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"syscall"
 	"time"
 
+	coreconfig "github.com/vercel-labs/emulate/internal/core/config"
 	emuruntime "github.com/vercel-labs/emulate/internal/runtime"
 )
 
 var version = "dev"
-
-var configFilenames = []string{
-	"emulate.config.yaml",
-	"emulate.config.yml",
-	"emulate.config.json",
-	"service-emulator.config.yaml",
-	"service-emulator.config.yml",
-	"service-emulator.config.json",
-}
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -328,14 +321,14 @@ func hasUnexpectedArg(fs *flag.FlagSet, stderr io.Writer) bool {
 }
 
 func existingConfigFile() (string, error) {
-	for _, filename := range configFilenames {
-		if _, err := os.Stat(filename); err == nil {
-			return filename, nil
-		} else if !errors.Is(err, os.ErrNotExist) {
-			return filename, err
-		}
+	fullPath, err := coreconfig.Discover(".")
+	if errors.Is(err, coreconfig.ErrNotFound) {
+		return "", nil
 	}
-	return "", nil
+	if err != nil {
+		return "config files", err
+	}
+	return filepath.Base(fullPath), nil
 }
 
 func encodeYAML(config map[string]any) ([]byte, error) {
