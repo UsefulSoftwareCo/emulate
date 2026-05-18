@@ -21,6 +21,9 @@ func TestRunListIncludesRegisteredServices(t *testing.T) {
 			t.Fatalf("list output missing %q:\n%s", service, out)
 		}
 	}
+	if !strings.Contains(out, "  mongoatlas  MongoDB Atlas service emulator") {
+		t.Fatalf("list output did not separate longest service name from label:\n%s", out)
+	}
 }
 
 func TestRunStartRejectsInvalidPort(t *testing.T) {

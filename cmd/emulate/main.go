@@ -158,9 +158,15 @@ func runList(stdout io.Writer) int {
 	fmt.Fprintln(stdout)
 	fmt.Fprintln(stdout, "Available services:")
 	fmt.Fprintln(stdout)
+	maxNameLength := 0
 	for _, service := range emuruntime.Services {
-		fmt.Fprintf(stdout, "  %-10s%s\n", service.Name, service.Label)
-		fmt.Fprintf(stdout, "            Endpoints: %s\n\n", service.Endpoints)
+		if len(service.Name) > maxNameLength {
+			maxNameLength = len(service.Name)
+		}
+	}
+	for _, service := range emuruntime.Services {
+		fmt.Fprintf(stdout, "  %-*s  %s\n", maxNameLength, service.Name, service.Label)
+		fmt.Fprintf(stdout, "  %-*s  Endpoints: %s\n\n", maxNameLength, "", service.Endpoints)
 	}
 	return 0
 }
