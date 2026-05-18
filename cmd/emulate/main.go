@@ -70,6 +70,9 @@ func runStart(args []string, stdout io.Writer, stderr io.Writer) int {
 	portlessValue := fs.Bool("portless", false, "Serve over HTTPS via portless")
 
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 1
 	}
 
@@ -106,6 +109,9 @@ func runInit(args []string, stdout io.Writer, stderr io.Writer) int {
 	serviceValue := fs.String("service", "all", "Service to generate config for")
 	fs.StringVar(serviceValue, "s", "all", "Service to generate config for")
 	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
 		return 1
 	}
 

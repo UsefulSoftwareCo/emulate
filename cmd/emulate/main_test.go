@@ -34,6 +34,28 @@ func TestRunStartRejectsInvalidPort(t *testing.T) {
 	}
 }
 
+func TestRunStartHelpExitsSuccessfully(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"start", "--help"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("start help exited with %d, stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Usage of start:") {
+		t.Fatalf("unexpected stderr: %s", stderr.String())
+	}
+}
+
+func TestRunInitHelpExitsSuccessfully(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"init", "--help"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("init help exited with %d, stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Usage of init:") {
+		t.Fatalf("unexpected stderr: %s", stderr.String())
+	}
+}
+
 func TestRunInitWritesStarterConfig(t *testing.T) {
 	tempDir := t.TempDir()
 	oldDir, err := os.Getwd()
