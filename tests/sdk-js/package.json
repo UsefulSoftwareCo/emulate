@@ -1,0 +1,9 @@
+{
+  "name": "@emulators/sdk-js-conformance",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "pretest": "pnpm --dir ../.. --filter emulate... build",
+    "test": "node --test test/*.test.mjs"
+  }
+}
