@@ -1,12 +1,12 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -45,7 +45,7 @@ func run(args []string, stdout io.Writer, stderr io.Writer) int {
 	case "init":
 		return runInit(args[1:], stdout, stderr)
 	case "list", "list-services":
-		return runList(stdout)
+		return runList(args[1:], stdout, stderr)
 	default:
 		if strings.HasPrefix(args[0], "-") {
 			return runStart(args, stdout, stderr)
@@ -137,12 +137,11 @@ func runInit(args []string, stdout io.Writer, stderr io.Writer) int {
 		return 1
 	}
 
-	content, err := json.MarshalIndent(config, "", "  ")
+	content, err := encodeYAML(config)
 	if err != nil {
 		fmt.Fprintf(stderr, "Failed to encode starter config: %v\n", err)
 		return 1
 	}
-	content = append(content, '\n')
 	const targetFilename = "emulate.config.yaml"
 	if err := os.WriteFile(targetFilename, content, 0o644); err != nil {
 		fmt.Fprintf(stderr, "Failed to write %s: %v\n", targetFilename, err)
@@ -154,7 +153,19 @@ func runInit(args []string, stdout io.Writer, stderr io.Writer) int {
 	return 0
 }
 
-func runList(stdout io.Writer) int {
+func runList(args []string, stdout io.Writer, stderr io.Writer) int {
+	fs := flag.NewFlagSet("list", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return 0
+		}
+		return 1
+	}
+	if hasUnexpectedArg(fs, stderr) {
+		return 1
+	}
+
 	fmt.Fprintln(stdout)
 	fmt.Fprintln(stdout, "Available services:")
 	fmt.Fprintln(stdout)
@@ -218,4 +229,179 @@ func existingConfigFile() (string, error) {
 		}
 	}
 	return "", nil
+}
+
+func encodeYAML(config map[string]any) ([]byte, error) {
+	var b strings.Builder
+	for _, key := range topLevelConfigKeys(config) {
+		if err := writeYAMLField(&b, key, config[key], 0); err != nil {
+			return nil, err
+		}
+	}
+	return []byte(b.String()), nil
+}
+
+func topLevelConfigKeys(config map[string]any) []string {
+	keys := make([]string, 0, len(config))
+	seen := map[string]bool{}
+	if _, ok := config["tokens"]; ok {
+		keys = append(keys, "tokens")
+		seen["tokens"] = true
+	}
+	for _, service := range emuruntime.Services {
+		if _, ok := config[service.Name]; ok {
+			keys = append(keys, service.Name)
+			seen[service.Name] = true
+		}
+	}
+	rest := make([]string, 0)
+	for key := range config {
+		if !seen[key] {
+			rest = append(rest, key)
+		}
+	}
+	sort.Strings(rest)
+	return append(keys, rest...)
+}
+
+func writeYAMLField(b *strings.Builder, key string, value any, indent int) error {
+	writeIndent(b, indent)
+	b.WriteString(key)
+	switch v := value.(type) {
+	case map[string]any:
+		if len(v) == 0 {
+			b.WriteString(": {}\n")
+			return nil
+		}
+		b.WriteString(":\n")
+		return writeYAMLMap(b, v, indent+2)
+	case []map[string]any:
+		if len(v) == 0 {
+			b.WriteString(": []\n")
+			return nil
+		}
+		b.WriteString(":\n")
+		return writeYAMLMapSlice(b, v, indent+2)
+	case []string:
+		if len(v) == 0 {
+			b.WriteString(": []\n")
+			return nil
+		}
+		b.WriteString(":\n")
+		for _, item := range v {
+			writeIndent(b, indent+2)
+			b.WriteString("- ")
+			writeYAMLScalar(b, item)
+			b.WriteByte('\n')
+		}
+		return nil
+	default:
+		b.WriteString(": ")
+		if err := writeYAMLScalar(b, v); err != nil {
+			return err
+		}
+		b.WriteByte('\n')
+		return nil
+	}
+}
+
+func writeYAMLMap(b *strings.Builder, value map[string]any, indent int) error {
+	for _, key := range sortedMapKeys(value) {
+		if err := writeYAMLField(b, key, value[key], indent); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func writeYAMLMapSlice(b *strings.Builder, values []map[string]any, indent int) error {
+	for _, value := range values {
+		keys := sortedMapKeys(value)
+		if len(keys) == 0 {
+			writeIndent(b, indent)
+			b.WriteString("- {}\n")
+			continue
+		}
+		writeIndent(b, indent)
+		b.WriteString("- ")
+		firstKey := keys[0]
+		b.WriteString(firstKey)
+		switch firstValue := value[firstKey].(type) {
+		case map[string]any:
+			if len(firstValue) == 0 {
+				b.WriteString(": {}\n")
+			} else {
+				b.WriteString(":\n")
+				if err := writeYAMLMap(b, firstValue, indent+4); err != nil {
+					return err
+				}
+			}
+		case []map[string]any:
+			if len(firstValue) == 0 {
+				b.WriteString(": []\n")
+			} else {
+				b.WriteString(":\n")
+				if err := writeYAMLMapSlice(b, firstValue, indent+4); err != nil {
+					return err
+				}
+			}
+		case []string:
+			if len(firstValue) == 0 {
+				b.WriteString(": []\n")
+			} else {
+				b.WriteString(":\n")
+				for _, item := range firstValue {
+					writeIndent(b, indent+4)
+					b.WriteString("- ")
+					writeYAMLScalar(b, item)
+					b.WriteByte('\n')
+				}
+			}
+		default:
+			b.WriteString(": ")
+			if err := writeYAMLScalar(b, firstValue); err != nil {
+				return err
+			}
+			b.WriteByte('\n')
+		}
+		for _, key := range keys[1:] {
+			if err := writeYAMLField(b, key, value[key], indent+2); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func writeYAMLScalar(b *strings.Builder, value any) error {
+	switch v := value.(type) {
+	case string:
+		b.WriteString(strconv.Quote(v))
+	case bool:
+		if v {
+			b.WriteString("true")
+		} else {
+			b.WriteString("false")
+		}
+	case int:
+		b.WriteString(strconv.Itoa(v))
+	default:
+		return fmt.Errorf("unsupported YAML value %T", value)
+	}
+	return nil
+}
+
+func sortedMapKeys(value map[string]any) []string {
+	keys := make([]string, 0, len(value))
+	for key := range value {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func writeIndent(b *strings.Builder, indent int) {
+	for range indent {
+		b.WriteByte(' ')
+	}
 }

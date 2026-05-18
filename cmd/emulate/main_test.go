@@ -2,7 +2,6 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -23,6 +22,34 @@ func TestRunListIncludesRegisteredServices(t *testing.T) {
 	}
 	if !strings.Contains(out, "  mongoatlas  MongoDB Atlas service emulator") {
 		t.Fatalf("list output did not separate longest service name from label:\n%s", out)
+	}
+}
+
+func TestRunListHelpExitsSuccessfully(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"list", "--help"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("list help exited with %d, stderr: %s", code, stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "Usage of list:") {
+		t.Fatalf("unexpected stderr: %s", stderr.String())
+	}
+	if strings.Contains(stdout.String(), "Available services") {
+		t.Fatalf("list printed services for help:\n%s", stdout.String())
+	}
+}
+
+func TestRunListRejectsUnexpectedArgument(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"list", "extra"}, &stdout, &stderr)
+	if code == 0 {
+		t.Fatal("list with unexpected argument exited successfully")
+	}
+	if !strings.Contains(stderr.String(), "Unexpected argument: extra") {
+		t.Fatalf("unexpected stderr: %s", stderr.String())
+	}
+	if strings.Contains(stdout.String(), "Available services") {
+		t.Fatalf("list printed services after unexpected argument:\n%s", stdout.String())
 	}
 }
 
@@ -126,17 +153,17 @@ func TestRunInitWritesStarterConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var config map[string]any
-	if err := json.Unmarshal(raw, &config); err != nil {
-		t.Fatal(err)
+	content := string(raw)
+	if strings.HasPrefix(content, "{") || strings.Contains(content, "\"tokens\"") {
+		t.Fatalf("starter config was written as JSON:\n%s", content)
 	}
-	if _, ok := config["tokens"]; !ok {
-		t.Fatal("starter config missing tokens")
+	if !strings.HasPrefix(content, "tokens:\n") {
+		t.Fatalf("starter config missing tokens YAML section:\n%s", content)
 	}
-	if _, ok := config["aws"]; !ok {
-		t.Fatal("starter config missing aws")
+	if !strings.Contains(content, "\naws:\n") {
+		t.Fatalf("starter config missing aws YAML section:\n%s", content)
 	}
-	if _, ok := config["github"]; ok {
+	if strings.Contains(content, "\ngithub:\n") {
 		t.Fatal("service-specific starter config included github")
 	}
 }
