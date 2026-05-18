@@ -60,6 +60,9 @@ func runStart(args []string, stdout io.Writer, stderr io.Writer) int {
 	defaultPort := getenv("EMULATE_PORT", getenv("PORT", "4000"))
 	fs := flag.NewFlagSet("start", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		printStartHelp(stderr)
+	}
 
 	portValue := fs.String("port", defaultPort, "Base port")
 	fs.StringVar(portValue, "p", defaultPort, "Base port")
@@ -108,6 +111,9 @@ func runStart(args []string, stdout io.Writer, stderr io.Writer) int {
 func runInit(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		printInitHelp(stderr)
+	}
 
 	serviceValue := fs.String("service", "all", "Service to generate config for")
 	fs.StringVar(serviceValue, "s", "all", "Service to generate config for")
@@ -156,6 +162,9 @@ func runInit(args []string, stdout io.Writer, stderr io.Writer) int {
 func runList(args []string, stdout io.Writer, stderr io.Writer) int {
 	fs := flag.NewFlagSet("list", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	fs.Usage = func() {
+		printListHelp(stderr)
+	}
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			return 0
@@ -185,11 +194,40 @@ func runList(args []string, stdout io.Writer, stderr io.Writer) int {
 func printHelp(w io.Writer) {
 	fmt.Fprintf(w, "emulate %s native Go runtime experimental\n\n", version)
 	fmt.Fprintln(w, "Usage:")
-	fmt.Fprintln(w, "  npx emulate [start] [--port <port>] [--service <services>] [--seed <file>]")
+	fmt.Fprintln(w, "  npx emulate [start] [options]")
 	fmt.Fprintln(w, "  npx emulate init [--service <service>]")
 	fmt.Fprintln(w, "  npx emulate list")
+	fmt.Fprintln(w, "\nStart options:")
+	fmt.Fprintln(w, "  -p, --port <port>          Base port")
+	fmt.Fprintln(w, "  -s, --service <services>   Comma-separated services to enable")
+	fmt.Fprintln(w, "      --seed <file>          Path to seed config file")
+	fmt.Fprintln(w, "      --base-url <url>       Override advertised base URL")
+	fmt.Fprintln(w, "      --portless             Serve over HTTPS via portless")
 	fmt.Fprintln(w, "\nThe published TypeScript CLI remains the default user-facing runtime.")
 	fmt.Fprintln(w, "Use npx emulate for current production behavior.")
+}
+
+func printStartHelp(w io.Writer) {
+	fmt.Fprintln(w, "Usage:")
+	fmt.Fprintln(w, "  npx emulate [start] [options]")
+	fmt.Fprintln(w, "\nOptions:")
+	fmt.Fprintln(w, "  -p, --port <port>          Base port")
+	fmt.Fprintln(w, "  -s, --service <services>   Comma-separated services to enable")
+	fmt.Fprintln(w, "      --seed <file>          Path to seed config file")
+	fmt.Fprintln(w, "      --base-url <url>       Override advertised base URL")
+	fmt.Fprintln(w, "      --portless             Serve over HTTPS via portless")
+}
+
+func printInitHelp(w io.Writer) {
+	fmt.Fprintln(w, "Usage:")
+	fmt.Fprintln(w, "  npx emulate init [--service <service>]")
+	fmt.Fprintln(w, "\nOptions:")
+	fmt.Fprintln(w, "  -s, --service <service>    Service to generate config for")
+}
+
+func printListHelp(w io.Writer) {
+	fmt.Fprintln(w, "Usage:")
+	fmt.Fprintln(w, "  npx emulate list")
 }
 
 func validateServices(value string) error {

@@ -31,7 +31,7 @@ func TestRunListHelpExitsSuccessfully(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("list help exited with %d, stderr: %s", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "Usage of list:") {
+	if !strings.Contains(stderr.String(), "npx emulate list") {
 		t.Fatalf("unexpected stderr: %s", stderr.String())
 	}
 	if strings.Contains(stdout.String(), "Available services") {
@@ -84,7 +84,45 @@ func TestRunStartHelpExitsSuccessfully(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("start help exited with %d, stderr: %s", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "Usage of start:") {
+	help := stderr.String()
+	for _, want := range []string{
+		"npx emulate [start] [options]",
+		"--base-url <url>",
+		"--portless",
+	} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("start help missing %q:\n%s", want, help)
+		}
+	}
+	for _, unwanted := range []string{
+		"Usage of start:",
+		"\n  -base-url string",
+		"\n  -portless\n",
+	} {
+		if strings.Contains(help, unwanted) {
+			t.Fatalf("start help included Go flag syntax %q:\n%s", unwanted, help)
+		}
+	}
+}
+
+func TestRunTopLevelHelpIncludesFullStartOptions(t *testing.T) {
+	var stdout, stderr bytes.Buffer
+	code := run([]string{"--help"}, &stdout, &stderr)
+	if code != 0 {
+		t.Fatalf("top-level help exited with %d, stderr: %s", code, stderr.String())
+	}
+	help := stdout.String()
+	for _, want := range []string{
+		"npx emulate [start] [options]",
+		"--seed <file>",
+		"--base-url <url>",
+		"--portless",
+	} {
+		if !strings.Contains(help, want) {
+			t.Fatalf("top-level help missing %q:\n%s", want, help)
+		}
+	}
+	if stderr.Len() != 0 {
 		t.Fatalf("unexpected stderr: %s", stderr.String())
 	}
 }
@@ -95,7 +133,7 @@ func TestRunInitHelpExitsSuccessfully(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("init help exited with %d, stderr: %s", code, stderr.String())
 	}
-	if !strings.Contains(stderr.String(), "Usage of init:") {
+	if !strings.Contains(stderr.String(), "npx emulate init [--service <service>]") {
 		t.Fatalf("unexpected stderr: %s", stderr.String())
 	}
 }
