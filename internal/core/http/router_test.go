@@ -171,6 +171,38 @@ func TestRouterFallsBackHeadToGet(t *testing.T) {
 	}
 }
 
+func TestRouterFallsBackHeadToGetBeforeFallbackHandler(t *testing.T) {
+	router := NewRouter()
+	router.Get("/object", func(c *Context) {
+		c.Writer.Header().Set("X-Handler", "get")
+		c.Text(http.StatusOK, "get")
+	})
+	router.Fallback(func(c *Context) {
+		c.Writer.Header().Set("X-Handler", "fallback")
+		c.Text(http.StatusTeapot, "fallback")
+	})
+
+	res := httptest.NewRecorder()
+	router.ServeHTTP(res, httptest.NewRequest(http.MethodHead, "/object", nil))
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if res.Header().Get("X-Handler") != "get" {
+		t.Fatalf("handler = %q", res.Header().Get("X-Handler"))
+	}
+
+	missing := httptest.NewRecorder()
+	router.ServeHTTP(missing, httptest.NewRequest(http.MethodGet, "/missing", nil))
+
+	if missing.Code != http.StatusTeapot {
+		t.Fatalf("missing status = %d, body = %s", missing.Code, missing.Body.String())
+	}
+	if missing.Header().Get("X-Handler") != "fallback" {
+		t.Fatalf("missing handler = %q", missing.Header().Get("X-Handler"))
+	}
+}
+
 func TestRouterResponseHelpers(t *testing.T) {
 	router := NewRouter()
 	router.Get("/text", func(c *Context) { c.Text(http.StatusAccepted, "hello") })

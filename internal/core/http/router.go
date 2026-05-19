@@ -76,6 +76,7 @@ type Router struct {
 	mu          sync.RWMutex
 	routes      []route
 	middleware  []Middleware
+	fallback    HandlerFunc
 	notFound    HandlerFunc
 	requestNext atomic.Uint64
 }
@@ -166,6 +167,12 @@ func (r *Router) Mount(prefix string, handler http.Handler) {
 	})
 }
 
+func (r *Router) Fallback(handler HandlerFunc) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.fallback = handler
+}
+
 func (r *Router) NotFound(handler HandlerFunc) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -184,6 +191,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	r.mu.RLock()
 	routes := append([]route(nil), r.routes...)
 	middleware := append([]Middleware(nil), r.middleware...)
+	fallback := r.fallback
 	notFound := r.notFound
 	r.mu.RUnlock()
 
@@ -210,6 +218,12 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			chain(route.handler, middleware)(ctx)
 			return
 		}
+	}
+
+	if fallback != nil {
+		ctx := &Context{Writer: w, Request: req, Params: map[string]string{}, requestID: requestID}
+		chain(fallback, middleware)(ctx)
+		return
 	}
 
 	ctx := &Context{Writer: w, Request: req, Params: map[string]string{}, requestID: requestID}

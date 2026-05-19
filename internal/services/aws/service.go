@@ -29,7 +29,7 @@ type Service struct {
 func Register(router *corehttp.Router, options Options) {
 	service := New(options)
 	router.Get("/_inspector", service.handleInspector)
-	router.Any("*", service.handleAWS)
+	router.Fallback(service.handleAWS)
 }
 
 func New(options Options) *Service {

@@ -75,6 +75,17 @@ func TestNewHandlerMountsAWSWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestNewHandlerAWSDoesNotShadowHeadHealth(t *testing.T) {
+	handler := NewHandler(ServerOptions{Services: []string{"aws"}})
+
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, httptest.NewRequest(http.MethodHead, HealthPath, nil))
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
 func TestNewHandlerDoesNotMountAWSWhenDisabled(t *testing.T) {
 	handler := NewHandler(ServerOptions{Services: []string{"github"}})
 	req := httptest.NewRequest(http.MethodPost, "/sqs/", strings.NewReader("Action=CreateQueue&QueueName=jobs"))
