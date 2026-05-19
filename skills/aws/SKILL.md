@@ -6,7 +6,7 @@ allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
 
 # AWS Emulator
 
-S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS Query endpoints for SQS/IAM/STS, and current AWS SDK JSON support for SQS. All state is in-memory. Query and REST XML operations return AWS-compatible XML; SQS JSON requests return AWS-compatible JSON.
+S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and AWS Query endpoints for SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime also accepts current AWS SDK JSON requests for SQS and returns JSON responses.
 
 ## Start
 
@@ -73,7 +73,7 @@ const sqs = new SQSClient({
 })
 ```
 
-The SQS SDK client sends `X-Amz-Target: AmazonSQS.<Action>` JSON requests to `/sqs` and receives JSON responses. Manual curl calls can use the AWS Query form examples below.
+The native Go runtime accepts the SQS SDK client's `X-Amz-Target: AmazonSQS.<Action>` JSON requests to `/sqs` and returns JSON responses. Manual curl calls can use the AWS Query form examples below.
 
 ```typescript
 import { IAMClient } from '@aws-sdk/client-iam'
@@ -172,7 +172,7 @@ curl -X PUT http://localhost:4006/dest-bucket/copy.txt \
 
 ### SQS
 
-Manual SQS calls can use AWS Query over `POST /sqs/` with `Action` as a form-urlencoded parameter. The same operations also work through `@aws-sdk/client-sqs` with endpoint `${AWS_EMULATOR_URL}/sqs`; SDK responses are JSON.
+Manual SQS calls can use AWS Query over `POST /sqs/` with `Action` as a form-urlencoded parameter. In the native Go runtime, the same operations also work through `@aws-sdk/client-sqs` with endpoint `${AWS_EMULATOR_URL}/sqs`; SDK responses are JSON.
 
 ```bash
 # Create queue
