@@ -657,7 +657,7 @@ Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with a
 
 ## AWS
 
-S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and AWS Query endpoints for SQS/IAM/STS. Query and REST XML operations return AWS-compatible XML. The native Go runtime also accepts current AWS SDK JSON requests for SQS and returns JSON responses.
+S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and AWS Query endpoints for SQS/IAM/STS. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, IAM, and STS; SQS uses JSON target requests, while IAM and STS use AWS Query XML.
 
 ### S3
 
@@ -682,13 +682,15 @@ Manual SQS requests can use `POST /sqs/` with an `Action` form parameter. In the
 - `PurgeQueue`, `DeleteQueue`
 
 ### IAM
-All operations via `POST /iam/` with `Action` parameter:
+Manual IAM requests can use `POST /iam/` with an `Action` form parameter. In the native Go runtime, `@aws-sdk/client-iam` v3 can use the `/iam/` endpoint directly.
+
 - `CreateUser`, `GetUser`, `ListUsers`, `DeleteUser`
 - `CreateAccessKey`, `ListAccessKeys`, `DeleteAccessKey`
 - `CreateRole`, `GetRole`, `ListRoles`, `DeleteRole`
 
 ### STS
-All operations via `POST /sts/` with `Action` parameter:
+Manual STS requests can use `POST /sts/` with an `Action` form parameter. In the native Go runtime, `@aws-sdk/client-sts` v3 can use the `/sts/` endpoint directly.
+
 - `GetCallerIdentity`, `AssumeRole`
 
 ## Next.js Integration

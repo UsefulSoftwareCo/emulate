@@ -6,7 +6,7 @@ allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
 
 # AWS Emulator
 
-S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and AWS Query endpoints for SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime also accepts current AWS SDK JSON requests for SQS and returns JSON responses.
+S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and AWS Query endpoints for SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, IAM, and STS; SQS uses JSON target requests, while IAM and STS use AWS Query XML.
 
 ## Start
 
@@ -80,6 +80,19 @@ import { IAMClient } from '@aws-sdk/client-iam'
 
 const iam = new IAMClient({
   endpoint: `${process.env.AWS_EMULATOR_URL}/iam`,
+  region: 'us-east-1',
+  credentials: {
+    accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+    secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+  },
+})
+```
+
+```typescript
+import { STSClient } from '@aws-sdk/client-sts'
+
+const sts = new STSClient({
+  endpoint: `${process.env.AWS_EMULATOR_URL}/sts`,
   region: 'us-east-1',
   credentials: {
     accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
@@ -240,7 +253,7 @@ curl -X POST http://localhost:4006/sqs/ \
 
 ### IAM
 
-All IAM operations use `POST /iam/` with `Action` as a form-urlencoded parameter.
+Manual IAM calls can use AWS Query over `POST /iam/` with `Action` as a form-urlencoded parameter. In the native Go runtime, the same operations also work through `@aws-sdk/client-iam` with endpoint `${AWS_EMULATOR_URL}/iam`.
 
 ```bash
 # Create user
@@ -301,7 +314,7 @@ curl -X POST http://localhost:4006/iam/ \
 
 ### STS
 
-All STS operations use `POST /sts/` with `Action` as a form-urlencoded parameter.
+Manual STS calls can use AWS Query over `POST /sts/` with `Action` as a form-urlencoded parameter. In the native Go runtime, the same operations also work through `@aws-sdk/client-sts` with endpoint `${AWS_EMULATOR_URL}/sts`.
 
 ```bash
 # Get caller identity

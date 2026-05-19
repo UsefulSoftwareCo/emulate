@@ -1,12 +1,19 @@
 package aws
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	corestore "github.com/vercel-labs/emulate/internal/core/store"
+	"github.com/vercel-labs/emulate/internal/services/aws/auth"
 	"github.com/vercel-labs/emulate/internal/services/aws/gateway"
 )
+
+var fallbackAWSIDCounter atomic.Uint64
 
 func seedS3Defaults(store Store, region string) {
 	if len(store.S3Buckets.FindBy("bucket_name", "emulate-default")) > 0 {
@@ -46,4 +53,49 @@ func seedSQSDefaults(store Store, baseURL string, accountID string, region strin
 		"receive_message_wait_time": 0,
 		"fifo":                      false,
 	})
+}
+
+func seedIAMDefaults(store Store, credentialStore *auth.Store, accountID string) {
+	if accountID == "" {
+		accountID = gateway.DefaultAccountID
+	}
+	defaultAccessKeyID := "AKIAIOSFODNN7EXAMPLE"
+	defaultSecretAccessKey := "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+	var user corestore.Record
+	if existing := store.IAMUsers.FindBy("user_name", "admin"); len(existing) > 0 {
+		user = existing[0]
+	} else {
+		user = store.IAMUsers.Insert(corestore.Record{
+			"user_name": "admin",
+			"user_id":   generateAWSID("AIDA"),
+			"arn":       "arn:aws:iam::" + accountID + ":user/admin",
+			"path":      "/",
+			"access_keys": []corestore.Record{
+				{
+					"access_key_id":     defaultAccessKeyID,
+					"secret_access_key": defaultSecretAccessKey,
+					"status":            "Active",
+				},
+			},
+		})
+	}
+	credentialStore.Put(auth.Credential{
+		AccessKeyID:     defaultAccessKeyID,
+		SecretAccessKey: defaultSecretAccessKey,
+		AccountID:       accountID,
+		PrincipalARN:    stringRecordField(user, "arn"),
+	})
+}
+
+func generateAWSID(prefix string) string {
+	var bytes [8]byte
+	if _, err := rand.Read(bytes[:]); err == nil {
+		return prefix + strings.ToUpper(hex.EncodeToString(bytes[:]))
+	}
+	return fmt.Sprintf("%s%016X", prefix, fallbackAWSIDCounter.Add(1))
+}
+
+func stringRecordField(record corestore.Record, name string) string {
+	value, _ := record[name].(string)
+	return value
 }

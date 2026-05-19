@@ -35,13 +35,15 @@ SQS requests use `POST /sqs/` with an `Action` form parameter.
 - `PurgeQueue`, `DeleteQueue`
 
 ### IAM
-All operations via `POST /iam/` with `Action` parameter:
+IAM requests use `POST /iam/` with an `Action` form parameter.
+
 - `CreateUser`, `GetUser`, `ListUsers`, `DeleteUser`
 - `CreateAccessKey`, `ListAccessKeys`, `DeleteAccessKey`
 - `CreateRole`, `GetRole`, `ListRoles`, `DeleteRole`
 
 ### STS
-All operations via `POST /sts/` with `Action` parameter:
+STS requests use `POST /sts/` with an `Action` form parameter.
+
 - `GetCallerIdentity`, `AssumeRole`
 
 ## Auth

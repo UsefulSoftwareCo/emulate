@@ -1,6 +1,6 @@
 # AWS
 
-S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and AWS Query endpoints for SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime also accepts current AWS SDK JSON requests for SQS and returns JSON responses.
+S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and AWS Query endpoints for SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, IAM, and STS; SQS uses JSON target requests, while IAM and STS use AWS Query XML.
 
 ## S3
 
@@ -34,7 +34,7 @@ Manual SQS requests can use `POST /sqs/` with an `Action` form parameter. In the
 
 ## IAM
 
-All IAM operations use `POST /iam/` with an `Action` form parameter.
+Manual IAM requests can use `POST /iam/` with an `Action` form parameter. In the native Go runtime, `@aws-sdk/client-iam` v3 can use the `/iam/` endpoint directly.
 
 - `CreateUser` / `GetUser` / `ListUsers` / `DeleteUser` - user management
 - `CreateAccessKey` / `ListAccessKeys` / `DeleteAccessKey` - access key management
@@ -42,7 +42,7 @@ All IAM operations use `POST /iam/` with an `Action` form parameter.
 
 ## STS
 
-All STS operations use `POST /sts/` with an `Action` form parameter.
+Manual STS requests can use `POST /sts/` with an `Action` form parameter. In the native Go runtime, `@aws-sdk/client-sts` v3 can use the `/sts/` endpoint directly.
 
 - `GetCallerIdentity` - get caller identity
 - `AssumeRole` - assume a role (returns temporary credentials)

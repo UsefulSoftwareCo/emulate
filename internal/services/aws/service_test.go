@@ -652,6 +652,128 @@ func TestServiceHonorsSQSJSONMessageDelaySeconds(t *testing.T) {
 	}
 }
 
+func TestServiceHandlesIAMLifecycleAndAccessKeys(t *testing.T) {
+	handler := newTestHandler()
+
+	res := executeAWSQueryRequest(handler, "iam", "Action=ListUsers")
+	if res.Code != http.StatusOK {
+		t.Fatalf("list users status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if body := res.Body.String(); !strings.Contains(body, "<ListUsersResponse>") || !strings.Contains(body, "admin") {
+		t.Fatalf("unexpected list users body: %s", body)
+	}
+
+	res = executeAWSQueryRequest(handler, "iam", "Action=CreateUser&UserName=developer&Path=/team/")
+	if res.Code != http.StatusOK {
+		t.Fatalf("create user status = %d, body = %s", res.Code, res.Body.String())
+	}
+	developerARN := xmlElement(res.Body.String(), "Arn")
+	if !strings.Contains(developerARN, ":user/team/developer") {
+		t.Fatalf("developer arn = %q", developerARN)
+	}
+
+	res = executeAWSQueryRequest(handler, "iam", "Action=CreateUser&UserName=developer")
+	if res.Code != http.StatusConflict {
+		t.Fatalf("duplicate create status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSQueryRequest(handler, "iam", "Action=GetUser&UserName=developer")
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), "<GetUserResponse>") {
+		t.Fatalf("get user status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSQueryRequest(handler, "iam", "Action=CreateAccessKey&UserName=developer")
+	if res.Code != http.StatusOK {
+		t.Fatalf("create key status = %d, body = %s", res.Code, res.Body.String())
+	}
+	accessKeyID := xmlElement(res.Body.String(), "AccessKeyId")
+	if !strings.HasPrefix(accessKeyID, "AKIA") {
+		t.Fatalf("access key id = %q", accessKeyID)
+	}
+
+	res = executeAWSQueryRequest(handler, "iam", "Action=ListAccessKeys&UserName=developer")
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), accessKeyID) {
+		t.Fatalf("list keys status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSQueryRequestWithAccessKey(handler, "sts", "Action=GetCallerIdentity", accessKeyID)
+	if res.Code != http.StatusOK {
+		t.Fatalf("caller identity status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if arn := xmlElement(res.Body.String(), "Arn"); arn != developerARN {
+		t.Fatalf("caller arn = %q, want %q", arn, developerARN)
+	}
+
+	res = executeAWSQueryRequest(handler, "iam", "Action=DeleteAccessKey&UserName=developer&AccessKeyId="+url.QueryEscape(accessKeyID))
+	if res.Code != http.StatusOK {
+		t.Fatalf("delete key status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSQueryRequest(handler, "iam", "Action=DeleteUser&UserName=developer")
+	if res.Code != http.StatusOK {
+		t.Fatalf("delete user status = %d, body = %s", res.Code, res.Body.String())
+	}
+	res = executeAWSQueryRequest(handler, "iam", "Action=GetUser&UserName=developer")
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("get deleted user status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
+func TestServiceHandlesIAMRolesAndSTS(t *testing.T) {
+	handler := newTestHandler()
+	policy := `{"Version":"2012-10-17","Statement":[]}`
+
+	res := executeAWSQueryRequest(handler, "iam", "Action=CreateRole&RoleName=worker&Description=Worker+role&AssumeRolePolicyDocument="+url.QueryEscape(policy))
+	if res.Code != http.StatusOK {
+		t.Fatalf("create role status = %d, body = %s", res.Code, res.Body.String())
+	}
+	roleARN := xmlElement(res.Body.String(), "Arn")
+	if !strings.Contains(roleARN, ":role/worker") {
+		t.Fatalf("role arn = %q", roleARN)
+	}
+
+	res = executeAWSQueryRequest(handler, "iam", "Action=GetRole&RoleName=worker")
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), "Worker role") {
+		t.Fatalf("get role status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSQueryRequest(handler, "iam", "Action=ListRoles")
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), "worker") {
+		t.Fatalf("list roles status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSQueryRequest(handler, "sts", "Action=GetCallerIdentity")
+	if res.Code != http.StatusOK {
+		t.Fatalf("caller identity status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if body := res.Body.String(); !strings.Contains(body, "<GetCallerIdentityResponse>") || !strings.Contains(body, "<Account>123456789012</Account>") {
+		t.Fatalf("unexpected caller identity body: %s", body)
+	}
+
+	res = executeAWSQueryRequest(handler, "sts", "Action=AssumeRole&RoleArn="+url.QueryEscape(roleARN)+"&RoleSessionName=test-session")
+	if res.Code != http.StatusOK {
+		t.Fatalf("assume role status = %d, body = %s", res.Code, res.Body.String())
+	}
+	assumedAccessKey := xmlElement(res.Body.String(), "AccessKeyId")
+	sessionToken := xmlElement(res.Body.String(), "SessionToken")
+	if !strings.HasPrefix(assumedAccessKey, "ASIA") || !strings.Contains(res.Body.String(), "<SessionToken>") {
+		t.Fatalf("unexpected assume role body: %s", res.Body.String())
+	}
+
+	res = executeAWSQueryRequestWithAccessKeyAndToken(handler, "sts", "Action=GetCallerIdentity", assumedAccessKey, sessionToken)
+	if res.Code != http.StatusOK {
+		t.Fatalf("assumed caller status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if arn := xmlElement(res.Body.String(), "Arn"); arn != roleARN+"/test-session" {
+		t.Fatalf("assumed arn = %q, want %q", arn, roleARN+"/test-session")
+	}
+
+	res = executeAWSQueryRequest(handler, "iam", "Action=DeleteRole&RoleName=worker")
+	if res.Code != http.StatusOK {
+		t.Fatalf("delete role status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
 func TestServiceReturnsJSONRPCNotImplemented(t *testing.T) {
 	handler := newTestHandler()
 	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/", strings.NewReader(`{"TableName":"items"}`))
@@ -799,7 +921,7 @@ func TestServicePassesThroughGenericListQueryParams(t *testing.T) {
 	}
 }
 
-func TestServiceRendersEmptyInspector(t *testing.T) {
+func TestServiceRendersInspectorWithDefaultIAMUser(t *testing.T) {
 	handler := newTestHandler()
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/_inspector?tab=iam", nil))
@@ -808,7 +930,7 @@ func TestServiceRendersEmptyInspector(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
 	}
 	body := res.Body.String()
-	for _, expected := range []string{"AWS Emulator", "S3", "SQS", "IAM", "IAM Users (0)", "IAM Roles (0)", "No users", "No roles"} {
+	for _, expected := range []string{"AWS Emulator", "S3", "SQS", "IAM", "IAM Users (1)", "IAM Roles (0)", "admin", "Access Keys", "No roles"} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("inspector missing %q in %s", expected, body)
 		}
@@ -861,9 +983,22 @@ func executeAWSRequest(handler http.Handler, method string, target string, body 
 }
 
 func executeAWSQueryRequest(handler http.Handler, service string, body string) *httptest.ResponseRecorder {
-	return executeAWSRequest(handler, http.MethodPost, "http://127.0.0.1/"+service+"/", []byte(body), service, map[string]string{
+	return executeAWSQueryRequestWithAccessKey(handler, service, body, "AKIAEXAMPLE")
+}
+
+func executeAWSQueryRequestWithAccessKey(handler http.Handler, service string, body string, accessKeyID string) *httptest.ResponseRecorder {
+	return executeAWSQueryRequestWithAccessKeyAndToken(handler, service, body, accessKeyID, "")
+}
+
+func executeAWSQueryRequestWithAccessKeyAndToken(handler http.Handler, service string, body string, accessKeyID string, sessionToken string) *httptest.ResponseRecorder {
+	headers := map[string]string{
 		"Content-Type": "application/x-www-form-urlencoded",
-	})
+		"X-Access-Key": accessKeyID,
+	}
+	if sessionToken != "" {
+		headers["X-Amz-Security-Token"] = sessionToken
+	}
+	return executeAWSRequest(handler, http.MethodPost, "http://127.0.0.1/"+service+"/", []byte(body), service, headers)
 }
 
 func executeAWSJSONRequest(t *testing.T, handler http.Handler, action string, payload map[string]any) *httptest.ResponseRecorder {
@@ -933,6 +1068,11 @@ func xmlElement(body string, name string) string {
 }
 
 func signAWSRequest(req *http.Request, service string) {
-	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=AKIAEXAMPLE/20260519/us-east-1/"+service+"/aws4_request, SignedHeaders=host;x-amz-date, Signature=abcdef")
+	accessKeyID := req.Header.Get("X-Access-Key")
+	if accessKeyID == "" {
+		accessKeyID = "AKIAEXAMPLE"
+	}
+	req.Header.Del("X-Access-Key")
+	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+accessKeyID+"/20260519/us-east-1/"+service+"/aws4_request, SignedHeaders=host;x-amz-date, Signature=abcdef")
 	req.Header.Set("X-Amz-Date", "20260519T000000Z")
 }

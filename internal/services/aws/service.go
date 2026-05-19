@@ -9,9 +9,11 @@ import (
 	corestore "github.com/vercel-labs/emulate/internal/core/store"
 	"github.com/vercel-labs/emulate/internal/services/aws/auth"
 	"github.com/vercel-labs/emulate/internal/services/aws/gateway"
+	awsiam "github.com/vercel-labs/emulate/internal/services/aws/iam"
 	"github.com/vercel-labs/emulate/internal/services/aws/protocols"
 	awss3 "github.com/vercel-labs/emulate/internal/services/aws/s3"
 	awssqs "github.com/vercel-labs/emulate/internal/services/aws/sqs"
+	awssts "github.com/vercel-labs/emulate/internal/services/aws/sts"
 )
 
 type Options struct {
@@ -35,6 +37,8 @@ type Service struct {
 	s3PathFallback   bool
 	s3               awss3.Handler
 	sqs              awssqs.Handler
+	iam              awsiam.Handler
+	sts              awssts.Handler
 }
 
 func Register(router *corehttp.Router, options Options) {
@@ -61,15 +65,20 @@ func New(options Options) *Service {
 		assetStore = coreassets.New()
 	}
 	awsStore := NewStore(runtimeStore)
+	credentialStore := options.CredentialStore
+	if credentialStore == nil {
+		credentialStore = auth.NewStore()
+	}
 	seedS3Defaults(awsStore, defaultRegion)
 	seedSQSDefaults(awsStore, options.BaseURL, defaultAccountID, defaultRegion)
+	seedIAMDefaults(awsStore, credentialStore, defaultAccountID)
 	return &Service{
 		store:            awsStore,
 		assets:           assetStore,
 		defaultAccountID: defaultAccountID,
 		defaultRegion:    defaultRegion,
 		authMode:         options.AuthMode,
-		credentialStore:  options.CredentialStore,
+		credentialStore:  credentialStore,
 		s3PathFallback:   options.S3PathFallback,
 		s3: awss3.Handler{
 			Buckets: awsStore.S3Buckets,
@@ -84,6 +93,18 @@ func New(options Options) *Service {
 			BaseURL:   options.BaseURL,
 			AccountID: defaultAccountID,
 			Region:    defaultRegion,
+		},
+		iam: awsiam.Handler{
+			Users:           awsStore.IAMUsers,
+			Roles:           awsStore.IAMRoles,
+			CredentialStore: credentialStore,
+			AccountID:       defaultAccountID,
+		},
+		sts: awssts.Handler{
+			Users:           awsStore.IAMUsers,
+			Roles:           awsStore.IAMRoles,
+			CredentialStore: credentialStore,
+			AccountID:       defaultAccountID,
 		},
 	}
 }
@@ -121,6 +142,14 @@ func (s *Service) handleAWS(c *corehttp.Context) {
 	}
 	if ctx.Service == "sqs" && (ctx.Protocol == protocols.ProtocolQuery || ctx.Protocol == protocols.ProtocolJSONRPC) {
 		writeErrorResponse(c, s.sqs.Handle(c.Request, ctx))
+		return
+	}
+	if ctx.Service == "iam" && ctx.Protocol == protocols.ProtocolQuery {
+		writeErrorResponse(c, s.iam.Handle(c.Request, ctx))
+		return
+	}
+	if ctx.Service == "sts" && ctx.Protocol == protocols.ProtocolQuery {
+		writeErrorResponse(c, s.sts.Handle(c.Request, ctx))
 		return
 	}
 

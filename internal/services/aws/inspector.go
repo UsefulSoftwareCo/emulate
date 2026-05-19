@@ -168,6 +168,8 @@ func yesNo(value bool) string {
 
 func accessKeyCount(record corestore.Record) int {
 	switch value := record["access_keys"].(type) {
+	case []corestore.Record:
+		return len(value)
 	case []any:
 		return len(value)
 	case []map[string]any:

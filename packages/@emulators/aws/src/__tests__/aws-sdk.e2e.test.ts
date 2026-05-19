@@ -2,6 +2,20 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { serve } from "@emulators/core";
 import type { AddressInfo } from "node:net";
 import {
+  IAMClient,
+  ListUsersCommand,
+  GetUserCommand,
+  CreateUserCommand,
+  DeleteUserCommand,
+  CreateAccessKeyCommand,
+  ListAccessKeysCommand,
+  DeleteAccessKeyCommand,
+  CreateRoleCommand,
+  GetRoleCommand,
+  ListRolesCommand,
+  DeleteRoleCommand,
+} from "@aws-sdk/client-iam";
+import {
   S3Client,
   ListBucketsCommand,
   HeadBucketCommand,
@@ -26,6 +40,7 @@ import {
   PurgeQueueCommand,
   DeleteQueueCommand as DeleteSQSQueueCommand,
 } from "@aws-sdk/client-sqs";
+import { STSClient, GetCallerIdentityCommand, AssumeRoleCommand } from "@aws-sdk/client-sts";
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
 import { createTestApp } from "./helpers.js";
 
@@ -62,6 +77,7 @@ async function streamToString(stream: unknown): Promise<string> {
 }
 
 const describeExternalSqsE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
+const describeExternalIamStsE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 
 describe("AWS plugin - real @aws-sdk/client-s3 E2E", () => {
   let emulator: EmulatorHandle;
@@ -372,5 +388,121 @@ describeExternalSqsE2E("AWS plugin - real @aws-sdk/client-sqs E2E", () => {
     expect(received.Messages ?? []).toHaveLength(0);
 
     await sqs.send(new DeleteSQSQueueCommand({ QueueUrl }));
+  });
+});
+
+describeExternalIamStsE2E("AWS plugin - real @aws-sdk/client-iam and @aws-sdk/client-sts E2E", () => {
+  let emulator: EmulatorHandle;
+  let iam: IAMClient;
+  let sts: STSClient;
+
+  beforeAll(async () => {
+    emulator = await startEmulator();
+    iam = new IAMClient({
+      endpoint: `${emulator.url.replace(/\/$/, "")}/iam/`,
+      region: "us-east-1",
+      credentials: {
+        accessKeyId: "AKIAIOSFODNN7EXAMPLE",
+        secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+      },
+    });
+    sts = new STSClient({
+      endpoint: `${emulator.url.replace(/\/$/, "")}/sts/`,
+      region: "us-east-1",
+      credentials: {
+        accessKeyId: "AKIAIOSFODNN7EXAMPLE",
+        secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+      },
+    });
+  });
+
+  afterAll(async () => {
+    iam.destroy();
+    sts.destroy();
+    await emulator.close();
+  });
+
+  it("ListUsers and GetUser return the seeded admin user", async () => {
+    const listed = await iam.send(new ListUsersCommand({}));
+    expect((listed.Users ?? []).map((user) => user.UserName)).toContain("admin");
+
+    const admin = await iam.send(new GetUserCommand({ UserName: "admin" }));
+    expect(admin.User?.Arn).toBe("arn:aws:iam::123456789012:user/admin");
+  });
+
+  it("CreateUser, CreateAccessKey, ListAccessKeys, and DeleteUser roundtrip", async () => {
+    const created = await iam.send(new CreateUserCommand({ UserName: "sdk-user", Path: "/team/" }));
+    expect(created.User?.Arn).toBe("arn:aws:iam::123456789012:user/team/sdk-user");
+
+    const key = await iam.send(new CreateAccessKeyCommand({ UserName: "sdk-user" }));
+    expect(key.AccessKey?.AccessKeyId).toMatch(/^AKIA/);
+    expect(key.AccessKey?.SecretAccessKey).toBeTruthy();
+
+    const keys = await iam.send(new ListAccessKeysCommand({ UserName: "sdk-user" }));
+    expect((keys.AccessKeyMetadata ?? []).map((item) => item.AccessKeyId)).toContain(key.AccessKey?.AccessKeyId);
+
+    await iam.send(new DeleteAccessKeyCommand({ UserName: "sdk-user", AccessKeyId: key.AccessKey?.AccessKeyId }));
+    const afterDeleteKey = await iam.send(new ListAccessKeysCommand({ UserName: "sdk-user" }));
+    expect((afterDeleteKey.AccessKeyMetadata ?? []).map((item) => item.AccessKeyId)).not.toContain(
+      key.AccessKey?.AccessKeyId,
+    );
+
+    await iam.send(new DeleteUserCommand({ UserName: "sdk-user" }));
+    const afterDelete = await iam.send(new ListUsersCommand({}));
+    expect((afterDelete.Users ?? []).map((user) => user.UserName)).not.toContain("sdk-user");
+  });
+
+  it("CreateRole, GetRole, ListRoles, AssumeRole, and DeleteRole roundtrip", async () => {
+    const created = await iam.send(
+      new CreateRoleCommand({
+        RoleName: "sdk-role",
+        Description: "SDK role",
+        AssumeRolePolicyDocument: JSON.stringify({ Version: "2012-10-17", Statement: [] }),
+      }),
+    );
+    expect(created.Role?.Arn).toBe("arn:aws:iam::123456789012:role/sdk-role");
+
+    const byName = await iam.send(new GetRoleCommand({ RoleName: "sdk-role" }));
+    expect(byName.Role?.Description).toBe("SDK role");
+
+    const listed = await iam.send(new ListRolesCommand({}));
+    expect((listed.Roles ?? []).map((role) => role.RoleName)).toContain("sdk-role");
+
+    const assumed = await sts.send(
+      new AssumeRoleCommand({
+        RoleArn: created.Role?.Arn,
+        RoleSessionName: "sdk-session",
+      }),
+    );
+    expect(assumed.Credentials?.AccessKeyId).toMatch(/^ASIA/);
+    expect(assumed.Credentials?.SessionToken).toBeTruthy();
+    expect(assumed.AssumedRoleUser?.Arn).toBe(`${created.Role?.Arn}/sdk-session`);
+
+    const assumedSTS = new STSClient({
+      endpoint: `${emulator.url.replace(/\/$/, "")}/sts/`,
+      region: "us-east-1",
+      credentials: {
+        accessKeyId: assumed.Credentials?.AccessKeyId ?? "",
+        secretAccessKey: assumed.Credentials?.SecretAccessKey ?? "",
+        sessionToken: assumed.Credentials?.SessionToken,
+      },
+    });
+    try {
+      const identity = await assumedSTS.send(new GetCallerIdentityCommand({}));
+      expect(identity.Arn).toBe(`${created.Role?.Arn}/sdk-session`);
+    } finally {
+      assumedSTS.destroy();
+    }
+
+    await iam.send(new DeleteRoleCommand({ RoleName: "sdk-role" }));
+    const afterDelete = await iam.send(new ListRolesCommand({}));
+    expect((afterDelete.Roles ?? []).map((role) => role.RoleName)).not.toContain("sdk-role");
+  });
+
+  it("GetCallerIdentity returns the known default admin principal", async () => {
+    const identity = await sts.send(new GetCallerIdentityCommand({}));
+    expect(identity.Account).toBe("123456789012");
+    expect(identity.Arn).toBe("arn:aws:iam::123456789012:user/admin");
+    expect(identity.UserId).toBeTruthy();
   });
 });
