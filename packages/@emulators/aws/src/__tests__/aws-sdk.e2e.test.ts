@@ -15,6 +15,30 @@ import {
   ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
+import {
+  DynamoDBClient,
+  BatchGetItemCommand,
+  BatchWriteItemCommand,
+  CreateBackupCommand,
+  CreateTableCommand,
+  DeleteItemCommand,
+  DescribeContinuousBackupsCommand,
+  DescribeTableCommand,
+  DescribeTimeToLiveCommand,
+  ExecuteStatementCommand,
+  GetItemCommand,
+  ListTablesCommand,
+  PutItemCommand,
+  QueryCommand,
+  RestoreTableFromBackupCommand,
+  ScanCommand,
+  TagResourceCommand,
+  TransactWriteItemsCommand,
+  UpdateContinuousBackupsCommand,
+  UpdateItemCommand,
+  UpdateTimeToLiveCommand,
+} from "@aws-sdk/client-dynamodb";
+import { DynamoDBDocumentClient, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import { createTestApp } from "./helpers.js";
 
 type EmulatorHandle = { url: string; close: () => Promise<void> };
@@ -242,5 +266,287 @@ describe("AWS plugin - real @aws-sdk/client-s3 E2E", () => {
     const res = await fetch(post.url, { method: "POST", body: form });
     expect(res.status).toBe(400);
     expect(await res.text()).toContain("EntityTooLarge");
+  });
+});
+
+describe("AWS plugin - real @aws-sdk/client-dynamodb E2E", () => {
+  let emulator: EmulatorHandle;
+  let dynamodb: DynamoDBClient;
+  let documentClient: DynamoDBDocumentClient;
+
+  beforeAll(async () => {
+    emulator = await startEmulator();
+    dynamodb = new DynamoDBClient({
+      endpoint: emulator.url,
+      region: "us-east-1",
+      credentials: { accessKeyId: "AKIA", secretAccessKey: "secret" },
+    });
+    documentClient = DynamoDBDocumentClient.from(dynamodb);
+  });
+
+  afterAll(async () => {
+    dynamodb.destroy();
+    await emulator.close();
+  });
+
+  it("creates, lists, and describes a table", async () => {
+    await dynamodb.send(
+      new CreateTableCommand({
+        TableName: "sdk-users",
+        AttributeDefinitions: [
+          { AttributeName: "pk", AttributeType: "S" },
+          { AttributeName: "sk", AttributeType: "S" },
+        ],
+        KeySchema: [
+          { AttributeName: "pk", KeyType: "HASH" },
+          { AttributeName: "sk", KeyType: "RANGE" },
+        ],
+        BillingMode: "PAY_PER_REQUEST",
+      }),
+    );
+
+    const list = await dynamodb.send(new ListTablesCommand({}));
+    expect(list.TableNames).toContain("sdk-users");
+
+    const description = await dynamodb.send(new DescribeTableCommand({ TableName: "sdk-users" }));
+    expect(description.Table?.TableArn).toContain(":table/sdk-users");
+  });
+
+  it("roundtrips low-level and document client items", async () => {
+    await dynamodb.send(
+      new PutItemCommand({
+        TableName: "sdk-users",
+        Item: { pk: { S: "tenant-a" }, sk: { S: "one" }, count: { N: "1" } },
+        ConditionExpression: "attribute_not_exists(pk)",
+      }),
+    );
+
+    const updated = await dynamodb.send(
+      new UpdateItemCommand({
+        TableName: "sdk-users",
+        Key: { pk: { S: "tenant-a" }, sk: { S: "one" } },
+        UpdateExpression: "SET #count = #count + :inc",
+        ExpressionAttributeNames: { "#count": "count" },
+        ExpressionAttributeValues: { ":inc": { N: "4" } },
+        ReturnValues: "ALL_NEW",
+      }),
+    );
+    expect(updated.Attributes?.count?.N).toBe("5");
+
+    const got = await dynamodb.send(
+      new GetItemCommand({
+        TableName: "sdk-users",
+        Key: { pk: { S: "tenant-a" }, sk: { S: "one" } },
+      }),
+    );
+    expect(got.Item?.count?.N).toBe("5");
+
+    const documentClientForTest = documentClient as { send(command: unknown): Promise<{ Item?: Record<string, unknown> }> };
+    await documentClientForTest.send(
+      new PutCommand({ TableName: "sdk-users", Item: { pk: "tenant-a", sk: "doc", name: "Doc" } }) as never,
+    );
+    const doc = await documentClientForTest.send(
+      new GetCommand({ TableName: "sdk-users", Key: { pk: "tenant-a", sk: "doc" } }) as never,
+    );
+    expect(doc.Item).toMatchObject({ name: "Doc" });
+
+    await dynamodb.send(
+      new DeleteItemCommand({
+        TableName: "sdk-users",
+        Key: { pk: { S: "tenant-a" }, sk: { S: "one" } },
+      }),
+    );
+    const deleted = await dynamodb.send(
+      new GetItemCommand({
+        TableName: "sdk-users",
+        Key: { pk: { S: "tenant-a" }, sk: { S: "one" } },
+      }),
+    );
+    expect(deleted.Item).toBeUndefined();
+  });
+
+  it("roundtrips DocumentClient marshalling edge cases", async () => {
+    const documentClientForTest = documentClient as { send(command: unknown): Promise<{ Item?: Record<string, unknown> }> };
+
+    await documentClientForTest.send(
+      new PutCommand({
+        TableName: "sdk-users",
+        Item: { pk: "tenant-a", sk: "doc-undefined", omitted: undefined },
+      }) as never,
+    );
+    const undefinedResult = await documentClientForTest.send(
+      new GetCommand({ TableName: "sdk-users", Key: { pk: "tenant-a", sk: "doc-undefined" } }) as never,
+    );
+    expect(undefinedResult.Item).not.toHaveProperty("omitted");
+
+    const removingUndefinedClient = DynamoDBDocumentClient.from(dynamodb, {
+      marshallOptions: { removeUndefinedValues: true },
+    }) as { send(command: unknown): Promise<{ Item?: Record<string, unknown> }> };
+
+    await removingUndefinedClient.send(
+      new PutCommand({
+        TableName: "sdk-users",
+        Item: {
+          pk: "tenant-a",
+          sk: "doc-types",
+          empty: "",
+          nil: null,
+          binary: new Uint8Array([1, 2, 3]),
+          stringSet: new Set(["red", "blue"]),
+          numberSet: new Set([1, 2]),
+          nested: { list: ["x", null, { ok: true }], omitted: undefined },
+        },
+      }) as never,
+    );
+
+    const result = await removingUndefinedClient.send(
+      new GetCommand({ TableName: "sdk-users", Key: { pk: "tenant-a", sk: "doc-types" } }) as never,
+    );
+    const item = result.Item!;
+    expect(item.empty).toBe("");
+    expect(item.nil).toBeNull();
+    expect(Array.from(item.binary as Uint8Array)).toEqual([1, 2, 3]);
+    expect(Array.from(item.stringSet as Set<string>).sort()).toEqual(["blue", "red"]);
+    expect(Array.from(item.numberSet as Set<number>).sort()).toEqual([1, 2]);
+    expect(item.nested).toEqual({ list: ["x", null, { ok: true }] });
+    expect(item).not.toHaveProperty("omitted");
+  });
+
+  it("roundtrips low-level AttributeValue edge cases", async () => {
+    await dynamodb.send(
+      new CreateTableCommand({
+        TableName: "sdk-attribute-values",
+        AttributeDefinitions: [{ AttributeName: "pk", AttributeType: "S" }],
+        KeySchema: [{ AttributeName: "pk", KeyType: "HASH" }],
+        BillingMode: "PAY_PER_REQUEST",
+      }),
+    );
+
+    await dynamodb.send(
+      new PutItemCommand({
+        TableName: "sdk-attribute-values",
+        Item: {
+          pk: { S: "types" },
+          binary: { B: new Uint8Array([1, 2, 3]) },
+          binarySet: { BS: [new Uint8Array([4, 5]), new Uint8Array([6])] },
+          bool: { BOOL: true },
+          nil: { NULL: true },
+          strings: { SS: ["red", "blue"] },
+          numbers: { NS: ["1", "2.5"] },
+          nested: {
+            M: {
+              list: { L: [{ S: "x" }, { N: "7" }, { BOOL: false }] },
+            },
+          },
+        },
+      }),
+    );
+
+    const got = await dynamodb.send(
+      new GetItemCommand({
+        TableName: "sdk-attribute-values",
+        Key: { pk: { S: "types" } },
+      }),
+    );
+    expect(Array.from(got.Item?.binary?.B as Uint8Array)).toEqual([1, 2, 3]);
+    expect((got.Item?.binarySet?.BS ?? []).map((value) => Array.from(value as Uint8Array))).toEqual([[4, 5], [6]]);
+    expect(got.Item?.bool?.BOOL).toBe(true);
+    expect(got.Item?.nil?.NULL).toBe(true);
+    expect(got.Item?.strings?.SS?.sort()).toEqual(["blue", "red"]);
+    expect(got.Item?.numbers?.NS?.sort()).toEqual(["1", "2.5"]);
+    expect(got.Item?.nested?.M?.list?.L).toMatchObject([{ S: "x" }, { N: "7" }, { BOOL: false }]);
+  });
+
+  it("supports query, scan, batch, transactions, PartiQL, tags, TTL, PITR, and backup restore", async () => {
+    await dynamodb.send(
+      new BatchWriteItemCommand({
+        RequestItems: {
+          "sdk-users": [
+            { PutRequest: { Item: { pk: { S: "tenant-b" }, sk: { S: "one" }, score: { N: "10" } } } },
+            { PutRequest: { Item: { pk: { S: "tenant-b" }, sk: { S: "two" }, score: { N: "20" } } } },
+          ],
+        },
+      }),
+    );
+
+    const query = await dynamodb.send(
+      new QueryCommand({
+        TableName: "sdk-users",
+        KeyConditionExpression: "pk = :pk",
+        ExpressionAttributeValues: { ":pk": { S: "tenant-b" } },
+      }),
+    );
+    expect(query.Count).toBe(2);
+
+    const scan = await dynamodb.send(
+      new ScanCommand({
+        TableName: "sdk-users",
+        FilterExpression: "score >= :score",
+        ExpressionAttributeValues: { ":score": { N: "20" } },
+      }),
+    );
+    expect(scan.Count).toBe(1);
+
+    const batch = await dynamodb.send(
+      new BatchGetItemCommand({
+        RequestItems: {
+          "sdk-users": { Keys: [{ pk: { S: "tenant-b" }, sk: { S: "one" } }] },
+        },
+      }),
+    );
+    expect(batch.Responses?.["sdk-users"]).toHaveLength(1);
+
+    await dynamodb.send(
+      new TransactWriteItemsCommand({
+        TransactItems: [
+          {
+            Put: {
+              TableName: "sdk-users",
+              Item: { pk: { S: "tenant-c" }, sk: { S: "tx" } },
+              ConditionExpression: "attribute_not_exists(pk)",
+            },
+          },
+        ],
+      }),
+    );
+
+    const partiql = await dynamodb.send(
+      new ExecuteStatementCommand({
+        Statement: 'SELECT * FROM "sdk-users" WHERE pk = ?',
+        Parameters: [{ S: "tenant-b" }],
+      }),
+    );
+    expect(partiql.Items).toHaveLength(2);
+
+    const described = await dynamodb.send(new DescribeTableCommand({ TableName: "sdk-users" }));
+    await dynamodb.send(new TagResourceCommand({ ResourceArn: described.Table!.TableArn!, Tags: [{ Key: "suite", Value: "e2e" }] }));
+
+    await dynamodb.send(
+      new UpdateTimeToLiveCommand({
+        TableName: "sdk-users",
+        TimeToLiveSpecification: { AttributeName: "expiresAt", Enabled: true },
+      }),
+    );
+    const ttl = await dynamodb.send(new DescribeTimeToLiveCommand({ TableName: "sdk-users" }));
+    expect(ttl.TimeToLiveDescription?.TimeToLiveStatus).toBe("ENABLED");
+
+    await dynamodb.send(
+      new UpdateContinuousBackupsCommand({
+        TableName: "sdk-users",
+        PointInTimeRecoverySpecification: { PointInTimeRecoveryEnabled: true },
+      }),
+    );
+    const backups = await dynamodb.send(new DescribeContinuousBackupsCommand({ TableName: "sdk-users" }));
+    expect(backups.ContinuousBackupsDescription?.PointInTimeRecoveryDescription?.PointInTimeRecoveryStatus).toBe("ENABLED");
+
+    const backup = await dynamodb.send(new CreateBackupCommand({ TableName: "sdk-users", BackupName: "sdk-users-backup" }));
+    await dynamodb.send(
+      new RestoreTableFromBackupCommand({
+        BackupArn: backup.BackupDetails!.BackupArn!,
+        TargetTableName: "sdk-users-restored",
+      }),
+    );
+    const restored = await dynamodb.send(new DescribeTableCommand({ TableName: "sdk-users-restored" }));
+    expect(restored.Table?.TableName).toBe("sdk-users-restored");
   });
 });

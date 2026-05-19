@@ -1,5 +1,18 @@
 import { Store, type Collection } from "@emulators/core";
-import type { S3Bucket, S3Object, SqsQueue, SqsMessage, IamUser, IamRole } from "./entities.js";
+import type {
+  S3Bucket,
+  S3Object,
+  SqsQueue,
+  SqsMessage,
+  IamUser,
+  IamRole,
+  DynamoDbTable,
+  DynamoDbStoredItem,
+  DynamoDbBackup,
+  DynamoDbExport,
+  DynamoDbImport,
+  DynamoDbGlobalTable,
+} from "./entities.js";
 
 export interface AwsStore {
   s3Buckets: Collection<S3Bucket>;
@@ -8,6 +21,12 @@ export interface AwsStore {
   sqsMessages: Collection<SqsMessage>;
   iamUsers: Collection<IamUser>;
   iamRoles: Collection<IamRole>;
+  dynamodbTables: Collection<DynamoDbTable>;
+  dynamodbItems: Collection<DynamoDbStoredItem>;
+  dynamodbBackups: Collection<DynamoDbBackup>;
+  dynamodbExports: Collection<DynamoDbExport>;
+  dynamodbImports: Collection<DynamoDbImport>;
+  dynamodbGlobalTables: Collection<DynamoDbGlobalTable>;
 }
 
 export function getAwsStore(store: Store): AwsStore {
@@ -18,5 +37,14 @@ export function getAwsStore(store: Store): AwsStore {
     sqsMessages: store.collection<SqsMessage>("aws.sqs_messages", ["message_id", "queue_name"]),
     iamUsers: store.collection<IamUser>("aws.iam_users", ["user_name", "user_id"]),
     iamRoles: store.collection<IamRole>("aws.iam_roles", ["role_name", "role_id"]),
+    dynamodbTables: store.collection<DynamoDbTable>("aws.dynamodb_tables", ["table_name", "table_arn"]),
+    dynamodbItems: store.collection<DynamoDbStoredItem>("aws.dynamodb_items", ["table_name", "item_key"]),
+    dynamodbBackups: store.collection<DynamoDbBackup>("aws.dynamodb_backups", ["backup_name", "backup_arn", "table_name"]),
+    dynamodbExports: store.collection<DynamoDbExport>("aws.dynamodb_exports", ["export_arn", "table_arn"]),
+    dynamodbImports: store.collection<DynamoDbImport>("aws.dynamodb_imports", ["import_arn", "table_name"]),
+    dynamodbGlobalTables: store.collection<DynamoDbGlobalTable>("aws.dynamodb_global_tables", [
+      "global_table_name",
+      "global_table_arn",
+    ]),
   };
 }

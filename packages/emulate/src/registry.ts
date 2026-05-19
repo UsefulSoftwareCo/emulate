@@ -332,18 +332,28 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   aws: {
     label: "AWS cloud service emulator",
     endpoints:
-      "S3 (buckets, objects), SQS (queues, messages), IAM (users, roles, access keys), STS (assume role, caller identity)",
+      "S3 (buckets, objects), DynamoDB (tables, items, JSON protocol), SQS (queues, messages), IAM (users, roles, access keys), STS (assume role, caller identity)",
     async load() {
       const mod = await import("@emulators/aws");
       return { plugin: mod.awsPlugin, seedFromConfig: mod.seedFromConfig };
     },
     defaultFallback() {
-      return { login: "admin", id: 1, scopes: ["s3:*", "sqs:*", "iam:*", "sts:*"] };
+      return { login: "admin", id: 1, scopes: ["s3:*", "dynamodb:*", "sqs:*", "iam:*", "sts:*"] };
     },
     initConfig: {
       aws: {
         region: "us-east-1",
         s3: { buckets: [{ name: "my-app-bucket" }, { name: "my-app-uploads" }] },
+        dynamodb: {
+          tables: [
+            {
+              name: "my-app-table",
+              attribute_definitions: [{ AttributeName: "id", AttributeType: "S" }],
+              key_schema: [{ AttributeName: "id", KeyType: "HASH" }],
+              items: [{ id: { S: "seed-1" }, name: { S: "Seed item" } }],
+            },
+          ],
+        },
         sqs: { queues: [{ name: "my-app-events" }, { name: "my-app-dlq" }] },
         iam: {
           users: [{ user_name: "developer", create_access_key: true }],

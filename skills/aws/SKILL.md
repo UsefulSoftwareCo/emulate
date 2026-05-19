@@ -1,12 +1,12 @@
 ---
 name: aws
-description: Emulated AWS cloud services (S3, SQS, IAM, STS) for local development and testing. Use when the user needs to interact with AWS API endpoints locally, test S3 bucket and object operations, emulate SQS queues and messages, manage IAM users/roles/access keys, test STS assume role, or work without hitting real AWS APIs. Triggers include "AWS emulator", "emulate AWS", "mock S3", "local SQS", "test IAM", "emulate S3", "AWS locally", "STS assume role", or any task requiring local AWS service emulation.
+description: Emulated AWS cloud services (S3, DynamoDB, SQS, IAM, STS) for local development and testing. Use when the user needs to interact with AWS API endpoints locally, test S3 bucket and object operations, emulate DynamoDB tables and items, emulate SQS queues and messages, manage IAM users/roles/access keys, test STS assume role, or work without hitting real AWS APIs. Triggers include "AWS emulator", "emulate AWS", "mock S3", "local DynamoDB", "local SQS", "test IAM", "emulate S3", "AWS locally", "STS assume role", or any task requiring local AWS service emulation.
 allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
 ---
 
 # AWS Emulator
 
-S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and query-style SQS/IAM/STS endpoints. All state is in-memory, and responses use AWS-compatible XML.
+S3, DynamoDB, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths, DynamoDB JSON protocol endpoints, and query-style SQS/IAM/STS endpoints. All state is in-memory.
 
 ## Start
 
@@ -29,7 +29,7 @@ const aws = await createEmulator({ service: 'aws', port: 4006 })
 
 ## Auth
 
-Pass tokens as `Authorization: Bearer <token>`. Scoped permissions use `s3:*`, `sqs:*`, `iam:*`, `sts:*` patterns.
+Pass tokens as `Authorization: Bearer <token>`. Scoped permissions use `s3:*`, `dynamodb:*`, `sqs:*`, `iam:*`, `sts:*` patterns.
 
 ```bash
 curl http://localhost:4006/ \
@@ -86,6 +86,19 @@ const iam = new IAMClient({
 })
 ```
 
+```typescript
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
+
+const dynamodb = new DynamoDBClient({
+  endpoint: `${process.env.AWS_EMULATOR_URL}/dynamodb`,
+  region: 'us-east-1',
+  credentials: {
+    accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+    secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+  },
+})
+```
+
 ## Seed Config
 
 ```yaml
@@ -96,6 +109,20 @@ aws:
       - name: my-app-bucket
       - name: my-app-uploads
         region: eu-west-1
+  dynamodb:
+    tables:
+      - name: my-app-table
+        attribute_definitions:
+          - AttributeName: id
+            AttributeType: S
+        key_schema:
+          - AttributeName: id
+            KeyType: HASH
+        items:
+          - id:
+              S: seed-1
+            name:
+              S: Seed item
   sqs:
     queues:
       - name: my-app-events
@@ -114,7 +141,7 @@ aws:
         assume_role_policy: '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"lambda.amazonaws.com"},"Action":"sts:AssumeRole"}]}'
 ```
 
-Default seed (always created): S3 bucket `emulate-default`, SQS queue `emulate-default-queue`, IAM user `admin` with access key pair (`AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`).
+Default seed (always created): S3 bucket `emulate-default`, DynamoDB table `emulate-default`, SQS queue `emulate-default-queue`, IAM user `admin` with access key pair (`AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`).
 
 ## API Endpoints
 
@@ -236,6 +263,33 @@ curl -X POST http://localhost:4006/sqs/ \
   -d "Action=DeleteQueue&QueueUrl=<queue_url>"
 ```
 
+### DynamoDB
+
+DynamoDB routes use the JSON protocol and dispatch by `X-Amz-Target`. The AWS SDK v3 `DynamoDBClient` works with the `/dynamodb` endpoint.
+
+```bash
+curl -X POST http://localhost:4006/dynamodb/ \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/x-amz-json-1.0" \
+  -H "X-Amz-Target: DynamoDB_20120810.ListTables" \
+  -d "{}"
+```
+
+Compatibility coverage:
+
+- Table lifecycle: `CreateTable`, `DescribeTable`, `ListTables`, `UpdateTable`, and `DeleteTable`, including key schema, LSI, GSI, billing mode, stream, SSE, table class, warm throughput, and deletion protection metadata.
+- Item APIs: `PutItem`, `GetItem`, `UpdateItem`, `DeleteItem`, `Query`, and `Scan`, including DynamoDB AttributeValue items, condition expressions, update expressions, projection and filter expressions, consumed capacity responses, and key condition validation for tables and secondary indexes.
+- Batch and transaction APIs: `BatchGetItem`, `BatchWriteItem`, `TransactGetItems`, and `TransactWriteItems`, including rollback and ordered cancellation reasons for supported validation and condition failures.
+- PartiQL APIs: `ExecuteStatement`, `BatchExecuteStatement`, and `ExecuteTransaction` for bounded `SELECT`, `INSERT`, `UPDATE`, and `DELETE` statements with primary key predicates.
+- Local admin metadata: TTL, PITR, backups, restores, imports, exports, tags, resource policies, global tables, Kinesis destinations, contributor insights, and table replica auto scaling.
+
+Known local emulator limits:
+
+- State is in-memory and scoped to the emulator process and seed config.
+- Lifecycle and metadata operations complete locally. They do not create S3 objects, deliver Kinesis records, run streams, expire TTL items, perform cross-region replication, or change real autoscaling capacity.
+- Capacity, throttling, billing, IAM policy evaluation, and cryptographic SigV4 verification are not modeled.
+- PartiQL and expression support is intentionally bounded to the application test paths above, not the full DynamoDB grammar.
+
 ### IAM
 
 All IAM operations use `POST /iam/` with `Action` as a form-urlencoded parameter.
@@ -316,8 +370,9 @@ curl -X POST http://localhost:4006/sts/ \
 ### Inspector
 
 ```bash
-# HTML dashboard (shows S3, SQS, IAM state)
+# HTML dashboard (shows S3, DynamoDB, SQS, IAM state)
 curl http://localhost:4006/_inspector?tab=s3
+curl http://localhost:4006/_inspector?tab=dynamodb
 curl http://localhost:4006/_inspector?tab=sqs
 curl http://localhost:4006/_inspector?tab=iam
 ```

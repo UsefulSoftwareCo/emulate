@@ -288,6 +288,15 @@ aws:
     buckets:
       - name: my-app-bucket
       - name: my-app-uploads
+  dynamodb:
+    tables:
+      - name: my-app-table
+        attribute_definitions:
+          - AttributeName: id
+            AttributeType: S
+        key_schema:
+          - AttributeName: id
+            KeyType: HASH
   sqs:
     queues:
       - name: my-app-events
@@ -657,7 +666,7 @@ Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with a
 
 ## AWS
 
-S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and query-style SQS/IAM/STS endpoints. All responses use AWS-compatible XML.
+S3, DynamoDB, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths, DynamoDB JSON protocol endpoints, and query-style SQS/IAM/STS endpoints.
 
 ### S3
 
@@ -679,6 +688,16 @@ All operations via `POST /sqs/` with `Action` parameter:
 - `CreateQueue`, `ListQueues`, `GetQueueUrl`, `GetQueueAttributes`
 - `SendMessage`, `ReceiveMessage`, `DeleteMessage`
 - `PurgeQueue`, `DeleteQueue`
+
+### DynamoDB
+
+All operations via `POST /` or `POST /dynamodb/` with `X-Amz-Target`:
+
+- `CreateTable`, `DescribeTable`, `ListTables`, `UpdateTable`, `DeleteTable`
+- `PutItem`, `GetItem`, `UpdateItem`, `DeleteItem`, `Query`, `Scan`
+- `BatchGetItem`, `BatchWriteItem`, `TransactGetItems`, `TransactWriteItems`
+- `ExecuteStatement`, `BatchExecuteStatement`, `ExecuteTransaction`
+- Local metadata support for TTL, PITR, backups, restores, imports, exports, tags, resource policies, global tables, Kinesis destinations, and contributor insights
 
 ### IAM
 All operations via `POST /iam/` with `Action` parameter:
@@ -816,7 +835,7 @@ packages/
     slack/          # Slack Web API, OAuth v2, incoming webhooks
     apple/          # Apple Sign In / OIDC
     microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
-    aws/            # AWS S3, SQS, IAM, STS
+    aws/            # AWS S3, DynamoDB, SQS, IAM, STS
 apps/
   web/              # Documentation site (Next.js)
 ```

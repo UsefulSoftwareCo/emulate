@@ -1,6 +1,6 @@
 # @emulators/aws
 
-S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and query-style SQS/IAM/STS endpoints. All responses use AWS-compatible XML.
+S3, DynamoDB, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths, DynamoDB JSON protocol endpoints, and query-style SQS/IAM/STS endpoints.
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
 
@@ -33,6 +33,25 @@ All operations via `POST /sqs/` with `Action` parameter:
 - `SendMessage`, `ReceiveMessage`, `DeleteMessage`
 - `PurgeQueue`, `DeleteQueue`
 
+### DynamoDB
+
+All operations use the DynamoDB JSON protocol via `POST /` or `POST /dynamodb/` with the `X-Amz-Target` header.
+
+Compatibility coverage:
+
+- Table lifecycle: `CreateTable`, `DescribeTable`, `ListTables`, `UpdateTable`, and `DeleteTable`, including key schema, LSI, GSI, billing mode, stream, SSE, table class, warm throughput, and deletion protection metadata.
+- Item APIs: `PutItem`, `GetItem`, `UpdateItem`, `DeleteItem`, `Query`, and `Scan`, including DynamoDB AttributeValue items, condition expressions, update expressions, projection and filter expressions, consumed capacity responses, and key condition validation for tables and secondary indexes.
+- Batch and transaction APIs: `BatchGetItem`, `BatchWriteItem`, `TransactGetItems`, and `TransactWriteItems`, including rollback and ordered cancellation reasons for supported validation and condition failures.
+- PartiQL APIs: `ExecuteStatement`, `BatchExecuteStatement`, and `ExecuteTransaction` for bounded `SELECT`, `INSERT`, `UPDATE`, and `DELETE` statements with primary key predicates.
+- Local admin metadata: TTL, PITR, backups, restores, imports, exports, tags, resource policies, global tables, Kinesis destinations, contributor insights, and table replica auto scaling.
+
+Known local emulator limits:
+
+- State is in-memory and scoped to the emulator process and seed config.
+- Lifecycle and metadata operations complete locally. They do not create S3 objects, deliver Kinesis records, run streams, expire TTL items, perform cross-region replication, or change real autoscaling capacity.
+- Capacity, throttling, billing, IAM policy evaluation, and cryptographic SigV4 verification are not modeled.
+- PartiQL and expression support is intentionally bounded to the application test paths above, not the full DynamoDB grammar.
+
 ### IAM
 All operations via `POST /iam/` with `Action` parameter:
 - `CreateUser`, `GetUser`, `ListUsers`, `DeleteUser`
@@ -56,6 +75,20 @@ aws:
     buckets:
       - name: my-app-bucket
       - name: my-app-uploads
+  dynamodb:
+    tables:
+      - name: my-app-table
+        attribute_definitions:
+          - AttributeName: id
+            AttributeType: S
+        key_schema:
+          - AttributeName: id
+            KeyType: HASH
+        items:
+          - id:
+              S: seed-1
+            name:
+              S: Seed item
   sqs:
     queues:
       - name: my-app-events

@@ -9,6 +9,7 @@ const TABS: InspectorTab[] = [
   { id: "s3", label: "S3", href: "/_inspector?tab=s3" },
   { id: "sqs", label: "SQS", href: "/_inspector?tab=sqs" },
   { id: "iam", label: "IAM", href: "/_inspector?tab=iam" },
+  { id: "dynamodb", label: "DynamoDB", href: "/_inspector?tab=dynamodb" },
 ];
 
 export function inspectorRoutes(ctx: RouteContext): void {
@@ -23,6 +24,7 @@ export function inspectorRoutes(ctx: RouteContext): void {
     const queues = s3Store.sqsQueues.all();
     const users = s3Store.iamUsers.all();
     const roles = s3Store.iamRoles.all();
+    const dynamodbTables = s3Store.dynamodbTables.all();
 
     let contentHtml = "";
 
@@ -128,6 +130,28 @@ export function inspectorRoutes(ctx: RouteContext): void {
           <table class="inspector-table">
             <thead><tr><th>Role</th><th>Role ID</th><th>Description</th><th>ARN</th></tr></thead>
             <tbody>${roleRows || `<tr><td colspan="4"><div class="inspector-empty">No roles</div></td></tr>`}</tbody>
+          </table>
+        </div>`;
+    } else if (tab === "dynamodb") {
+      const rows = dynamodbTables
+        .map((table) => {
+          const items = s3Store.dynamodbItems.findBy("table_name", table.table_name);
+          return `<tr>
+            <td>${escapeXml(table.table_name)}</td>
+            <td>${items.length}</td>
+            <td>${escapeXml(table.billing_mode)}</td>
+            <td>${escapeXml(table.status)}</td>
+            <td>${escapeXml(table.table_arn)}</td>
+          </tr>`;
+        })
+        .join("\n");
+
+      contentHtml = `
+        <div class="inspector-section">
+          <h2>DynamoDB Tables (${dynamodbTables.length})</h2>
+          <table class="inspector-table">
+            <thead><tr><th>Table</th><th>Items</th><th>Billing</th><th>Status</th><th>ARN</th></tr></thead>
+            <tbody>${rows || `<tr><td colspan="5"><div class="inspector-empty">No tables</div></td></tr>`}</tbody>
           </table>
         </div>`;
     }

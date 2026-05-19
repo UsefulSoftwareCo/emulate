@@ -275,6 +275,20 @@ aws:
       - name: my-app-bucket
       - name: my-app-uploads
         region: eu-west-1
+  dynamodb:
+    tables:
+      - name: my-app-table
+        attribute_definitions:
+          - AttributeName: id
+            AttributeType: S
+        key_schema:
+          - AttributeName: id
+            KeyType: HASH
+        items:
+          - id:
+              S: seed-1
+            name:
+              S: Seed item
   sqs:
     queues:
       - name: my-app-events
@@ -291,7 +305,7 @@ aws:
         description: Role for Lambda function execution
 ```
 
-Default seed (always created): S3 bucket `emulate-default`, SQS queue `emulate-default-queue`, IAM user `admin` with access key pair.
+Default seed (always created): S3 bucket `emulate-default`, DynamoDB table `emulate-default`, SQS queue `emulate-default-queue`, IAM user `admin` with access key pair.
 
 ## Okta Seed Config
 
