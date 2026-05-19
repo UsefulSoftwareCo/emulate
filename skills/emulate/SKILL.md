@@ -312,9 +312,9 @@ AWS_EMULATOR_URL=http://localhost:4006
 
 Then use these in your app to construct API and OAuth URLs. See each service's skill for SDK-specific override instructions.
 
-## Next.js Integration (Embedded Mode)
+## Next.js Integration
 
-The `@emulators/adapter-next` package embeds emulators directly into a Next.js app on the same origin. See the **next** skill (`skills/next/SKILL.md`) for full setup, Auth.js configuration, persistence, and font tracing details.
+The `@emulators/adapter-next` package supports embedded JavaScript emulators and native runtime proxy routes on the same Next.js origin. See the **next** skill (`skills/next/SKILL.md`) for full setup, Auth.js configuration, persistence, font tracing, and `createEmulateProxy` details.
 
 ## Persistence
 

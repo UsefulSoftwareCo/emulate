@@ -1,6 +1,6 @@
 # Next.js Integration
 
-The `@emulators/adapter-next` package embeds emulators directly into a Next.js app, running them on the same origin. This is particularly useful for Vercel preview deployments where OAuth callback URLs change with every deployment.
+The `@emulators/adapter-next` package supports two App Router modes. Embedded mode runs JavaScript emulators directly inside the Next.js app. Proxy mode exposes a separately running native runtime on the same origin.
 
 ## Install
 
@@ -10,9 +10,9 @@ npm install @emulators/adapter-next @emulators/github @emulators/google
 
 Only install the emulators you need. Each `@emulators/*` package is published independently, keeping your serverless bundles small.
 
-## Route Handler
+## Embedded Route Handler
 
-Create a catch-all route that serves emulator traffic:
+Create a catch-all route that serves emulator traffic in-process:
 
 ```typescript
 // app/emulate/[...path]/route.ts
@@ -43,6 +43,39 @@ This creates the following routes:
 
 - `/emulate/github/**` serves the GitHub emulator
 - `/emulate/google/**` serves the Google emulator
+
+Embedded mode is the current zero-infra path for Vercel preview deployments. The emulator code runs in the Next.js function, so OAuth callback URLs can point at the preview origin.
+
+## Native Runtime Proxy
+
+Use `createEmulateProxy` when a native runtime is running separately and the Next.js route should forward requests to it:
+
+```typescript
+// app/emulate/[...path]/route.ts
+import { createEmulateProxy } from '@emulators/adapter-next'
+
+export const { GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS } = createEmulateProxy({
+  targets: {
+    resend: 'http://127.0.0.1:4018',
+    aws: 'http://127.0.0.1:4020',
+  },
+})
+```
+
+With `targets`, the first path segment selects the service and is stripped before forwarding. `/emulate/resend/emails` forwards to `http://127.0.0.1:4018/emails`, while response `Location` headers and HTML links are rewritten back to `/emulate/resend/*`.
+
+If a single target handles multiple services, use `target` instead:
+
+```typescript
+export const { GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS } = createEmulateProxy({
+  routePrefix: '/emulate',
+  target: 'http://127.0.0.1:4020',
+})
+```
+
+Single target mode preserves every path segment. `/emulate/aws/sqs` forwards to `http://127.0.0.1:4020/aws/sqs`.
+
+The proxy adds `x-forwarded-host`, `x-forwarded-proto`, `x-forwarded-port` when known, `x-forwarded-prefix`, `x-emulate-proxy: next`, `x-emulate-original-path`, and `x-emulate-service` for service targets. For deployed previews, the target URL must be reachable from the Next.js serverless function.
 
 ## Auth.js / NextAuth Configuration
 

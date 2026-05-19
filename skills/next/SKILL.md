@@ -1,12 +1,12 @@
 ---
 name: next
-description: Next.js adapter for embedding emulators directly in a Next.js app via @emulators/adapter-next. Use when the user needs to embed emulators in Next.js, set up same-origin OAuth for Vercel preview deployments, create an emulate catch-all route handler, configure Auth.js/NextAuth with embedded emulators, add persistence to embedded emulators, or wrap next.config with withEmulate. Triggers include "Next.js emulator", "adapter-next", "embedded emulator", "same-origin OAuth", "Vercel preview", "createEmulateHandler", "withEmulate", or any task requiring emulators inside a Next.js app.
+description: Next.js adapter for embedded emulators and native runtime proxying via @emulators/adapter-next. Use when the user needs to embed emulators in Next.js, proxy a native runtime through a Next.js catch-all route, set up same-origin OAuth for Vercel preview deployments, configure Auth.js/NextAuth with emulator routes, add persistence to embedded emulators, or wrap next.config with withEmulate. Triggers include "Next.js emulator", "adapter-next", "embedded emulator", "native runtime proxy", "same-origin OAuth", "Vercel preview", "createEmulateHandler", "createEmulateProxy", "withEmulate", or any task requiring emulators inside a Next.js app.
 allowed-tools: Bash(npx emulate:*), Bash(emulate:*)
 ---
 
 # Next.js Integration
 
-The `@emulators/adapter-next` package embeds emulators directly into a Next.js App Router app, running them on the same origin. This is particularly useful for Vercel preview deployments where OAuth callback URLs change with every deployment.
+The `@emulators/adapter-next` package supports two App Router modes. Embedded mode runs JavaScript emulators directly inside the Next.js app. Proxy mode exposes a separately running native runtime on the same origin.
 
 ## Install
 
@@ -16,9 +16,9 @@ npm install @emulators/adapter-next @emulators/github @emulators/google
 
 Only install the emulators you need. Each `@emulators/*` package is published independently, keeping serverless bundles small.
 
-## Route Handler
+## Embedded Route Handler
 
-Create a catch-all route that serves emulator traffic:
+Create a catch-all route that serves emulator traffic in-process:
 
 ```typescript
 // app/emulate/[...path]/route.ts
@@ -49,6 +49,39 @@ This creates the following routes:
 
 - `/emulate/github/**` serves the GitHub emulator
 - `/emulate/google/**` serves the Google emulator
+
+Embedded mode is the current zero-infra path for Vercel preview deployments. The emulator code runs in the Next.js function, so OAuth callback URLs can point at the preview origin.
+
+## Native Runtime Proxy
+
+Use `createEmulateProxy` when a native runtime is running separately and the Next.js route should forward requests to it:
+
+```typescript
+// app/emulate/[...path]/route.ts
+import { createEmulateProxy } from '@emulators/adapter-next'
+
+export const { GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS } = createEmulateProxy({
+  targets: {
+    resend: 'http://127.0.0.1:4018',
+    aws: 'http://127.0.0.1:4020',
+  },
+})
+```
+
+With `targets`, the first path segment selects the service and is stripped before forwarding. `/emulate/resend/emails` forwards to `http://127.0.0.1:4018/emails`, while response `Location` headers and HTML links are rewritten back to `/emulate/resend/*`.
+
+If a single target handles multiple services, use `target` instead:
+
+```typescript
+export const { GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS } = createEmulateProxy({
+  routePrefix: '/emulate',
+  target: 'http://127.0.0.1:4020',
+})
+```
+
+Single target mode preserves every path segment. `/emulate/aws/sqs` forwards to `http://127.0.0.1:4020/aws/sqs`.
+
+The proxy adds `x-forwarded-host`, `x-forwarded-proto`, `x-forwarded-port` when known, `x-forwarded-prefix`, `x-emulate-proxy: next`, `x-emulate-original-path`, and `x-emulate-service` for service targets. For deployed previews, the target URL must be reachable from the Next.js serverless function.
 
 ## Auth.js / NextAuth Configuration
 
@@ -157,6 +190,24 @@ Each `EmulatorEntry`:
 |-------|------|-------------|
 | `emulator` | `EmulatorModule` | The emulator package (e.g. `import * as github from '@emulators/github'`) |
 | `seed?` | `Record<string, unknown>` | Seed data matching the service's config schema |
+
+### `createEmulateProxy(config)`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `target?` | `string | URL | EmulateProxyTargetConfig` | Single runtime target. All path segments after the route prefix are preserved. |
+| `targets?` | `Record<string, string | URL | EmulateProxyTargetConfig>` | Service-specific targets. The first path segment selects the target and is stripped by default. |
+| `routePrefix?` | `string` | Explicit public route prefix. If omitted, the adapter derives it from the incoming request and catch-all params. |
+| `headers?` | `ProxyHeaders | ProxyHeaderFactory` | Extra headers added to every proxied request. |
+
+Each `EmulateProxyTargetConfig`:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `target` | `string | URL` | Runtime base URL from the Next.js server's perspective. |
+| `pathPrefix?` | `string` | Optional path segment to prepend before the forwarded path. |
+| `stripServicePrefix?` | `boolean` | For `targets`, defaults to `true`. Set to `false` only when the target expects the service segment. |
+| `headers?` | `ProxyHeaders | ProxyHeaderFactory` | Extra headers added for this target. |
 
 ### `withEmulate(nextConfig, options?)`
 
