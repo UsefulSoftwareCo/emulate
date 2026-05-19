@@ -208,6 +208,39 @@ func TestHandlerLoadsAndSavesAWSS3ObjectSnapshots(t *testing.T) {
 	}
 }
 
+func TestHandlerPreservesTrailingSlashInVercelRewritePath(t *testing.T) {
+	handler := NewHandler(Options{Services: []string{"aws"}})
+	req := httptest.NewRequest(
+		http.MethodPut,
+		"https://preview.example.com/api/emulate?path=aws/emulate-default/folder/",
+		strings.NewReader("directory marker"),
+	)
+	req.Host = "preview.example.com"
+	req.Header.Set("Content-Type", "text/plain")
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("put status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "https://preview.example.com/api/emulate?path=aws/emulate-default&list-type=2", nil)
+	req.Host = "preview.example.com"
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", res.Code, res.Body.String())
+	}
+	body := res.Body.String()
+	if !strings.Contains(body, "<Key>folder/</Key>") {
+		t.Fatalf("missing trailing slash key in %s", body)
+	}
+	if strings.Contains(body, "<Key>folder</Key>") {
+		t.Fatalf("key lost trailing slash in %s", body)
+	}
+}
+
 func createEmail(t *testing.T, handler http.Handler, subject string) {
 	t.Helper()
 	req := newJSONRequest(

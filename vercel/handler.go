@@ -170,19 +170,18 @@ func (rt *Runtime) parseServicePath(publicPath string) (string, string, bool) {
 		return "", "", false
 	}
 	rest := strings.TrimPrefix(publicPath, rt.routePrefix)
-	rest = strings.Trim(rest, "/")
+	rest = strings.TrimPrefix(rest, "/")
 	if rest == "" {
 		return "", "", false
 	}
-	parts := strings.Split(rest, "/")
-	service := parts[0]
+	service, remainingPath, hasRemainingPath := strings.Cut(rest, "/")
 	if service == "" {
 		return "", "", false
 	}
-	if len(parts) == 1 {
+	if !hasRemainingPath {
 		return service, "/", true
 	}
-	return service, "/" + strings.Join(parts[1:], "/"), true
+	return service, "/" + remainingPath, true
 }
 
 func (rt *Runtime) serverFor(ctx context.Context, service string, baseURL string) (*emuruntime.Server, error) {
@@ -414,7 +413,7 @@ func normalizeMountPath(input string) string {
 
 func appendPath(prefix string, segment string) string {
 	mountPath := normalizeMountPath(prefix)
-	cleanedSegment := strings.Trim(segment, "/")
+	cleanedSegment := strings.TrimLeft(segment, "/")
 	if cleanedSegment == "" {
 		if mountPath == "" {
 			return "/"
