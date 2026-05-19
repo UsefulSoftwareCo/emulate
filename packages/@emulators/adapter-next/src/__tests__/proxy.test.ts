@@ -43,6 +43,7 @@ describe("createEmulateProxy", () => {
     expect(request.url).toBe("http://127.0.0.1:4018/emails?limit=1");
     expect(request.method).toBe("POST");
     expect(request.headers.get("content-type")).toBe("application/json");
+    expect(request.headers.get("accept-encoding")).toBe("identity");
     expect(request.headers.get("x-forwarded-host")).toBe("preview.example.com");
     expect(request.headers.get("x-forwarded-proto")).toBe("https");
     expect(request.headers.get("x-forwarded-prefix")).toBe("/emulate/resend");
@@ -57,7 +58,11 @@ describe("createEmulateProxy", () => {
       "fetch",
       vi.fn(async () => {
         return new Response('<form action="/emails"><a href="/inbox">Inbox</a></form>', {
-          headers: { "Content-Type": "text/html" },
+          headers: {
+            "Content-Encoding": "gzip",
+            "Content-Length": "50",
+            "Content-Type": "text/html",
+          },
         });
       }),
     );
@@ -73,6 +78,8 @@ describe("createEmulateProxy", () => {
       ctx(["resend", "inbox"]),
     );
 
+    expect(response.headers.has("Content-Encoding")).toBe(false);
+    expect(response.headers.has("Content-Length")).toBe(false);
     await expect(response.text()).resolves.toBe(
       '<form action="/api/emulate/resend/emails"><a href="/api/emulate/resend/inbox">Inbox</a></form>',
     );

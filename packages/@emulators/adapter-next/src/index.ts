@@ -241,6 +241,7 @@ function copyForwardHeaders(request: Request): Headers {
   for (const header of HOP_BY_HOP_HEADERS) {
     headers.delete(header);
   }
+  headers.set("accept-encoding", "identity");
   return headers;
 }
 
@@ -367,6 +368,7 @@ async function rewriteResponse(response: Response, options: ResponseRewriteOptio
     headers.set("Location", rewrittenLocation!);
   }
   headers.delete("Content-Length");
+  headers.delete("Content-Encoding");
 
   return new Response(html, {
     status: response.status,
