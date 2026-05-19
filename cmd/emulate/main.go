@@ -21,6 +21,7 @@ import (
 	coreconfig "github.com/vercel-labs/emulate/internal/core/config"
 	emuruntime "github.com/vercel-labs/emulate/internal/runtime"
 	"github.com/vercel-labs/emulate/internal/services/resend"
+	"github.com/vercel-labs/emulate/internal/services/vercel"
 )
 
 var version = "dev"
@@ -104,6 +105,7 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 	}
 	var seedServices []string
 	var resendSeed *resend.SeedConfig
+	var vercelSeed *vercel.SeedConfig
 	if *seedValue != "" {
 		loaded, err := coreconfig.Load(coreconfig.LoadOptions{Path: *seedValue})
 		if err != nil {
@@ -111,7 +113,7 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 			return 1
 		}
 		if unsupported := unsupportedNativeSeedServices(loaded.Data); len(unsupported) > 0 {
-			fmt.Fprintf(stderr, "The native Go runtime only supports --seed for resend. Unsupported seed config services: %s\n", strings.Join(unsupported, ", "))
+			fmt.Fprintf(stderr, "The native Go runtime only supports --seed for resend and vercel. Unsupported seed config services: %s\n", strings.Join(unsupported, ", "))
 			return 1
 		}
 		seedServices = coreconfig.InferServices(loaded.Data, nativeSeedServiceNames())
@@ -122,6 +124,14 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 				return 1
 			}
 			resendSeed = &cfg
+		}
+		if raw, ok := loaded.Data["vercel"]; ok {
+			var cfg vercel.SeedConfig
+			if err := json.Unmarshal(raw, &cfg); err != nil {
+				fmt.Fprintf(stderr, "Failed to parse vercel seed config: %v\n", err)
+				return 1
+			}
+			vercelSeed = &cfg
 		}
 	}
 	services, err := parseServices(*serviceValue)
@@ -142,6 +152,7 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 		BaseURL:    baseURL,
 		Services:   services,
 		ResendSeed: resendSeed,
+		VercelSeed: vercelSeed,
 	})
 	httpServer := &nethttp.Server{
 		Handler:           server.Handler,
@@ -330,7 +341,7 @@ func parseServices(value string) ([]string, error) {
 }
 
 func nativeSeedServiceNames() []string {
-	return []string{"resend"}
+	return []string{"resend", "vercel"}
 }
 
 func unsupportedNativeSeedServices(data map[string]json.RawMessage) []string {

@@ -34,7 +34,7 @@ func TestHandlerServesPreviewHealth(t *testing.T) {
 	if !body.OK || body.Adapter != "vercel" || body.Runtime != "go" || body.Version != "test" || body.RoutePrefix != "/emulate" {
 		t.Fatalf("unexpected body: %#v", body)
 	}
-	if strings.Join(body.Services, ",") != "aws,resend" {
+	if strings.Join(body.Services, ",") != "aws,resend,vercel" {
 		t.Fatalf("services = %#v", body.Services)
 	}
 }
@@ -85,6 +85,23 @@ func TestHandlerForwardsDirectPublicPathToService(t *testing.T) {
 
 	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
+func TestHandlerForwardsVercelService(t *testing.T) {
+	handler := NewHandler(Options{Services: []string{"vercel"}})
+	req := httptest.NewRequest(http.MethodGet, "https://preview.example.com/emulate/vercel/v2/user", nil)
+	req.Host = "preview.example.com"
+	req.Header.Set("Authorization", "Bearer test_token_admin")
+
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), `"username":"admin"`) {
+		t.Fatalf("unexpected body: %s", res.Body.String())
 	}
 }
 

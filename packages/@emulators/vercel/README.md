@@ -1,6 +1,6 @@
 # @emulators/vercel
 
-Fully stateful Vercel API emulation with Vercel-style JSON responses and cursor-based pagination.
+Fully stateful Vercel API emulation with Vercel-style JSON responses and cursor-based pagination. The package remains published through npm while the native Go runtime implements the service surface for local CLI runs and Vercel Go Function previews.
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
 
