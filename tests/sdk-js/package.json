@@ -1,0 +1,11 @@
+{
+  "name": "@emulators/sdk-js-conformance",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "emulate": "workspace:*"
+  }
+}
