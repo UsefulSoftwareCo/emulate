@@ -22,9 +22,7 @@ describe("createVercelScaffold", () => {
       'emulate "github.com/vercel-labs/emulate/vercel"',
     );
     expect(readFileSync(join(cwd, "api/emulate.go"), "utf-8")).toContain('Services: []string{"aws", "resend"}');
-    expect(readFileSync(join(cwd, "go.mod"), "utf-8")).toContain(
-      "require github.com/vercel-labs/emulate v0.5.0",
-    );
+    expect(readFileSync(join(cwd, "go.mod"), "utf-8")).toContain("require github.com/vercel-labs/emulate v0.5.0");
     const vercelConfig = JSON.parse(readFileSync(join(cwd, "vercel.json"), "utf-8")) as {
       rewrites: Array<{ source: string; destination: string }>;
     };
@@ -58,6 +56,70 @@ describe("createVercelScaffold", () => {
       { source: "/docs/:path*", destination: "/docs/:path*" },
       { source: "/emulate/:path*", destination: "/api/emulate?path=:path*" },
     ]);
+  });
+
+  it("inserts the rewrite before a catch-all rewrite", () => {
+    const cwd = tempDir();
+    writeFileSync(
+      join(cwd, "vercel.json"),
+      JSON.stringify({
+        rewrites: [{ source: "/(.*)", destination: "/index.html" }],
+      }),
+    );
+
+    createVercelScaffold({ cwd, version: "0.5.0" });
+
+    const config = JSON.parse(readFileSync(join(cwd, "vercel.json"), "utf-8")) as {
+      rewrites: Array<{ source: string; destination: string }>;
+    };
+    expect(config.rewrites).toEqual([
+      { source: "/emulate/:path*", destination: "/api/emulate?path=:path*" },
+      { source: "/(.*)", destination: "/index.html" },
+    ]);
+  });
+
+  it("moves an existing rewrite before a catch-all rewrite", () => {
+    const cwd = tempDir();
+    writeFileSync(
+      join(cwd, "vercel.json"),
+      JSON.stringify({
+        rewrites: [
+          { source: "/(.*)", destination: "/index.html" },
+          { source: "/emulate/:path*", destination: "/api/emulate?path=:path*" },
+        ],
+      }),
+    );
+
+    const result = createVercelScaffold({ cwd, version: "0.5.0" });
+
+    expect(result.updated).toContain("vercel.json");
+    const config = JSON.parse(readFileSync(join(cwd, "vercel.json"), "utf-8")) as {
+      rewrites: Array<{ source: string; destination: string }>;
+    };
+    expect(config.rewrites).toEqual([
+      { source: "/emulate/:path*", destination: "/api/emulate?path=:path*" },
+      { source: "/(.*)", destination: "/index.html" },
+    ]);
+  });
+
+  it("adds the Go dependency to an existing module", () => {
+    const cwd = tempDir();
+    writeFileSync(
+      join(cwd, "go.mod"),
+      `module example.com/app
+
+go 1.24
+
+require (
+\tgithub.com/example/dependency v1.0.0
+)
+`,
+    );
+
+    const result = createVercelScaffold({ cwd, version: "0.5.0" });
+
+    expect(result.updated).toContain("go.mod");
+    expect(readFileSync(join(cwd, "go.mod"), "utf-8")).toContain("github.com/vercel-labs/emulate v0.5.0");
   });
 
   it("is idempotent when generated files already exist", () => {

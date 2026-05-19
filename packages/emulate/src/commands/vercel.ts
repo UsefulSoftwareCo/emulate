@@ -36,8 +36,12 @@ export function vercelInitCommand(options: VercelInitOptions): void {
       console.log(`Skipped existing ${file}`);
     }
     console.log(`\nVercel Go Function scaffold ready for: ${result.services.join(", ")}`);
-    console.log("State uses warm in-memory stores by default. Cold starts reset state, and concurrent instances can diverge.");
-    console.log("Add a vercel.Persistence implementation in api/emulate.go when snapshots need to survive cold starts.");
+    console.log(
+      "State uses warm in-memory stores by default. Cold starts reset state, and concurrent instances can diverge.",
+    );
+    console.log(
+      "Add a vercel.Persistence implementation in api/emulate.go when snapshots need to survive cold starts.",
+    );
   } catch (err) {
     console.error(err instanceof Error ? err.message : String(err));
     process.exit(1);
@@ -57,7 +61,7 @@ export function createVercelScaffold(options: VercelInitOptions): VercelScaffold
   mkdirSync(join(cwd, "api"), { recursive: true });
 
   writeFileIfAllowed(cwd, "api/emulate.go", renderHandler(services), options.force ?? false, result);
-  writeFileIfAllowed(cwd, "go.mod", renderGoMod(options.version), false, result);
+  updateGoMod(cwd, options.version, result);
   updateVercelConfig(cwd, options.force ?? false, result);
 
   return result;
@@ -109,6 +113,39 @@ function writeFileIfAllowed(
   }
 }
 
+function updateGoMod(cwd: string, version: string, result: VercelScaffoldResult): void {
+  const relativePath = "go.mod";
+  const target = join(cwd, relativePath);
+  const moduleVersion = normalizeGoModuleVersion(version);
+  if (!existsSync(target)) {
+    writeFileSync(target, renderGoMod(moduleVersion), "utf-8");
+    result.created.push(relativePath);
+    return;
+  }
+
+  const content = readFileSync(target, "utf-8");
+  if (hasEmulateRequirement(content)) {
+    result.unchanged.push(relativePath);
+    return;
+  }
+
+  writeFileSync(target, addEmulateRequirement(content, moduleVersion), "utf-8");
+  result.updated.push(relativePath);
+}
+
+function hasEmulateRequirement(content: string): boolean {
+  return /^\s*(?:require\s+)?github\.com\/vercel-labs\/emulate\s+v\S+/m.test(content);
+}
+
+function addEmulateRequirement(content: string, moduleVersion: string): string {
+  const dependency = `github.com/vercel-labs/emulate ${moduleVersion}`;
+  if (/^require\s*\(/m.test(content)) {
+    return content.replace(/^require\s*\(\s*\n/m, (match) => `${match}\t${dependency}\n`);
+  }
+  const suffix = content.endsWith("\n") ? "" : "\n";
+  return `${content}${suffix}\nrequire ${dependency}\n`;
+}
+
 function updateVercelConfig(cwd: string, force: boolean, result: VercelScaffoldResult): void {
   const relativePath = "vercel.json";
   const target = join(cwd, relativePath);
@@ -136,18 +173,18 @@ function updateVercelConfig(cwd: string, force: boolean, result: VercelScaffoldR
     throw new Error(`${relativePath} already has a rewrite for ${DEFAULT_REWRITE.source}`);
   }
 
-  const hasRewrite = rewriteList.some(
-    (entry) =>
-      isRewrite(entry) &&
-      entry.source === DEFAULT_REWRITE.source &&
-      entry.destination === DEFAULT_REWRITE.destination,
-  );
+  const hasRewrite = rewriteList.some(isDefaultRewrite);
   if (hasRewrite && !force) {
-    result.unchanged.push(relativePath);
-    return;
+    const orderedRewriteList = moveExistingRewriteBeforeCatchAll(rewriteList);
+    if (orderedRewriteList === rewriteList) {
+      result.unchanged.push(relativePath);
+      return;
+    }
+    config.rewrites = orderedRewriteList;
+  } else {
+    config.rewrites = hasRewrite ? rewriteList : insertRewrite(rewriteList);
   }
 
-  config.rewrites = hasRewrite ? rewriteList : [...rewriteList, DEFAULT_REWRITE];
   if (!("$schema" in config)) {
     config.$schema = "https://openapi.vercel.sh/vercel.json";
   }
@@ -158,6 +195,38 @@ function updateVercelConfig(cwd: string, force: boolean, result: VercelScaffoldR
   } else {
     result.created.push(relativePath);
   }
+}
+
+function insertRewrite(rewriteList: unknown[]): unknown[] {
+  const catchAllIndex = rewriteList.findIndex((entry) => isRewrite(entry) && isCatchAllSource(entry.source));
+  if (catchAllIndex < 0) {
+    return [...rewriteList, DEFAULT_REWRITE];
+  }
+  return [...rewriteList.slice(0, catchAllIndex), DEFAULT_REWRITE, ...rewriteList.slice(catchAllIndex)];
+}
+
+function moveExistingRewriteBeforeCatchAll(rewriteList: unknown[]): unknown[] {
+  const rewriteIndex = rewriteList.findIndex(isDefaultRewrite);
+  const catchAllIndex = rewriteList.findIndex((entry) => isRewrite(entry) && isCatchAllSource(entry.source));
+  if (rewriteIndex < 0 || catchAllIndex < 0 || rewriteIndex < catchAllIndex) {
+    return rewriteList;
+  }
+  const ordered = [...rewriteList];
+  const [rewrite] = ordered.splice(rewriteIndex, 1);
+  const updatedCatchAllIndex = ordered.findIndex((entry) => isRewrite(entry) && isCatchAllSource(entry.source));
+  ordered.splice(updatedCatchAllIndex, 0, rewrite);
+  return ordered;
+}
+
+function isCatchAllSource(source: string): boolean {
+  const value = source.trim();
+  return value === "/(.*)" || /^\/:[A-Za-z_][\w-]*\*$/.test(value) || /^\/:[A-Za-z_][\w-]*\(\.\*\)$/.test(value);
+}
+
+function isDefaultRewrite(value: unknown): boolean {
+  return (
+    isRewrite(value) && value.source === DEFAULT_REWRITE.source && value.destination === DEFAULT_REWRITE.destination
+  );
 }
 
 function isRewrite(value: unknown): value is { source: string; destination: string } {
@@ -188,8 +257,12 @@ func Handler(w http.ResponseWriter, r *http.Request) {
 `;
 }
 
-function renderGoMod(version: string): string {
+function normalizeGoModuleVersion(version: string): string {
   const moduleVersion = version.startsWith("v") ? version : `v${version}`;
+  return moduleVersion;
+}
+
+function renderGoMod(moduleVersion: string): string {
   return `module emulate-vercel-preview
 
 go 1.24

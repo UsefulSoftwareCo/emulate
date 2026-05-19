@@ -14,7 +14,8 @@ const copyFonts = async () => {
 const addShebang = async () => {
   const entry = resolve(__dirname, "dist/index.js");
   const content = readFileSync(entry, "utf-8");
-  writeFileSync(entry, `#!/usr/bin/env node\n${content}`);
+  const shebang = "#!/usr/bin/env node\n";
+  writeFileSync(entry, shebang + content.replace(/^(#!\/usr\/bin\/env node\r?\n)+/, ""));
 };
 
 const shared = {
