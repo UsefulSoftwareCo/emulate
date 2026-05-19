@@ -54,6 +54,49 @@ func TestServiceReturnsUnsignedPathStyleS3NotImplemented(t *testing.T) {
 	}
 }
 
+func TestServiceReturnsUnsignedS3SubresourceNotImplemented(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		target     string
+		wantAction string
+	}{
+		{
+			name:       "bucket lifecycle",
+			method:     http.MethodGet,
+			target:     "http://127.0.0.1/photos?lifecycle",
+			wantAction: "s3.GetBucketLifecycleConfiguration",
+		},
+		{
+			name:       "bucket notification",
+			method:     http.MethodPut,
+			target:     "http://127.0.0.1/photos?notification",
+			wantAction: "s3.PutBucketNotificationConfiguration",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			handler := newTestHandler()
+			req := httptest.NewRequest(test.method, test.target, nil)
+
+			res := httptest.NewRecorder()
+			handler.ServeHTTP(res, req)
+
+			if res.Code != http.StatusNotImplemented {
+				t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+			}
+			if got := res.Header().Get("Content-Type"); got != "application/xml" {
+				t.Fatalf("content type = %q", got)
+			}
+			body := res.Body.String()
+			if !strings.Contains(body, "<Code>NotImplemented</Code>") || !strings.Contains(body, test.wantAction) {
+				t.Fatalf("unexpected body: %s", body)
+			}
+		})
+	}
+}
+
 func TestServiceReturnsQueryXMLNotImplemented(t *testing.T) {
 	handler := newTestHandler()
 	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/sqs/", strings.NewReader("Action=CreateQueue&QueueName=jobs"))
@@ -142,6 +185,35 @@ func TestServicePassesThroughNonAWSNotFound(t *testing.T) {
 	}
 	if body["message"] != "Not Found" {
 		t.Fatalf("unexpected body: %#v", body)
+	}
+}
+
+func TestServicePassesThroughGenericListQueryParams(t *testing.T) {
+	handler := newTestHandler()
+	for _, target := range []string{
+		"/users?continuation-token=abc",
+		"/users?delimiter=/",
+		"/users?list-type=1",
+		"/users?max-keys=10",
+		"/users?partNumber=1",
+		"/users?prefix=a",
+		"/users?start-after=a",
+	} {
+		t.Run(target, func(t *testing.T) {
+			res := httptest.NewRecorder()
+			handler.ServeHTTP(res, httptest.NewRequest(http.MethodGet, target, nil))
+
+			if res.Code != http.StatusNotFound {
+				t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+			}
+			var body map[string]string
+			if err := json.Unmarshal(res.Body.Bytes(), &body); err != nil {
+				t.Fatal(err)
+			}
+			if body["message"] != "Not Found" {
+				t.Fatalf("unexpected body: %#v", body)
+			}
+		})
 	}
 }
 

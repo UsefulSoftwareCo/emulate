@@ -88,7 +88,7 @@ func (s *Service) handleAWS(c *corehttp.Context) {
 }
 
 func (s *Service) looksLikeAWSRequest(req *http.Request) bool {
-	if req.URL.Query().Get("Action") != "" || req.URL.Query().Get("X-Amz-Algorithm") != "" {
+	if req.URL.Query().Get("Action") != "" || hasAWSPresignQuery(req) {
 		return true
 	}
 	if hasAWSHeader(req) {
@@ -105,6 +105,16 @@ func (s *Service) looksLikeAWSRequest(req *http.Request) bool {
 		return true
 	}
 	return looksLikeS3RESTRequest(req, s.s3PathFallback)
+}
+
+func hasAWSPresignQuery(req *http.Request) bool {
+	query := req.URL.Query()
+	for _, key := range []string{"X-Amz-Algorithm", "X-Amz-Credential", "X-Amz-Signature"} {
+		if query.Get(key) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func hasAWSHeader(req *http.Request) bool {
@@ -144,18 +154,16 @@ func looksLikeS3RESTRequest(req *http.Request, pathFallback bool) bool {
 
 func hasS3RequestHint(req *http.Request) bool {
 	query := req.URL.Query()
+	if query.Get("list-type") == "2" {
+		return true
+	}
 	for _, key := range []string{
 		"acl",
-		"continuation-token",
 		"delete",
-		"delimiter",
-		"list-type",
+		"lifecycle",
 		"location",
-		"max-keys",
-		"partNumber",
+		"notification",
 		"policy",
-		"prefix",
-		"start-after",
 		"tagging",
 		"uploadId",
 		"uploads",
