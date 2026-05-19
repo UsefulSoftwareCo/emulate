@@ -5,13 +5,11 @@ import (
 	"strings"
 )
 
-type Purpose string
-
 const (
-	PurposeS3Object               Purpose = "aws.s3.object"
-	PurposeLambdaPackage          Purpose = "aws.lambda.package"
-	PurposeLambdaLayer            Purpose = "aws.lambda.layer"
-	PurposeCloudFormationTemplate Purpose = "aws.cloudformation.template"
+	PurposeS3Object               = "aws.s3.object"
+	PurposeLambdaPackage          = "aws.lambda.package"
+	PurposeLambdaLayer            = "aws.lambda.layer"
+	PurposeCloudFormationTemplate = "aws.cloudformation.template"
 )
 
 func S3ObjectID(bucket string, key string) string {
