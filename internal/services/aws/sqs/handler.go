@@ -279,13 +279,10 @@ func (h *Handler) receiveMessage(params map[string]string, requestID string) pro
 		if int64Field(message, "visible_after") > now {
 			continue
 		}
-		receiptHandle := h.generateReceiptHandle()
-		receiveCount := intField(message, "receive_count") + 1
-		updated, _ := h.Messages.Update(intField(message, "id"), corestore.Record{
-			"receipt_handle": receiptHandle,
-			"visible_after":  now + int64(visibilityTimeout)*1000,
-			"receive_count":  receiveCount,
-		})
+		updated, ok := h.reserveVisibleMessage(message, now, visibilityTimeout)
+		if !ok {
+			continue
+		}
 		batch = append(batch, updated)
 		if len(batch) == maxMessages {
 			break
@@ -506,13 +503,10 @@ func (h *Handler) receiveMessageJSON(params map[string]string) protocols.ErrorRe
 		if int64Field(message, "visible_after") > now {
 			continue
 		}
-		receiptHandle := h.generateReceiptHandle()
-		receiveCount := intField(message, "receive_count") + 1
-		updated, _ := h.Messages.Update(intField(message, "id"), corestore.Record{
-			"receipt_handle": receiptHandle,
-			"visible_after":  now + int64(visibilityTimeout)*1000,
-			"receive_count":  receiveCount,
-		})
+		updated, ok := h.reserveVisibleMessage(message, now, visibilityTimeout)
+		if !ok {
+			continue
+		}
 		item := map[string]any{
 			"MessageId":     stringField(updated, "message_id"),
 			"ReceiptHandle": stringField(updated, "receipt_handle"),
@@ -806,6 +800,20 @@ func parseMessageAttributes(params map[string]string) corestore.Record {
 
 func messageDelaySeconds(params map[string]string, queue corestore.Record) int {
 	return intParam(params["DelaySeconds"], intField(queue, "delay_seconds"))
+}
+
+func (h *Handler) reserveVisibleMessage(message corestore.Record, now int64, visibilityTimeout int) (corestore.Record, bool) {
+	receiptHandle := h.generateReceiptHandle()
+	return h.Messages.UpdateFunc(intField(message, "id"), func(current corestore.Record) (corestore.Record, bool) {
+		if int64Field(current, "visible_after") > now {
+			return nil, false
+		}
+		return corestore.Record{
+			"receipt_handle": receiptHandle,
+			"visible_after":  now + int64(visibilityTimeout)*1000,
+			"receive_count":  intField(current, "receive_count") + 1,
+		}, true
+	})
 }
 
 func selectedMessageAttributes(message corestore.Record, params map[string]string) corestore.Record {

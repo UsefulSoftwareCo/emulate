@@ -240,6 +240,37 @@ func (c *Collection) Update(id int, patch Record) (Record, bool) {
 	return cloneRecord(updated), true
 }
 
+func (c *Collection) UpdateFunc(id int, fn func(Record) (Record, bool)) (Record, bool) {
+	if fn == nil {
+		return nil, false
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	existing, ok := c.items[id]
+	if !ok {
+		return nil, false
+	}
+	patch, ok := fn(cloneRecord(existing))
+	if !ok {
+		return nil, false
+	}
+	c.removeFromIndexes(existing)
+
+	updated := cloneRecord(existing)
+	for key, value := range patch {
+		if key == "id" {
+			continue
+		}
+		updated[key] = cloneValue(value)
+	}
+	updated["updated_at"] = timestamp()
+	c.items[id] = updated
+	c.addToIndexes(updated)
+	return cloneRecord(updated), true
+}
+
 func (c *Collection) Delete(id int) bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()

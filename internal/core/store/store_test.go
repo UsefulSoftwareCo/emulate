@@ -134,3 +134,35 @@ func TestCollectionRejectsMismatchedIndexes(t *testing.T) {
 		t.Fatal("expected mismatched index error")
 	}
 }
+
+func TestCollectionUpdateFuncCanRejectStaleRecord(t *testing.T) {
+	store := New()
+	tasks := store.MustCollection("tasks", "status")
+	task := tasks.Insert(Record{"status": "ready", "attempts": 0})
+
+	updated, ok := tasks.UpdateFunc(task["id"].(int), func(current Record) (Record, bool) {
+		if current["status"] != "ready" {
+			return nil, false
+		}
+		return Record{"status": "locked", "attempts": current["attempts"].(int) + 1}, true
+	})
+	if !ok || updated["status"] != "locked" || updated["attempts"] != 1 {
+		t.Fatalf("unexpected update: %#v %v", updated, ok)
+	}
+
+	rejected, ok := tasks.UpdateFunc(task["id"].(int), func(current Record) (Record, bool) {
+		if current["status"] != "ready" {
+			return nil, false
+		}
+		return Record{"status": "locked"}, true
+	})
+	if ok || rejected != nil {
+		t.Fatalf("stale update succeeded: %#v %v", rejected, ok)
+	}
+	if ready := tasks.FindBy("status", "ready"); len(ready) != 0 {
+		t.Fatalf("old index entry remained: %#v", ready)
+	}
+	if locked := tasks.FindBy("status", "locked"); len(locked) != 1 {
+		t.Fatalf("locked index missing record: %#v", locked)
+	}
+}
