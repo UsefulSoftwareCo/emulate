@@ -513,20 +513,28 @@ func TestServiceReturnsSQSQueryMessageAttributes(t *testing.T) {
 	if res.Code != http.StatusOK {
 		t.Fatalf("send status = %d, body = %s", res.Code, res.Body.String())
 	}
+	sentAttributesMD5 := xmlElement(res.Body.String(), "MD5OfMessageAttributes")
+	if sentAttributesMD5 == "" {
+		t.Fatalf("send missing MD5OfMessageAttributes in %s", res.Body.String())
+	}
 
 	values = url.Values{}
 	values.Set("Action", "ReceiveMessage")
 	values.Set("QueueUrl", queueURL)
 	values.Set("MessageAttributeName.1", "All")
+	values.Set("AttributeName.1", "All")
 	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
 	if res.Code != http.StatusOK {
 		t.Fatalf("receive status = %d, body = %s", res.Code, res.Body.String())
 	}
 	body := res.Body.String()
-	for _, expected := range []string{"<MessageAttribute>", "<Name>color</Name>", "<DataType>String</DataType>", "<StringValue>blue</StringValue>"} {
+	for _, expected := range []string{"<MessageAttribute>", "<Name>color</Name>", "<DataType>String</DataType>", "<StringValue>blue</StringValue>", "<Name>SenderId</Name>", "<Value>123456789012</Value>"} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("receive missing %q in %s", expected, body)
 		}
+	}
+	if got := xmlElement(body, "MD5OfMessageAttributes"); got != sentAttributesMD5 {
+		t.Fatalf("receive MD5OfMessageAttributes = %q, want %q in %s", got, sentAttributesMD5, body)
 	}
 }
 
@@ -557,17 +565,29 @@ func TestServiceHandlesSQSJSONMessageAttributes(t *testing.T) {
 	if res.Code != http.StatusOK {
 		t.Fatalf("send status = %d, body = %s", res.Code, res.Body.String())
 	}
+	var sent struct {
+		MD5OfMessageAttributes string `json:"MD5OfMessageAttributes"`
+	}
+	if err := json.Unmarshal(res.Body.Bytes(), &sent); err != nil {
+		t.Fatal(err)
+	}
+	if sent.MD5OfMessageAttributes == "" {
+		t.Fatalf("send missing MD5OfMessageAttributes in %s", res.Body.String())
+	}
 
 	res = executeAWSJSONRequest(t, handler, "ReceiveMessage", map[string]any{
-		"QueueUrl":              created.QueueURL,
-		"MessageAttributeNames": []string{"All"},
+		"QueueUrl":                    created.QueueURL,
+		"MessageAttributeNames":       []string{"All"},
+		"MessageSystemAttributeNames": []string{"All"},
 	})
 	if res.Code != http.StatusOK {
 		t.Fatalf("receive status = %d, body = %s", res.Code, res.Body.String())
 	}
 	var received struct {
 		Messages []struct {
-			MessageAttributes map[string]struct {
+			Attributes             map[string]string `json:"Attributes"`
+			MD5OfMessageAttributes string            `json:"MD5OfMessageAttributes"`
+			MessageAttributes      map[string]struct {
 				DataType    string `json:"DataType"`
 				StringValue string `json:"StringValue"`
 			} `json:"MessageAttributes"`
@@ -582,6 +602,12 @@ func TestServiceHandlesSQSJSONMessageAttributes(t *testing.T) {
 	color := received.Messages[0].MessageAttributes["color"]
 	if color.DataType != "String" || color.StringValue != "blue" {
 		t.Fatalf("message attributes = %#v", received.Messages[0].MessageAttributes)
+	}
+	if received.Messages[0].MD5OfMessageAttributes != sent.MD5OfMessageAttributes {
+		t.Fatalf("message attribute md5 = %q, want %q", received.Messages[0].MD5OfMessageAttributes, sent.MD5OfMessageAttributes)
+	}
+	if received.Messages[0].Attributes["SenderId"] != "123456789012" {
+		t.Fatalf("system attributes = %#v", received.Messages[0].Attributes)
 	}
 }
 

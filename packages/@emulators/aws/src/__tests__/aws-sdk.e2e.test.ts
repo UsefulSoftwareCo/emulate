@@ -324,13 +324,21 @@ describeExternalSqsE2E("AWS plugin - real @aws-sdk/client-sqs E2E", () => {
     );
     expect(sent.MessageId).toBeTruthy();
     expect(sent.MD5OfMessageBody).toBeTruthy();
+    expect(sent.MD5OfMessageAttributes).toBeTruthy();
 
     const received = await sqs.send(
-      new ReceiveMessageCommand({ QueueUrl, MaxNumberOfMessages: 1, MessageAttributeNames: ["All"] }),
+      new ReceiveMessageCommand({
+        QueueUrl,
+        MaxNumberOfMessages: 1,
+        MessageAttributeNames: ["All"],
+        MessageSystemAttributeNames: ["All"],
+      }),
     );
     expect(received.Messages).toHaveLength(1);
     expect(received.Messages?.[0]?.Body).toBe("hello from sqs sdk");
     expect(received.Messages?.[0]?.ReceiptHandle).toBeTruthy();
+    expect(received.Messages?.[0]?.Attributes?.SenderId).toBe("123456789012");
+    expect(received.Messages?.[0]?.MD5OfMessageAttributes).toBe(sent.MD5OfMessageAttributes);
     expect(received.Messages?.[0]?.MessageAttributes?.color?.StringValue).toBe("blue");
 
     await sqs.send(new DeleteMessageCommand({ QueueUrl, ReceiptHandle: received.Messages?.[0]?.ReceiptHandle }));

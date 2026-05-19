@@ -4,9 +4,11 @@ import (
 	"crypto/md5"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash"
 	"net/http"
 	"sort"
 	"strconv"
@@ -230,29 +232,38 @@ func (h *Handler) sendMessage(params map[string]string, requestID string) protoc
 	}
 	messageID := h.generateID()
 	bodyMD5 := md5Hex(messageBody)
+	messageAttributes := parseMessageAttributes(params)
+	messageAttributesMD5 := md5OfMessageAttributes(messageAttributes)
 	now := h.nowMillis()
 	h.Messages.Insert(corestore.Record{
-		"queue_name":     stringField(queue, "queue_name"),
-		"message_id":     messageID,
-		"receipt_handle": h.generateReceiptHandle(),
-		"body":           messageBody,
-		"md5_of_body":    bodyMD5,
+		"queue_name":                stringField(queue, "queue_name"),
+		"message_id":                messageID,
+		"receipt_handle":            h.generateReceiptHandle(),
+		"body":                      messageBody,
+		"md5_of_body":               bodyMD5,
+		"md5_of_message_attributes": messageAttributesMD5,
+		"first_receive_timestamp":   int64(0),
 		"attributes": corestore.Record{
 			"SentTimestamp":                    strconv.FormatInt(now, 10),
 			"ApproximateReceiveCount":          "0",
 			"ApproximateFirstReceiveTimestamp": "",
 			"SenderId":                         h.accountID(),
 		},
-		"message_attributes": parseMessageAttributes(params),
+		"message_attributes": messageAttributes,
 		"visible_after":      now + int64(messageDelaySeconds(params, queue))*1000,
 		"sent_timestamp":     now,
 		"receive_count":      0,
 	})
+	messageAttributesMD5XML := ""
+	if messageAttributesMD5 != "" {
+		messageAttributesMD5XML = `
+    <MD5OfMessageAttributes>` + messageAttributesMD5 + `</MD5OfMessageAttributes>`
+	}
 	body := `<?xml version="1.0" encoding="UTF-8"?>
 <SendMessageResponse>
   <SendMessageResult>
     <MessageId>` + xmlEscape(messageID) + `</MessageId>
-    <MD5OfMessageBody>` + bodyMD5 + `</MD5OfMessageBody>
+    <MD5OfMessageBody>` + bodyMD5 + `</MD5OfMessageBody>` + messageAttributesMD5XML + `
   </SendMessageResult>
   <ResponseMetadata><RequestId>` + xmlEscape(requestID) + `</RequestId></ResponseMetadata>
 </SendMessageResponse>`
@@ -303,16 +314,8 @@ func (h *Handler) receiveMessage(params map[string]string, requestID string) pro
       <Body>`)
 		rows.WriteString(xmlEscape(stringField(message, "body")))
 		rows.WriteString(`</Body>
-      <Attribute><Name>SentTimestamp</Name><Value>`)
-		rows.WriteString(strconv.FormatInt(int64Field(message, "sent_timestamp"), 10))
-		rows.WriteString(`</Value></Attribute>
-      <Attribute><Name>ApproximateReceiveCount</Name><Value>`)
-		rows.WriteString(strconv.Itoa(intField(message, "receive_count")))
-		rows.WriteString(`</Value></Attribute>
-      <Attribute><Name>ApproximateFirstReceiveTimestamp</Name><Value>`)
-		rows.WriteString(strconv.FormatInt(int64Field(message, "sent_timestamp"), 10))
-		rows.WriteString(`</Value></Attribute>
 `)
+		writeSystemAttributesXML(&rows, message, params)
 		writeMessageAttributesXML(&rows, message, params)
 		rows.WriteString(`    </Message>
 `)
@@ -460,28 +463,36 @@ func (h *Handler) sendMessageJSON(params map[string]string) protocols.ErrorRespo
 	}
 	messageID := h.generateID()
 	bodyMD5 := md5Hex(messageBody)
+	messageAttributes := parseMessageAttributes(params)
+	messageAttributesMD5 := md5OfMessageAttributes(messageAttributes)
 	now := h.nowMillis()
 	h.Messages.Insert(corestore.Record{
-		"queue_name":     stringField(queue, "queue_name"),
-		"message_id":     messageID,
-		"receipt_handle": h.generateReceiptHandle(),
-		"body":           messageBody,
-		"md5_of_body":    bodyMD5,
+		"queue_name":                stringField(queue, "queue_name"),
+		"message_id":                messageID,
+		"receipt_handle":            h.generateReceiptHandle(),
+		"body":                      messageBody,
+		"md5_of_body":               bodyMD5,
+		"md5_of_message_attributes": messageAttributesMD5,
+		"first_receive_timestamp":   int64(0),
 		"attributes": corestore.Record{
 			"SentTimestamp":                    strconv.FormatInt(now, 10),
 			"ApproximateReceiveCount":          "0",
 			"ApproximateFirstReceiveTimestamp": "",
 			"SenderId":                         h.accountID(),
 		},
-		"message_attributes": parseMessageAttributes(params),
+		"message_attributes": messageAttributes,
 		"visible_after":      now + int64(messageDelaySeconds(params, queue))*1000,
 		"sent_timestamp":     now,
 		"receive_count":      0,
 	})
-	return jsonResponse(http.StatusOK, map[string]any{
+	response := map[string]any{
 		"MD5OfMessageBody": bodyMD5,
 		"MessageId":        messageID,
-	})
+	}
+	if messageAttributesMD5 != "" {
+		response["MD5OfMessageAttributes"] = messageAttributesMD5
+	}
+	return jsonResponse(http.StatusOK, response)
 }
 
 func (h *Handler) receiveMessageJSON(params map[string]string) protocols.ErrorResponse {
@@ -512,14 +523,15 @@ func (h *Handler) receiveMessageJSON(params map[string]string) protocols.ErrorRe
 			"ReceiptHandle": stringField(updated, "receipt_handle"),
 			"MD5OfBody":     stringField(updated, "md5_of_body"),
 			"Body":          stringField(updated, "body"),
-			"Attributes": map[string]string{
-				"SentTimestamp":                    strconv.FormatInt(int64Field(updated, "sent_timestamp"), 10),
-				"ApproximateReceiveCount":          strconv.Itoa(intField(updated, "receive_count")),
-				"ApproximateFirstReceiveTimestamp": strconv.FormatInt(int64Field(updated, "sent_timestamp"), 10),
-			},
+		}
+		if attrs := selectedSystemAttributes(updated, params); len(attrs) > 0 {
+			item["Attributes"] = attrs
 		}
 		if attrs := selectedMessageAttributes(updated, params); len(attrs) > 0 {
 			item["MessageAttributes"] = attrs
+			if md5Value := stringField(updated, "md5_of_message_attributes"); md5Value != "" {
+				item["MD5OfMessageAttributes"] = md5Value
+			}
 		}
 		messages = append(messages, item)
 		if len(messages) == maxMessages {
@@ -808,12 +820,69 @@ func (h *Handler) reserveVisibleMessage(message corestore.Record, now int64, vis
 		if int64Field(current, "visible_after") > now {
 			return nil, false
 		}
-		return corestore.Record{
+		patch := corestore.Record{
 			"receipt_handle": receiptHandle,
 			"visible_after":  now + int64(visibilityTimeout)*1000,
 			"receive_count":  intField(current, "receive_count") + 1,
-		}, true
+		}
+		if int64Field(current, "first_receive_timestamp") == 0 {
+			patch["first_receive_timestamp"] = now
+		}
+		return patch, true
 	})
+}
+
+var systemAttributeOrder = []string{
+	"SenderId",
+	"SentTimestamp",
+	"ApproximateReceiveCount",
+	"ApproximateFirstReceiveTimestamp",
+}
+
+func selectedSystemAttributes(message corestore.Record, params map[string]string) map[string]string {
+	requested := indexedNames(params, "AttributeName")
+	requested = append(requested, indexedNames(params, "MessageSystemAttributeName")...)
+	if len(requested) == 0 {
+		return map[string]string{}
+	}
+	available := systemAttributes(message)
+	selected := map[string]string{}
+	for _, request := range requested {
+		if request == "All" || request == ".*" {
+			for name, value := range available {
+				selected[name] = value
+			}
+			continue
+		}
+		if strings.HasSuffix(request, ".*") {
+			prefix := strings.TrimSuffix(request, ".*")
+			for name, value := range available {
+				if strings.HasPrefix(name, prefix) {
+					selected[name] = value
+				}
+			}
+			continue
+		}
+		if value, ok := available[request]; ok {
+			selected[request] = value
+		}
+	}
+	return selected
+}
+
+func systemAttributes(message corestore.Record) map[string]string {
+	firstReceiveTimestamp := int64Field(message, "first_receive_timestamp")
+	if firstReceiveTimestamp == 0 {
+		firstReceiveTimestamp = int64Field(message, "sent_timestamp")
+	}
+	attributes := recordField(message, "attributes")
+	senderID := stringField(attributes, "SenderId")
+	return map[string]string{
+		"SenderId":                         senderID,
+		"SentTimestamp":                    strconv.FormatInt(int64Field(message, "sent_timestamp"), 10),
+		"ApproximateReceiveCount":          strconv.Itoa(intField(message, "receive_count")),
+		"ApproximateFirstReceiveTimestamp": strconv.FormatInt(firstReceiveTimestamp, 10),
+	}
 }
 
 func selectedMessageAttributes(message corestore.Record, params map[string]string) corestore.Record {
@@ -861,8 +930,32 @@ func indexedNames(params map[string]string, prefix string) []string {
 	return names
 }
 
+func writeSystemAttributesXML(rows *strings.Builder, message corestore.Record, params map[string]string) {
+	attrs := selectedSystemAttributes(message, params)
+	for _, name := range systemAttributeOrder {
+		value, ok := attrs[name]
+		if !ok {
+			continue
+		}
+		rows.WriteString(`      <Attribute><Name>`)
+		rows.WriteString(xmlEscape(name))
+		rows.WriteString(`</Name><Value>`)
+		rows.WriteString(xmlEscape(value))
+		rows.WriteString(`</Value></Attribute>
+`)
+	}
+}
+
 func writeMessageAttributesXML(rows *strings.Builder, message corestore.Record, params map[string]string) {
 	attrs := selectedMessageAttributes(message, params)
+	if len(attrs) > 0 {
+		if md5Value := stringField(message, "md5_of_message_attributes"); md5Value != "" {
+			rows.WriteString(`      <MD5OfMessageAttributes>`)
+			rows.WriteString(md5Value)
+			rows.WriteString(`</MD5OfMessageAttributes>
+`)
+		}
+	}
 	names := sortedRecordKeys(attrs)
 	for _, name := range names {
 		value := recordValue(attrs[name])
@@ -973,6 +1066,58 @@ func boolField(record corestore.Record, name string) bool {
 func md5Hex(value string) string {
 	sum := md5.Sum([]byte(value))
 	return hex.EncodeToString(sum[:])
+}
+
+func md5OfMessageAttributes(attrs corestore.Record) string {
+	if len(attrs) == 0 {
+		return ""
+	}
+	hasher := md5.New()
+	for _, name := range sortedRecordKeys(attrs) {
+		value := recordValue(attrs[name])
+		dataType := stringField(value, "DataType")
+		if dataType == "" {
+			dataType = "String"
+		}
+		writeMD5LengthPrefixedString(hasher, name)
+		writeMD5LengthPrefixedString(hasher, dataType)
+		if strings.HasPrefix(dataType, "Binary") {
+			hasher.Write([]byte{2})
+			writeMD5LengthPrefixedBytes(hasher, messageAttributeBinaryBytes(stringField(value, "BinaryValue")))
+			continue
+		}
+		hasher.Write([]byte{1})
+		writeMD5LengthPrefixedString(hasher, stringField(value, "StringValue"))
+	}
+	return hex.EncodeToString(hasher.Sum(nil))
+}
+
+func writeMD5LengthPrefixedString(hasher hash.Hash, value string) {
+	writeMD5LengthPrefixedBytes(hasher, []byte(value))
+}
+
+func writeMD5LengthPrefixedBytes(hasher hash.Hash, value []byte) {
+	var length [4]byte
+	binary.BigEndian.PutUint32(length[:], uint32(len(value)))
+	hasher.Write(length[:])
+	hasher.Write(value)
+}
+
+func messageAttributeBinaryBytes(value string) []byte {
+	if value == "" {
+		return nil
+	}
+	for _, encoding := range []*base64.Encoding{
+		base64.StdEncoding,
+		base64.RawStdEncoding,
+		base64.URLEncoding,
+		base64.RawURLEncoding,
+	} {
+		if decoded, err := encoding.DecodeString(value); err == nil {
+			return decoded
+		}
+	}
+	return []byte(value)
 }
 
 type nameValue struct {
