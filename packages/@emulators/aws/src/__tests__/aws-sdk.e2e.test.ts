@@ -14,6 +14,18 @@ import {
   CopyObjectCommand,
   ListObjectsV2Command,
 } from "@aws-sdk/client-s3";
+import {
+  SQSClient,
+  ListQueuesCommand,
+  CreateQueueCommand as CreateSQSQueueCommand,
+  GetQueueUrlCommand,
+  GetQueueAttributesCommand,
+  SendMessageCommand,
+  ReceiveMessageCommand,
+  DeleteMessageCommand,
+  PurgeQueueCommand,
+  DeleteQueueCommand as DeleteSQSQueueCommand,
+} from "@aws-sdk/client-sqs";
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
 import { createTestApp } from "./helpers.js";
 
@@ -48,6 +60,8 @@ async function streamToString(stream: unknown): Promise<string> {
   }
   return Buffer.concat(chunks).toString();
 }
+
+const describeExternalSqsE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 
 describe("AWS plugin - real @aws-sdk/client-s3 E2E", () => {
   let emulator: EmulatorHandle;
@@ -242,5 +256,92 @@ describe("AWS plugin - real @aws-sdk/client-s3 E2E", () => {
     const res = await fetch(post.url, { method: "POST", body: form });
     expect(res.status).toBe(400);
     expect(await res.text()).toContain("EntityTooLarge");
+  });
+});
+
+describeExternalSqsE2E("AWS plugin - real @aws-sdk/client-sqs E2E", () => {
+  let emulator: EmulatorHandle;
+  let sqs: SQSClient;
+
+  beforeAll(async () => {
+    emulator = await startEmulator();
+    sqs = new SQSClient({
+      endpoint: `${emulator.url.replace(/\/$/, "")}/sqs/`,
+      region: "us-east-1",
+      credentials: { accessKeyId: "AKIA", secretAccessKey: "secret" },
+    });
+  });
+
+  afterAll(async () => {
+    sqs.destroy();
+    await emulator.close();
+  });
+
+  it("ListQueues returns the seeded default queue", async () => {
+    const res = await sqs.send(new ListQueuesCommand({}));
+    expect(res.QueueUrls ?? []).toEqual(expect.arrayContaining([expect.stringContaining("emulate-default-queue")]));
+  });
+
+  it("CreateQueue, GetQueueUrl, GetQueueAttributes, and DeleteQueue roundtrip", async () => {
+    const created = await sqs.send(
+      new CreateSQSQueueCommand({
+        QueueName: "sdk-e2e-queue",
+        Attributes: { VisibilityTimeout: "45" },
+      }),
+    );
+    expect(created.QueueUrl).toContain("sdk-e2e-queue");
+
+    const byName = await sqs.send(new GetQueueUrlCommand({ QueueName: "sdk-e2e-queue" }));
+    expect(byName.QueueUrl).toBe(created.QueueUrl);
+
+    const attrs = await sqs.send(
+      new GetQueueAttributesCommand({
+        QueueUrl: created.QueueUrl,
+        AttributeNames: ["All"],
+      }),
+    );
+    expect(attrs.Attributes?.QueueArn).toContain("sdk-e2e-queue");
+    expect(attrs.Attributes?.VisibilityTimeout).toBe("45");
+
+    const listed = await sqs.send(new ListQueuesCommand({ QueueNamePrefix: "sdk-e2e-" }));
+    expect(listed.QueueUrls ?? []).toContain(created.QueueUrl);
+
+    await sqs.send(new DeleteSQSQueueCommand({ QueueUrl: created.QueueUrl }));
+    const afterDelete = await sqs.send(new ListQueuesCommand({ QueueNamePrefix: "sdk-e2e-queue" }));
+    expect(afterDelete.QueueUrls ?? []).not.toContain(created.QueueUrl);
+  });
+
+  it("SendMessage, ReceiveMessage, and DeleteMessage roundtrip", async () => {
+    const { QueueUrl } = await sqs.send(new CreateSQSQueueCommand({ QueueName: "sdk-e2e-messages" }));
+    expect(QueueUrl).toBeTruthy();
+
+    const sent = await sqs.send(new SendMessageCommand({ QueueUrl, MessageBody: "hello from sqs sdk" }));
+    expect(sent.MessageId).toBeTruthy();
+    expect(sent.MD5OfMessageBody).toBeTruthy();
+
+    const received = await sqs.send(new ReceiveMessageCommand({ QueueUrl, MaxNumberOfMessages: 1 }));
+    expect(received.Messages).toHaveLength(1);
+    expect(received.Messages?.[0]?.Body).toBe("hello from sqs sdk");
+    expect(received.Messages?.[0]?.ReceiptHandle).toBeTruthy();
+
+    await sqs.send(new DeleteMessageCommand({ QueueUrl, ReceiptHandle: received.Messages?.[0]?.ReceiptHandle }));
+    const afterDelete = await sqs.send(new ReceiveMessageCommand({ QueueUrl, MaxNumberOfMessages: 1 }));
+    expect(afterDelete.Messages ?? []).toHaveLength(0);
+
+    await sqs.send(new DeleteSQSQueueCommand({ QueueUrl }));
+  });
+
+  it("PurgeQueue removes visible messages", async () => {
+    const { QueueUrl } = await sqs.send(new CreateSQSQueueCommand({ QueueName: "sdk-e2e-purge" }));
+    expect(QueueUrl).toBeTruthy();
+
+    await sqs.send(new SendMessageCommand({ QueueUrl, MessageBody: "one" }));
+    await sqs.send(new SendMessageCommand({ QueueUrl, MessageBody: "two" }));
+    await sqs.send(new PurgeQueueCommand({ QueueUrl }));
+
+    const received = await sqs.send(new ReceiveMessageCommand({ QueueUrl, MaxNumberOfMessages: 10 }));
+    expect(received.Messages ?? []).toHaveLength(0);
+
+    await sqs.send(new DeleteSQSQueueCommand({ QueueUrl }));
   });
 });

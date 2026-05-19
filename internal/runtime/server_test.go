@@ -67,10 +67,10 @@ func TestNewHandlerMountsAWSInConservativeModeByDefault(t *testing.T) {
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 
-	if res.Code != http.StatusNotImplemented {
+	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
 	}
-	if !strings.Contains(res.Body.String(), "sqs.CreateQueue") {
+	if !strings.Contains(res.Body.String(), "<CreateQueueResponse>") || !strings.Contains(res.Body.String(), "jobs") {
 		t.Fatalf("unexpected body: %s", res.Body.String())
 	}
 }
@@ -85,10 +85,10 @@ func TestNewHandlerMountsAWSWhenEnabled(t *testing.T) {
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 
-	if res.Code != http.StatusNotImplemented {
+	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
 	}
-	if !strings.Contains(res.Body.String(), "sqs.CreateQueue") {
+	if !strings.Contains(res.Body.String(), "<CreateQueueResponse>") || !strings.Contains(res.Body.String(), "jobs") {
 		t.Fatalf("unexpected body: %s", res.Body.String())
 	}
 }

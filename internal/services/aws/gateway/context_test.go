@@ -700,6 +700,12 @@ func TestBuildContextJSONRPCTargetOnlyServicePrefixes(t *testing.T) {
 			want:       "secretsmanager",
 			wantAction: "GetSecretValue",
 		},
+		{
+			name:       "sqs",
+			target:     "AmazonSQS.ListQueues",
+			want:       "sqs",
+			wantAction: "ListQueues",
+		},
 	}
 
 	for _, test := range tests {

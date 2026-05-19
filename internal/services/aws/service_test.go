@@ -7,6 +7,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -317,16 +318,11 @@ func TestServiceReturnsUnsignedS3SubresourceNotImplemented(t *testing.T) {
 	}
 }
 
-func TestServiceReturnsQueryXMLNotImplemented(t *testing.T) {
+func TestServiceHandlesSQSCreateQueue(t *testing.T) {
 	handler := newTestHandler()
-	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/sqs/", strings.NewReader("Action=CreateQueue&QueueName=jobs"))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	signAWSRequest(req, "sqs")
+	res := executeAWSQueryRequest(handler, "sqs", "Action=CreateQueue&QueueName=jobs")
 
-	res := httptest.NewRecorder()
-	handler.ServeHTTP(res, req)
-
-	if res.Code != http.StatusNotImplemented {
+	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
 	}
 	if got := res.Header().Get("Content-Type"); got != "application/xml" {
@@ -336,12 +332,12 @@ func TestServiceReturnsQueryXMLNotImplemented(t *testing.T) {
 		t.Fatal("missing x-amzn-requestid")
 	}
 	body := res.Body.String()
-	if !strings.Contains(body, "<Code>NotImplemented</Code>") || !strings.Contains(body, "sqs.CreateQueue") {
+	if !strings.Contains(body, "<CreateQueueResponse>") || !strings.Contains(body, "<QueueUrl>") || !strings.Contains(body, "jobs") {
 		t.Fatalf("unexpected body: %s", body)
 	}
 }
 
-func TestServiceAcceptsBearerTokenForQueryShell(t *testing.T) {
+func TestServiceAcceptsBearerTokenForSQSQuery(t *testing.T) {
 	handler := newTestHandler()
 	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/sqs/", strings.NewReader("Action=CreateQueue&QueueName=jobs"))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -350,14 +346,118 @@ func TestServiceAcceptsBearerTokenForQueryShell(t *testing.T) {
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 
-	if res.Code != http.StatusNotImplemented {
+	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
 	}
 	if got := res.Header().Get("Content-Type"); got != "application/xml" {
 		t.Fatalf("content type = %q", got)
 	}
-	if body := res.Body.String(); !strings.Contains(body, "sqs.CreateQueue") {
+	if body := res.Body.String(); !strings.Contains(body, "<CreateQueueResponse>") {
 		t.Fatalf("unexpected body: %s", body)
+	}
+}
+
+func TestServiceHandlesSQSLifecycle(t *testing.T) {
+	handler := newTestHandler()
+
+	res := executeAWSQueryRequest(handler, "sqs", "Action=ListQueues")
+	if res.Code != http.StatusOK {
+		t.Fatalf("list status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if body := res.Body.String(); !strings.Contains(body, "emulate-default-queue") {
+		t.Fatalf("list missing default queue: %s", body)
+	}
+
+	res = executeAWSQueryRequest(handler, "sqs", "Action=GetQueueUrl&QueueName=emulate-default-queue")
+	if res.Code != http.StatusOK {
+		t.Fatalf("get url status = %d, body = %s", res.Code, res.Body.String())
+	}
+	queueURL := xmlElement(res.Body.String(), "QueueUrl")
+	if queueURL == "" {
+		t.Fatalf("missing queue url in %s", res.Body.String())
+	}
+
+	res = executeAWSQueryRequest(handler, "sqs", "Action=GetQueueAttributes&QueueUrl="+url.QueryEscape(queueURL))
+	if res.Code != http.StatusOK {
+		t.Fatalf("attributes status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if body := res.Body.String(); !strings.Contains(body, "<Name>QueueArn</Name>") || !strings.Contains(body, "<Name>VisibilityTimeout</Name>") {
+		t.Fatalf("unexpected attributes body: %s", body)
+	}
+
+	res = executeAWSQueryRequest(handler, "sqs", "Action=SendMessage&QueueUrl="+url.QueryEscape(queueURL)+"&MessageBody=test+message")
+	if res.Code != http.StatusOK {
+		t.Fatalf("send status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if body := res.Body.String(); !strings.Contains(body, "<SendMessageResponse>") || !strings.Contains(body, "<MessageId>") {
+		t.Fatalf("unexpected send body: %s", body)
+	}
+
+	res = executeAWSQueryRequest(handler, "sqs", "Action=ReceiveMessage&QueueUrl="+url.QueryEscape(queueURL)+"&MaxNumberOfMessages=1")
+	if res.Code != http.StatusOK {
+		t.Fatalf("receive status = %d, body = %s", res.Code, res.Body.String())
+	}
+	body := res.Body.String()
+	if !strings.Contains(body, "<Body>test message</Body>") || !strings.Contains(body, "<ReceiptHandle>") {
+		t.Fatalf("unexpected receive body: %s", body)
+	}
+	receiptHandle := xmlElement(body, "ReceiptHandle")
+	if receiptHandle == "" {
+		t.Fatalf("missing receipt handle in %s", body)
+	}
+
+	res = executeAWSQueryRequest(handler, "sqs", "Action=DeleteMessage&QueueUrl="+url.QueryEscape(queueURL)+"&ReceiptHandle="+url.QueryEscape(receiptHandle))
+	if res.Code != http.StatusOK {
+		t.Fatalf("delete message status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if body := res.Body.String(); !strings.Contains(body, "<DeleteMessageResponse>") {
+		t.Fatalf("unexpected delete message body: %s", body)
+	}
+}
+
+func TestServiceHandlesSQSPurgeAndDeleteQueue(t *testing.T) {
+	handler := newTestHandler()
+
+	res := executeAWSQueryRequest(handler, "sqs", "Action=CreateQueue&QueueName=jobs")
+	if res.Code != http.StatusOK {
+		t.Fatalf("create status = %d, body = %s", res.Code, res.Body.String())
+	}
+	queueURL := xmlElement(res.Body.String(), "QueueUrl")
+	if queueURL == "" {
+		t.Fatalf("missing queue url in %s", res.Body.String())
+	}
+
+	for _, body := range []string{"one", "two"} {
+		res = executeAWSQueryRequest(handler, "sqs", "Action=SendMessage&QueueUrl="+url.QueryEscape(queueURL)+"&MessageBody="+url.QueryEscape(body))
+		if res.Code != http.StatusOK {
+			t.Fatalf("send %s status = %d, body = %s", body, res.Code, res.Body.String())
+		}
+	}
+
+	res = executeAWSQueryRequest(handler, "sqs", "Action=PurgeQueue&QueueUrl="+url.QueryEscape(queueURL))
+	if res.Code != http.StatusOK {
+		t.Fatalf("purge status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSQueryRequest(handler, "sqs", "Action=ReceiveMessage&QueueUrl="+url.QueryEscape(queueURL))
+	if res.Code != http.StatusOK {
+		t.Fatalf("receive after purge status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if strings.Contains(res.Body.String(), "<Message>") {
+		t.Fatalf("purged queue returned messages: %s", res.Body.String())
+	}
+
+	res = executeAWSQueryRequest(handler, "sqs", "Action=DeleteQueue&QueueUrl="+url.QueryEscape(queueURL))
+	if res.Code != http.StatusOK {
+		t.Fatalf("delete queue status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSQueryRequest(handler, "sqs", "Action=GetQueueUrl&QueueName=jobs")
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("get deleted queue status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), "<Code>AWS.SimpleQueueService.NonExistentQueue</Code>") {
+		t.Fatalf("unexpected missing queue body: %s", res.Body.String())
 	}
 }
 
@@ -569,6 +669,12 @@ func executeAWSRequest(handler http.Handler, method string, target string, body 
 	return res
 }
 
+func executeAWSQueryRequest(handler http.Handler, service string, body string) *httptest.ResponseRecorder {
+	return executeAWSRequest(handler, http.MethodPost, "http://127.0.0.1/"+service+"/", []byte(body), service, map[string]string{
+		"Content-Type": "application/x-www-form-urlencoded",
+	})
+}
+
 func executeS3MultipartPost(t *testing.T, handler http.Handler, target string, fields map[string]string, fileBody []byte) *httptest.ResponseRecorder {
 	t.Helper()
 	var body bytes.Buffer
@@ -603,6 +709,21 @@ func encodePostPolicy(t *testing.T, conditions []any) string {
 		t.Fatal(err)
 	}
 	return base64.StdEncoding.EncodeToString(raw)
+}
+
+func xmlElement(body string, name string) string {
+	startToken := "<" + name + ">"
+	endToken := "</" + name + ">"
+	start := strings.Index(body, startToken)
+	if start < 0 {
+		return ""
+	}
+	start += len(startToken)
+	end := strings.Index(body[start:], endToken)
+	if end < 0 {
+		return ""
+	}
+	return body[start : start+end]
 }
 
 func signAWSRequest(req *http.Request, service string) {

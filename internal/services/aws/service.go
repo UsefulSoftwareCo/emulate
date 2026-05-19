@@ -11,6 +11,7 @@ import (
 	"github.com/vercel-labs/emulate/internal/services/aws/gateway"
 	"github.com/vercel-labs/emulate/internal/services/aws/protocols"
 	awss3 "github.com/vercel-labs/emulate/internal/services/aws/s3"
+	awssqs "github.com/vercel-labs/emulate/internal/services/aws/sqs"
 )
 
 type Options struct {
@@ -33,6 +34,7 @@ type Service struct {
 	credentialStore  *auth.Store
 	s3PathFallback   bool
 	s3               awss3.Handler
+	sqs              awssqs.Handler
 }
 
 func Register(router *corehttp.Router, options Options) {
@@ -60,6 +62,7 @@ func New(options Options) *Service {
 	}
 	awsStore := NewStore(runtimeStore)
 	seedS3Defaults(awsStore, defaultRegion)
+	seedSQSDefaults(awsStore, options.BaseURL, defaultAccountID, defaultRegion)
 	return &Service{
 		store:            awsStore,
 		assets:           assetStore,
@@ -74,6 +77,13 @@ func New(options Options) *Service {
 			Assets:  assetStore,
 			BaseURL: options.BaseURL,
 			Region:  defaultRegion,
+		},
+		sqs: awssqs.Handler{
+			Queues:    awsStore.SQSQueues,
+			Messages:  awsStore.SQSMessages,
+			BaseURL:   options.BaseURL,
+			AccountID: defaultAccountID,
+			Region:    defaultRegion,
 		},
 	}
 }
@@ -107,6 +117,10 @@ func (s *Service) handleAWS(c *corehttp.Context) {
 
 	if ctx.Service == "s3" && ctx.Protocol == protocols.ProtocolRESTXML {
 		writeErrorResponse(c, s.s3.Handle(c.Request, ctx))
+		return
+	}
+	if ctx.Service == "sqs" && (ctx.Protocol == protocols.ProtocolQuery || ctx.Protocol == protocols.ProtocolJSONRPC) {
+		writeErrorResponse(c, s.sqs.Handle(c.Request, ctx))
 		return
 	}
 

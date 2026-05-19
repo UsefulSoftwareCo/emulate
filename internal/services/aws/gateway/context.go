@@ -438,6 +438,7 @@ var queryActionServices = map[string]string{
 
 var jsonTargetServices = map[string]string{
 	"AmazonCloudWatchLogs": "logs",
+	"AmazonSQS":            "sqs",
 	"DynamoDB":             "dynamodb",
 	"Lambda":               "lambda",
 	"AWSEvents":            "events",
