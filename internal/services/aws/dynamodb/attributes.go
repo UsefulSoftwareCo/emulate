@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"sort"
 	"strconv"
 	"strings"
@@ -74,8 +75,8 @@ func normalizeAttributeValue(raw any) (map[string]any, error) {
 		case "S":
 			out[kind] = scalarString(value)
 		case "N":
-			number := scalarString(value)
-			if _, err := strconv.ParseFloat(number, 64); err != nil {
+			number := strings.TrimSpace(scalarString(value))
+			if _, err := numberRat(number); err != nil {
 				return nil, fmt.Errorf("invalid number %q", number)
 			}
 			out[kind] = number
@@ -106,7 +107,7 @@ func normalizeAttributeValue(raw any) (map[string]any, error) {
 			}
 			if kind == "NS" {
 				for _, number := range list {
-					if _, err := strconv.ParseFloat(number, 64); err != nil {
+					if _, err := numberRat(number); err != nil {
 						return nil, fmt.Errorf("invalid number %q", number)
 					}
 				}
@@ -172,10 +173,26 @@ func keyAttributeNames(table corestore.Record) (string, string) {
 	return partitionName, sortName
 }
 
+func keyAttributeTypes(table corestore.Record) map[string]string {
+	types := map[string]string{}
+	for _, item := range recordList(table["attribute_definitions"]) {
+		name := stringRecordField(item, "AttributeName")
+		if name != "" {
+			types[name] = strings.ToUpper(stringRecordField(item, "AttributeType"))
+		}
+	}
+	return types
+}
+
 func attributeIdentity(value any) string {
 	normalized, err := normalizeAttributeValue(value)
 	if err != nil {
 		return fmt.Sprint(value)
+	}
+	if number, ok := normalized["N"].(string); ok {
+		if canonical, err := canonicalNumber(number); err == nil {
+			return "N:" + canonical
+		}
 	}
 	raw, _ := json.Marshal(normalized)
 	return string(raw)
@@ -185,6 +202,123 @@ func sameAttributeValue(left any, right any) bool {
 	leftID := attributeIdentity(left)
 	rightID := attributeIdentity(right)
 	return leftID == rightID
+}
+
+func compareKeyAttribute(left any, right any, attributeType string) int {
+	leftValue, err := normalizeAttributeValue(left)
+	if err != nil {
+		return strings.Compare(fmt.Sprint(left), fmt.Sprint(right))
+	}
+	rightValue, err := normalizeAttributeValue(right)
+	if err != nil {
+		return strings.Compare(fmt.Sprint(left), fmt.Sprint(right))
+	}
+	switch strings.ToUpper(attributeType) {
+	case "N":
+		leftNumber, leftOK := leftValue["N"].(string)
+		rightNumber, rightOK := rightValue["N"].(string)
+		if leftOK && rightOK {
+			leftRat, leftErr := numberRat(leftNumber)
+			rightRat, rightErr := numberRat(rightNumber)
+			if leftErr == nil && rightErr == nil {
+				return leftRat.Cmp(rightRat)
+			}
+		}
+	case "B":
+		leftEncoded, leftOK := leftValue["B"].(string)
+		rightEncoded, rightOK := rightValue["B"].(string)
+		if leftOK && rightOK {
+			leftBytes, leftErr := base64.StdEncoding.DecodeString(leftEncoded)
+			rightBytes, rightErr := base64.StdEncoding.DecodeString(rightEncoded)
+			if leftErr == nil && rightErr == nil {
+				return strings.Compare(string(leftBytes), string(rightBytes))
+			}
+		}
+	case "S":
+		leftString, leftOK := leftValue["S"].(string)
+		rightString, rightOK := rightValue["S"].(string)
+		if leftOK && rightOK {
+			return strings.Compare(leftString, rightString)
+		}
+	}
+	return strings.Compare(attributeIdentity(leftValue), attributeIdentity(rightValue))
+}
+
+func canonicalNumber(raw string) (string, error) {
+	rat, err := numberRat(raw)
+	if err != nil {
+		return "", err
+	}
+	return rat.RatString(), nil
+}
+
+func numberRat(raw string) (*big.Rat, error) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return nil, fmt.Errorf("empty number")
+	}
+	sign := 1
+	if strings.HasPrefix(value, "+") || strings.HasPrefix(value, "-") {
+		if value[0] == '-' {
+			sign = -1
+		}
+		value = value[1:]
+	}
+	mantissa := value
+	exponent := 0
+	if index := strings.IndexAny(value, "eE"); index >= 0 {
+		mantissa = value[:index]
+		rawExponent := value[index+1:]
+		if rawExponent == "" {
+			return nil, fmt.Errorf("missing exponent")
+		}
+		parsed, err := strconv.Atoi(rawExponent)
+		if err != nil {
+			return nil, fmt.Errorf("invalid exponent")
+		}
+		exponent = parsed
+	}
+	digits := strings.Builder{}
+	fractionalDigits := 0
+	sawDigit := false
+	sawDecimal := false
+	for _, char := range mantissa {
+		switch {
+		case char >= '0' && char <= '9':
+			digits.WriteRune(char)
+			sawDigit = true
+			if sawDecimal {
+				fractionalDigits++
+			}
+		case char == '.':
+			if sawDecimal {
+				return nil, fmt.Errorf("multiple decimal points")
+			}
+			sawDecimal = true
+		default:
+			return nil, fmt.Errorf("invalid number")
+		}
+	}
+	if !sawDigit {
+		return nil, fmt.Errorf("missing digits")
+	}
+	digitString := strings.TrimLeft(digits.String(), "0")
+	if digitString == "" {
+		return big.NewRat(0, 1), nil
+	}
+	numerator := new(big.Int)
+	numerator.SetString(digitString, 10)
+	if sign < 0 {
+		numerator.Neg(numerator)
+	}
+	scale := fractionalDigits - exponent
+	if scale <= 0 {
+		multiplier := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(-scale)), nil)
+		numerator.Mul(numerator, multiplier)
+		return new(big.Rat).SetInt(numerator), nil
+	}
+	denominator := new(big.Int).Exp(big.NewInt(10), big.NewInt(int64(scale)), nil)
+	return new(big.Rat).SetFrac(numerator, denominator), nil
 }
 
 func cloneAttributeMap(input map[string]any) map[string]any {

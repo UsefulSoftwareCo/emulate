@@ -929,6 +929,109 @@ func TestServiceHandlesDynamoDBTableAndItemLifecycle(t *testing.T) {
 	}
 }
 
+func TestServiceHandlesDynamoDBNumericKeyIdentityAndOrdering(t *testing.T) {
+	handler := newTestHandler()
+
+	res := executeAWSDynamoDBRequest(t, handler, "CreateTable", map[string]any{
+		"TableName": "metrics",
+		"AttributeDefinitions": []map[string]any{
+			{"AttributeName": "account", "AttributeType": "N"},
+			{"AttributeName": "rank", "AttributeType": "N"},
+		},
+		"KeySchema": []map[string]any{
+			{"AttributeName": "account", "KeyType": "HASH"},
+			{"AttributeName": "rank", "KeyType": "RANGE"},
+		},
+		"BillingMode": "PAY_PER_REQUEST",
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("create numeric table status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSDynamoDBRequest(t, handler, "PutItem", map[string]any{
+		"TableName": "metrics",
+		"Item": map[string]any{
+			"account": map[string]any{"N": "01.0"},
+			"rank":    map[string]any{"N": "10"},
+			"label":   map[string]any{"S": "ten"},
+		},
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("put rank ten status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSDynamoDBRequest(t, handler, "PutItem", map[string]any{
+		"TableName": "metrics",
+		"Item": map[string]any{
+			"account": map[string]any{"N": "1"},
+			"rank":    map[string]any{"N": "2.0"},
+			"label":   map[string]any{"S": "two"},
+		},
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("put rank two status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSDynamoDBRequest(t, handler, "GetItem", map[string]any{
+		"TableName": "metrics",
+		"Key": map[string]any{
+			"account": map[string]any{"N": "1.00"},
+			"rank":    map[string]any{"N": "1e1"},
+		},
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("get equivalent numeric key status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var getBody map[string]map[string]map[string]any
+	decodeJSONBody(t, res, &getBody)
+	if getBody["Item"]["label"]["S"] != "ten" {
+		t.Fatalf("unexpected get body: %#v", getBody)
+	}
+
+	res = executeAWSDynamoDBRequest(t, handler, "PutItem", map[string]any{
+		"TableName":    "metrics",
+		"ReturnValues": "ALL_OLD",
+		"Item": map[string]any{
+			"account": map[string]any{"N": "1"},
+			"rank":    map[string]any{"N": "10.0"},
+			"label":   map[string]any{"S": "ten-updated"},
+		},
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("overwrite equivalent numeric key status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var putBody map[string]map[string]map[string]any
+	decodeJSONBody(t, res, &putBody)
+	if putBody["Attributes"]["label"]["S"] != "ten" {
+		t.Fatalf("overwrite did not return old item: %#v", putBody)
+	}
+
+	res = executeAWSDynamoDBRequest(t, handler, "Query", map[string]any{
+		"TableName":              "metrics",
+		"KeyConditionExpression": "#account = :account",
+		"ExpressionAttributeNames": map[string]any{
+			"#account": "account",
+		},
+		"ExpressionAttributeValues": map[string]any{
+			":account": map[string]any{"N": "1.000"},
+		},
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("query numeric partition status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var queryBody struct {
+		Count int                         `json:"Count"`
+		Items []map[string]map[string]any `json:"Items"`
+	}
+	decodeJSONBody(t, res, &queryBody)
+	if queryBody.Count != 2 {
+		t.Fatalf("query count = %d, body = %#v", queryBody.Count, queryBody)
+	}
+	if queryBody.Items[0]["label"]["S"] != "two" || queryBody.Items[1]["label"]["S"] != "ten-updated" {
+		t.Fatalf("query did not use numeric sort order: %#v", queryBody.Items)
+	}
+}
+
 func TestServiceRejectsDynamoDBUnsupportedExpressionsWithoutMutation(t *testing.T) {
 	handler := newTestHandler()
 

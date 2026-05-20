@@ -569,10 +569,20 @@ func (h *Handler) tableItems(table corestore.Record) []corestore.Record {
 			filtered = append(filtered, item)
 		}
 	}
+	partitionName, sortName := keyAttributeNames(table)
+	attributeTypes := keyAttributeTypes(table)
 	sort.Slice(filtered, func(left, right int) bool {
-		leftKey := stringRecordField(filtered[left], "pk") + "\x00" + stringRecordField(filtered[left], "sk")
-		rightKey := stringRecordField(filtered[right], "pk") + "\x00" + stringRecordField(filtered[right], "sk")
-		return leftKey < rightKey
+		leftKey := keyMap(filtered[left])
+		rightKey := keyMap(filtered[right])
+		if cmp := compareKeyAttribute(leftKey[partitionName], rightKey[partitionName], attributeTypes[partitionName]); cmp != 0 {
+			return cmp < 0
+		}
+		if sortName != "" {
+			if cmp := compareKeyAttribute(leftKey[sortName], rightKey[sortName], attributeTypes[sortName]); cmp != 0 {
+				return cmp < 0
+			}
+		}
+		return intRecordField(filtered[left], "id") < intRecordField(filtered[right], "id")
 	})
 	return filtered
 }
