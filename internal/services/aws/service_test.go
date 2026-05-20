@@ -652,6 +652,209 @@ func TestServiceHonorsSQSJSONMessageDelaySeconds(t *testing.T) {
 	}
 }
 
+func TestServiceHandlesSNSLifecycleAndSQSPublish(t *testing.T) {
+	handler := newTestHandler()
+
+	values := url.Values{}
+	values.Set("Action", "CreateTopic")
+	values.Set("Name", "app-events")
+	values.Set("Attribute.1.Name", "DisplayName")
+	values.Set("Attribute.1.Value", "App Events")
+	values.Set("Tag.1.Key", "env")
+	values.Set("Tag.1.Value", "test")
+	res := executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("create topic status = %d, body = %s", res.Code, res.Body.String())
+	}
+	topicARN := xmlElement(res.Body.String(), "TopicArn")
+	if topicARN != "arn:aws:sns:us-east-1:123456789012:app-events" {
+		t.Fatalf("topic arn = %q, body = %s", topicARN, res.Body.String())
+	}
+
+	res = executeAWSQueryRequest(handler, "sns", "Action=ListTopics")
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), topicARN) {
+		t.Fatalf("list topics status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "GetTopicAttributes")
+	values.Set("TopicArn", topicARN)
+	res = executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("get attrs status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if body := res.Body.String(); !strings.Contains(body, "<key>DisplayName</key><value>App Events</value>") || !strings.Contains(body, "<key>SubscriptionsConfirmed</key><value>0</value>") {
+		t.Fatalf("unexpected topic attrs: %s", body)
+	}
+
+	values = url.Values{}
+	values.Set("Action", "SetTopicAttributes")
+	values.Set("TopicArn", topicARN)
+	values.Set("AttributeName", "DeliveryPolicy")
+	values.Set("AttributeValue", `{"healthyRetryPolicy":{"numRetries":1}}`)
+	res = executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("set attrs status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSQueryRequest(handler, "sqs", "Action=CreateQueue&QueueName=app-events-queue")
+	if res.Code != http.StatusOK {
+		t.Fatalf("create queue status = %d, body = %s", res.Code, res.Body.String())
+	}
+	queueURL := xmlElement(res.Body.String(), "QueueUrl")
+	values = url.Values{}
+	values.Set("Action", "GetQueueAttributes")
+	values.Set("QueueUrl", queueURL)
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("queue attrs status = %d, body = %s", res.Code, res.Body.String())
+	}
+	queueARN := xmlValueForName(res.Body.String(), "QueueArn")
+	if queueARN == "" {
+		t.Fatalf("missing queue arn in %s", res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "Subscribe")
+	values.Set("TopicArn", topicARN)
+	values.Set("Protocol", "sqs")
+	values.Set("Endpoint", queueARN)
+	values.Set("Attributes.entry.1.key", "RawMessageDelivery")
+	values.Set("Attributes.entry.1.value", "false")
+	res = executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("subscribe status = %d, body = %s", res.Code, res.Body.String())
+	}
+	subscriptionARN := xmlElement(res.Body.String(), "SubscriptionArn")
+	if !strings.HasPrefix(subscriptionARN, topicARN+":") {
+		t.Fatalf("subscription arn = %q, body = %s", subscriptionARN, res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "Publish")
+	values.Set("TopicArn", topicARN)
+	values.Set("Subject", "created")
+	values.Set("Message", "order created")
+	values.Set("MessageAttributes.entry.1.Name", "trace")
+	values.Set("MessageAttributes.entry.1.Value.DataType", "String")
+	values.Set("MessageAttributes.entry.1.Value.StringValue", "abc123")
+	res = executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("publish status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if xmlElement(res.Body.String(), "MessageId") == "" {
+		t.Fatalf("missing message id in %s", res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "ReceiveMessage")
+	values.Set("QueueUrl", queueURL)
+	values.Set("MaxNumberOfMessages", "1")
+	values.Set("MessageAttributeName.1", "All")
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("receive status = %d, body = %s", res.Code, res.Body.String())
+	}
+	body := res.Body.String()
+	for _, expected := range []string{"order created", topicARN, "&quot;Type&quot;:&quot;Notification&quot;", "<Name>trace</Name>", "<StringValue>abc123</StringValue>"} {
+		if !strings.Contains(body, expected) {
+			t.Fatalf("receive missing %q in %s", expected, body)
+		}
+	}
+
+	values = url.Values{}
+	values.Set("Action", "ListSubscriptionsByTopic")
+	values.Set("TopicArn", topicARN)
+	res = executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), subscriptionARN) {
+		t.Fatalf("list subscriptions status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "Unsubscribe")
+	values.Set("SubscriptionArn", subscriptionARN)
+	res = executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("unsubscribe status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "DeleteTopic")
+	values.Set("TopicArn", topicARN)
+	res = executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("delete topic status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
+func TestServiceHandlesSNSTagsPermissionsAndErrors(t *testing.T) {
+	handler := newTestHandler()
+
+	values := url.Values{}
+	values.Set("Action", "CreateTopic")
+	values.Set("Name", "ops")
+	res := executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("create topic status = %d, body = %s", res.Code, res.Body.String())
+	}
+	topicARN := xmlElement(res.Body.String(), "TopicArn")
+
+	values = url.Values{}
+	values.Set("Action", "TagResource")
+	values.Set("ResourceArn", topicARN)
+	values.Set("Tags.member.1.Key", "team")
+	values.Set("Tags.member.1.Value", "platform")
+	res = executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("tag status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "ListTagsForResource")
+	values.Set("ResourceArn", topicARN)
+	res = executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), "<Key>team</Key><Value>platform</Value>") {
+		t.Fatalf("list tags status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "AddPermission")
+	values.Set("TopicArn", topicARN)
+	values.Set("Label", "publishers")
+	values.Set("AWSAccountId.member.1", "111122223333")
+	values.Set("ActionName.member.1", "Publish")
+	res = executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("add permission status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "GetTopicAttributes")
+	values.Set("TopicArn", topicARN)
+	res = executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), "publishers") || !strings.Contains(res.Body.String(), "111122223333") {
+		t.Fatalf("policy status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "RemovePermission")
+	values.Set("TopicArn", topicARN)
+	values.Set("Label", "publishers")
+	res = executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("remove permission status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "Publish")
+	values.Set("TopicArn", "arn:aws:sns:us-east-1:123456789012:missing")
+	values.Set("Message", "hello")
+	res = executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusNotFound || !strings.Contains(res.Body.String(), "<Code>NotFound</Code>") {
+		t.Fatalf("missing topic status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
 func TestServiceHandlesIAMLifecycleAndAccessKeys(t *testing.T) {
 	handler := newTestHandler()
 
@@ -1504,10 +1707,11 @@ func TestNewStoreCreatesAWSCollections(t *testing.T) {
 
 	awsStore.S3Buckets.Insert(corestore.Record{"bucket_name": "photos"})
 	awsStore.SQSQueues.Insert(corestore.Record{"queue_name": "jobs", "queue_url": "http://localhost/sqs/jobs"})
+	awsStore.SNSTopics.Insert(corestore.Record{"topic_name": "events", "arn": "arn:aws:sns:us-east-1:123456789012:events"})
 	awsStore.IAMUsers.Insert(corestore.Record{"user_name": "developer", "user_id": "AIDAEXAMPLE"})
 
 	snapshot := runtimeStore.Snapshot()
-	for _, name := range []string{"aws.s3_buckets", "aws.s3_objects", "aws.sqs_queues", "aws.sqs_messages", "aws.iam_users", "aws.iam_roles", "aws.dynamodb_tables", "aws.dynamodb_items"} {
+	for _, name := range []string{"aws.s3_buckets", "aws.s3_objects", "aws.sqs_queues", "aws.sqs_messages", "aws.sns_topics", "aws.sns_subscriptions", "aws.sns_deliveries", "aws.iam_users", "aws.iam_roles", "aws.dynamodb_tables", "aws.dynamodb_items"} {
 		if _, ok := snapshot.Collections[name]; !ok {
 			t.Fatalf("missing collection %s", name)
 		}
@@ -1648,6 +1852,15 @@ func xmlElement(body string, name string) string {
 		return ""
 	}
 	return body[start : start+end]
+}
+
+func xmlValueForName(body string, name string) string {
+	nameToken := "<Name>" + name + "</Name>"
+	nameIndex := strings.Index(body, nameToken)
+	if nameIndex < 0 {
+		return ""
+	}
+	return xmlElement(body[nameIndex:], "Value")
 }
 
 func signAWSRequest(req *http.Request, service string) {

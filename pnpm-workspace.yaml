@@ -13,3 +13,4 @@ allowBuilds:
   unrs-resolver: true
 minimumReleaseAgeExclude:
   - '@aws-sdk/client-dynamodb@3.1050.0'
+  - '@aws-sdk/client-sns@3.1050.0'

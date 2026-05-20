@@ -1,6 +1,6 @@
 # AWS
 
-S3, SQS, DynamoDB, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS and DynamoDB, and AWS Query endpoints for SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, DynamoDB, IAM, and STS; SQS and DynamoDB use JSON target requests, and IAM/STS use AWS Query XML.
+S3, SQS, SNS, DynamoDB, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS and DynamoDB, and AWS Query endpoints for SNS/SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, DynamoDB, IAM, and STS; SQS and DynamoDB use JSON target requests, and SNS/IAM/STS use AWS Query XML.
 
 ## Vercel Preview
 
@@ -41,6 +41,16 @@ Manual SQS requests can use `POST /sqs/` with an `Action` form parameter. In the
 - `DeleteMessage` - delete message by receipt handle
 - `PurgeQueue` - purge all messages
 - `DeleteQueue` - delete queue
+
+## SNS
+
+In the native Go runtime, `@aws-sdk/client-sns` v3 can use the `/sns/` endpoint directly. SNS uses AWS Query XML and can deliver published notifications to SQS subscriptions.
+
+- `CreateTopic` / `DeleteTopic` / `ListTopics` / `GetTopicAttributes` / `SetTopicAttributes` - topic lifecycle and metadata
+- `Subscribe` / `Unsubscribe` / `ListSubscriptions` / `ListSubscriptionsByTopic` / `ConfirmSubscription` - subscription lifecycle
+- `Publish` - publish notifications, including SQS subscription delivery
+- `TagResource` / `UntagResource` / `ListTagsForResource` - topic tags
+- `AddPermission` / `RemovePermission` - stored topic policy statements
 
 ## DynamoDB
 

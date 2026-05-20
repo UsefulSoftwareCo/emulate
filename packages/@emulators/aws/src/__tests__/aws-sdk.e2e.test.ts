@@ -52,6 +52,20 @@ import {
   PurgeQueueCommand,
   DeleteQueueCommand as DeleteSQSQueueCommand,
 } from "@aws-sdk/client-sqs";
+import {
+  SNSClient,
+  CreateTopicCommand,
+  DeleteTopicCommand as DeleteSNSTopicCommand,
+  GetTopicAttributesCommand,
+  ListSubscriptionsByTopicCommand,
+  ListTagsForResourceCommand,
+  ListTopicsCommand,
+  PublishCommand,
+  SetTopicAttributesCommand,
+  SubscribeCommand,
+  TagResourceCommand,
+  UnsubscribeCommand,
+} from "@aws-sdk/client-sns";
 import { STSClient, GetCallerIdentityCommand, AssumeRoleCommand } from "@aws-sdk/client-sts";
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
 import { createTestApp } from "./helpers.js";
@@ -89,6 +103,7 @@ async function streamToString(stream: unknown): Promise<string> {
 }
 
 const describeExternalSqsE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
+const describeExternalSnsE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalIamStsE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalDynamoDBE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 
@@ -401,6 +416,121 @@ describeExternalSqsE2E("AWS plugin - real @aws-sdk/client-sqs E2E", () => {
     expect(received.Messages ?? []).toHaveLength(0);
 
     await sqs.send(new DeleteSQSQueueCommand({ QueueUrl }));
+  });
+});
+
+describeExternalSnsE2E("AWS plugin - real @aws-sdk/client-sns E2E", () => {
+  let emulator: EmulatorHandle;
+  let sns: SNSClient;
+  let sqs: SQSClient;
+
+  beforeAll(async () => {
+    emulator = await startEmulator();
+    sns = new SNSClient({
+      endpoint: `${emulator.url.replace(/\/$/, "")}/sns/`,
+      region: "us-east-1",
+      credentials: {
+        accessKeyId: "AKIAIOSFODNN7EXAMPLE",
+        secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+      },
+    });
+    sqs = new SQSClient({
+      endpoint: `${emulator.url.replace(/\/$/, "")}/sqs/`,
+      region: "us-east-1",
+      credentials: {
+        accessKeyId: "AKIAIOSFODNN7EXAMPLE",
+        secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+      },
+    });
+  });
+
+  afterAll(async () => {
+    sns.destroy();
+    sqs.destroy();
+    await emulator.close();
+  });
+
+  it("CreateTopic, Subscribe, Publish to SQS, and DeleteTopic roundtrip", async () => {
+    const created = await sns.send(
+      new CreateTopicCommand({
+        Name: "sdk-e2e-topic",
+        Attributes: { DisplayName: "SDK Topic" },
+        Tags: [{ Key: "env", Value: "test" }],
+      }),
+    );
+    expect(created.TopicArn).toBe("arn:aws:sns:us-east-1:123456789012:sdk-e2e-topic");
+
+    const listed = await sns.send(new ListTopicsCommand({}));
+    expect((listed.Topics ?? []).map((topic) => topic.TopicArn)).toContain(created.TopicArn);
+
+    const attrs = await sns.send(new GetTopicAttributesCommand({ TopicArn: created.TopicArn }));
+    expect(attrs.Attributes?.DisplayName).toBe("SDK Topic");
+    expect(attrs.Attributes?.SubscriptionsConfirmed).toBe("0");
+
+    await sns.send(
+      new SetTopicAttributesCommand({
+        TopicArn: created.TopicArn,
+        AttributeName: "DeliveryPolicy",
+        AttributeValue: JSON.stringify({ healthyRetryPolicy: { numRetries: 1 } }),
+      }),
+    );
+
+    await sns.send(new TagResourceCommand({ ResourceArn: created.TopicArn, Tags: [{ Key: "team", Value: "platform" }] }));
+    const tags = await sns.send(new ListTagsForResourceCommand({ ResourceArn: created.TopicArn }));
+    expect(tags.Tags).toEqual(expect.arrayContaining([{ Key: "team", Value: "platform" }]));
+
+    const queue = await sqs.send(new CreateSQSQueueCommand({ QueueName: "sdk-e2e-sns-target" }));
+    const queueAttrs = await sqs.send(
+      new GetQueueAttributesCommand({
+        QueueUrl: queue.QueueUrl,
+        AttributeNames: ["QueueArn"],
+      }),
+    );
+    expect(queueAttrs.Attributes?.QueueArn).toBeTruthy();
+
+    const subscription = await sns.send(
+      new SubscribeCommand({
+        TopicArn: created.TopicArn,
+        Protocol: "sqs",
+        Endpoint: queueAttrs.Attributes?.QueueArn,
+        Attributes: { RawMessageDelivery: "false" },
+        ReturnSubscriptionArn: true,
+      }),
+    );
+    expect(subscription.SubscriptionArn).toContain(`${created.TopicArn}:`);
+
+    const subscriptions = await sns.send(new ListSubscriptionsByTopicCommand({ TopicArn: created.TopicArn }));
+    expect((subscriptions.Subscriptions ?? []).map((item) => item.SubscriptionArn)).toContain(
+      subscription.SubscriptionArn,
+    );
+
+    const published = await sns.send(
+      new PublishCommand({
+        TopicArn: created.TopicArn,
+        Subject: "created",
+        Message: "order created",
+        MessageAttributes: { trace: { DataType: "String", StringValue: "abc123" } },
+      }),
+    );
+    expect(published.MessageId).toBeTruthy();
+
+    const received = await sqs.send(
+      new ReceiveMessageCommand({
+        QueueUrl: queue.QueueUrl,
+        MaxNumberOfMessages: 1,
+        MessageAttributeNames: ["All"],
+      }),
+    );
+    expect(received.Messages).toHaveLength(1);
+    const body = JSON.parse(received.Messages?.[0]?.Body ?? "{}") as { Type?: string; TopicArn?: string; Message?: string };
+    expect(body.Type).toBe("Notification");
+    expect(body.TopicArn).toBe(created.TopicArn);
+    expect(body.Message).toBe("order created");
+    expect(received.Messages?.[0]?.MessageAttributes?.trace?.StringValue).toBe("abc123");
+
+    await sns.send(new UnsubscribeCommand({ SubscriptionArn: subscription.SubscriptionArn }));
+    await sns.send(new DeleteSNSTopicCommand({ TopicArn: created.TopicArn }));
+    await sqs.send(new DeleteSQSQueueCommand({ QueueUrl: queue.QueueUrl }));
   });
 });
 

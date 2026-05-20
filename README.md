@@ -667,7 +667,7 @@ Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with a
 
 ## AWS
 
-S3, SQS, DynamoDB, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS and DynamoDB, and AWS Query endpoints for SQS/IAM/STS. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, DynamoDB, IAM, and STS; SQS and DynamoDB use JSON target requests, and IAM/STS use AWS Query XML.
+S3, SQS, SNS, DynamoDB, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS and DynamoDB, and AWS Query endpoints for SNS/SQS/IAM/STS. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, DynamoDB, IAM, and STS; SQS and DynamoDB use JSON target requests, and SNS/IAM/STS use AWS Query XML.
 
 To expose the native AWS emulator in a Vercel preview without separate infrastructure, run `npx emulate vercel init --service aws`. The generated route serves AWS at `/emulate/aws/*`.
 
@@ -692,6 +692,15 @@ Manual SQS requests can use `POST /sqs/` with an `Action` form parameter. In the
 - `CreateQueue`, `ListQueues`, `GetQueueUrl`, `GetQueueAttributes`
 - `SendMessage`, `ReceiveMessage`, `DeleteMessage`
 - `PurgeQueue`, `DeleteQueue`
+
+### SNS
+In the native Go runtime, `@aws-sdk/client-sns` v3 can use the `/sns/` endpoint directly. SNS uses AWS Query XML and can deliver published notifications to SQS subscriptions.
+
+- `CreateTopic`, `DeleteTopic`, `ListTopics`, `GetTopicAttributes`, `SetTopicAttributes`
+- `Subscribe`, `Unsubscribe`, `ListSubscriptions`, `ListSubscriptionsByTopic`, `ConfirmSubscription`
+- `Publish` with SQS subscription delivery
+- `TagResource`, `UntagResource`, `ListTagsForResource`
+- `AddPermission`, `RemovePermission`
 
 ### DynamoDB
 In the native Go runtime, `@aws-sdk/client-dynamodb` v3 can use the `/dynamodb/` endpoint directly. The SDK sends `X-Amz-Target: DynamoDB_20120810.<Action>` JSON requests and receives JSON responses.
@@ -937,4 +946,4 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 
 **Microsoft**: OIDC authorization code flow with PKCE support. Also supports client credentials grants. Microsoft Graph `/v1.0/me` available.
 
-**AWS**: Bearer tokens or IAM access key credentials. Scoped permissions use `s3:*`, `sqs:*`, `dynamodb:*`, `iam:*`, `sts:*` patterns. Default key pair always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.
+**AWS**: Bearer tokens or IAM access key credentials. Scoped permissions use `s3:*`, `sqs:*`, `sns:*`, `dynamodb:*`, `iam:*`, `sts:*` patterns. Default key pair always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.

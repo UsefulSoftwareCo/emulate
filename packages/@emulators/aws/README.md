@@ -1,6 +1,6 @@
 # @emulators/aws
 
-The in-process JavaScript plugin provides S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and AWS Query endpoints for SQS/IAM/STS. Query and REST XML operations return AWS-compatible XML. DynamoDB is available in the native Go AWS runtime; see the DynamoDB note below.
+The in-process JavaScript plugin provides S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and AWS Query endpoints for SQS/IAM/STS. Query and REST XML operations return AWS-compatible XML. SNS and DynamoDB are available in the native Go AWS runtime; see the native runtime notes below.
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
 
@@ -33,6 +33,15 @@ SQS requests use `POST /sqs/` with an `Action` form parameter.
 - `CreateQueue`, `ListQueues`, `GetQueueUrl`, `GetQueueAttributes`
 - `SendMessage`, `ReceiveMessage`, `DeleteMessage`
 - `PurgeQueue`, `DeleteQueue`
+
+### SNS (native Go runtime)
+SNS is currently available through the native Go AWS runtime, not through the in-process JavaScript plugin exported by this package. In that runtime, requests use the `/sns/` endpoint with AWS Query form requests.
+
+- `CreateTopic`, `DeleteTopic`, `ListTopics`, `GetTopicAttributes`, `SetTopicAttributes`
+- `Subscribe`, `Unsubscribe`, `ListSubscriptions`, `ListSubscriptionsByTopic`, `ConfirmSubscription`
+- `Publish` with SQS subscription delivery
+- `TagResource`, `UntagResource`, `ListTagsForResource`
+- `AddPermission`, `RemovePermission`
 
 ### DynamoDB (native Go runtime)
 DynamoDB is currently available through the native Go AWS runtime, not through the in-process JavaScript plugin exported by this package. In that runtime, requests use the `/dynamodb/` endpoint with `X-Amz-Target: DynamoDB_20120810.<Action>` JSON requests.

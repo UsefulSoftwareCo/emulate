@@ -13,6 +13,7 @@ import (
 	awsiam "github.com/vercel-labs/emulate/internal/services/aws/iam"
 	"github.com/vercel-labs/emulate/internal/services/aws/protocols"
 	awss3 "github.com/vercel-labs/emulate/internal/services/aws/s3"
+	awssns "github.com/vercel-labs/emulate/internal/services/aws/sns"
 	awssqs "github.com/vercel-labs/emulate/internal/services/aws/sqs"
 	awssts "github.com/vercel-labs/emulate/internal/services/aws/sts"
 )
@@ -38,6 +39,7 @@ type Service struct {
 	s3PathFallback   bool
 	s3               awss3.Handler
 	sqs              awssqs.Handler
+	sns              awssns.Handler
 	iam              awsiam.Handler
 	sts              awssts.Handler
 	dynamodb         awsdynamodb.Handler
@@ -96,6 +98,15 @@ func New(options Options) *Service {
 			AccountID: defaultAccountID,
 			Region:    defaultRegion,
 		},
+		sns: awssns.Handler{
+			Topics:        awsStore.SNSTopics,
+			Subscriptions: awsStore.SNSSubscriptions,
+			Deliveries:    awsStore.SNSDeliveries,
+			SQSQueues:     awsStore.SQSQueues,
+			SQSMessages:   awsStore.SQSMessages,
+			AccountID:     defaultAccountID,
+			Region:        defaultRegion,
+		},
 		iam: awsiam.Handler{
 			Users:           awsStore.IAMUsers,
 			Roles:           awsStore.IAMRoles,
@@ -150,6 +161,10 @@ func (s *Service) handleAWS(c *corehttp.Context) {
 	}
 	if ctx.Service == "sqs" && (ctx.Protocol == protocols.ProtocolQuery || ctx.Protocol == protocols.ProtocolJSONRPC) {
 		writeErrorResponse(c, s.sqs.Handle(c.Request, ctx))
+		return
+	}
+	if ctx.Service == "sns" && ctx.Protocol == protocols.ProtocolQuery {
+		writeErrorResponse(c, s.sns.Handle(c.Request, ctx))
 		return
 	}
 	if ctx.Service == "iam" && ctx.Protocol == protocols.ProtocolQuery {
