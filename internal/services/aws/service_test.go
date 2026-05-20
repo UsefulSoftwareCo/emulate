@@ -756,9 +756,54 @@ func TestServiceHandlesSNSLifecycleAndSQSPublish(t *testing.T) {
 		t.Fatalf("receive status = %d, body = %s", res.Code, res.Body.String())
 	}
 	body := res.Body.String()
-	for _, expected := range []string{"order created", topicARN, "&quot;Type&quot;:&quot;Notification&quot;", "<Name>trace</Name>", "<StringValue>abc123</StringValue>"} {
+	for _, expected := range []string{
+		"order created",
+		topicARN,
+		"&quot;Type&quot;:&quot;Notification&quot;",
+		"&quot;MessageAttributes&quot;",
+		"&quot;trace&quot;:{&quot;Type&quot;:&quot;String&quot;,&quot;Value&quot;:&quot;abc123&quot;}",
+		"<Name>trace</Name>",
+		"<StringValue>abc123</StringValue>",
+	} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("receive missing %q in %s", expected, body)
+		}
+	}
+	for _, unexpected := range []string{"&quot;DataType&quot;", "&quot;StringValue&quot;"} {
+		if strings.Contains(body, unexpected) {
+			t.Fatalf("receive included SNS envelope attribute shape %q in %s", unexpected, body)
+		}
+	}
+
+	values = url.Values{}
+	values.Set("Action", "Publish")
+	values.Set("TopicArn", topicARN)
+	values.Set("MessageStructure", "json")
+	values.Set("Message", `{"default":"default payload","sqs":"sqs payload"}`)
+	values.Set("MessageAttributes.entry.1.Name", "json-attrs")
+	values.Set("MessageAttributes.entry.1.Value.DataType", "String")
+	values.Set("MessageAttributes.entry.1.Value.StringValue", "not-delivered")
+	res = executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("publish json status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "ReceiveMessage")
+	values.Set("QueueUrl", queueURL)
+	values.Set("MaxNumberOfMessages", "1")
+	values.Set("MessageAttributeName.1", "All")
+	res = executeAWSQueryRequest(handler, "sqs", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("receive json status = %d, body = %s", res.Code, res.Body.String())
+	}
+	body = res.Body.String()
+	if !strings.Contains(body, "sqs payload") {
+		t.Fatalf("receive json missing SQS payload in %s", body)
+	}
+	for _, unexpected := range []string{"&quot;MessageAttributes&quot;", "<MessageAttribute>", "json-attrs", "not-delivered"} {
+		if strings.Contains(body, unexpected) {
+			t.Fatalf("receive json included message attributes %q in %s", unexpected, body)
 		}
 	}
 
@@ -798,6 +843,24 @@ func TestServiceHandlesSNSTagsPermissionsAndErrors(t *testing.T) {
 		t.Fatalf("create topic status = %d, body = %s", res.Code, res.Body.String())
 	}
 	topicARN := xmlElement(res.Body.String(), "TopicArn")
+
+	values = url.Values{}
+	values.Set("Action", "Subscribe")
+	values.Set("TopicArn", topicARN)
+	values.Set("Protocol", "email")
+	values.Set("Endpoint", "ops@example.com")
+	res = executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusOK {
+		t.Fatalf("subscribe status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	values = url.Values{}
+	values.Set("Action", "ConfirmSubscription")
+	values.Set("TopicArn", topicARN)
+	res = executeAWSQueryRequest(handler, "sns", values.Encode())
+	if res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), "<Code>InvalidParameter</Code>") {
+		t.Fatalf("confirm missing token status = %d, body = %s", res.Code, res.Body.String())
+	}
 
 	values = url.Values{}
 	values.Set("Action", "TagResource")

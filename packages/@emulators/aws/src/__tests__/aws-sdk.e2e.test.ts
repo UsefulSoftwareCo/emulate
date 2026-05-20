@@ -475,7 +475,9 @@ describeExternalSnsE2E("AWS plugin - real @aws-sdk/client-sns E2E", () => {
       }),
     );
 
-    await sns.send(new TagResourceCommand({ ResourceArn: created.TopicArn, Tags: [{ Key: "team", Value: "platform" }] }));
+    await sns.send(
+      new TagResourceCommand({ ResourceArn: created.TopicArn, Tags: [{ Key: "team", Value: "platform" }] }),
+    );
     const tags = await sns.send(new ListTagsForResourceCommand({ ResourceArn: created.TopicArn }));
     expect(tags.Tags).toEqual(expect.arrayContaining([{ Key: "team", Value: "platform" }]));
 
@@ -522,10 +524,16 @@ describeExternalSnsE2E("AWS plugin - real @aws-sdk/client-sns E2E", () => {
       }),
     );
     expect(received.Messages).toHaveLength(1);
-    const body = JSON.parse(received.Messages?.[0]?.Body ?? "{}") as { Type?: string; TopicArn?: string; Message?: string };
+    const body = JSON.parse(received.Messages?.[0]?.Body ?? "{}") as {
+      Type?: string;
+      TopicArn?: string;
+      Message?: string;
+      MessageAttributes?: Record<string, { Type?: string; Value?: string }>;
+    };
     expect(body.Type).toBe("Notification");
     expect(body.TopicArn).toBe(created.TopicArn);
     expect(body.Message).toBe("order created");
+    expect(body.MessageAttributes?.trace).toEqual({ Type: "String", Value: "abc123" });
     expect(received.Messages?.[0]?.MessageAttributes?.trace?.StringValue).toBe("abc123");
 
     await sns.send(new UnsubscribeCommand({ SubscriptionArn: subscription.SubscriptionArn }));

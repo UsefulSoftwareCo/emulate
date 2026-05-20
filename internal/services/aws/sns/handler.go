@@ -323,9 +323,12 @@ func (h *Handler) confirmSubscription(ctx gateway.AwsRequestContext, requestID s
 		return h.notFound("Topic", requestID)
 	}
 	token := ctx.Query["Token"]
+	if strings.TrimSpace(token) == "" {
+		return h.queryError("InvalidParameter", "Token is required.", http.StatusBadRequest, requestID)
+	}
 	var selected corestore.Record
 	for _, subscription := range h.Subscriptions.FindBy("topic_arn", stringField(topic, "arn")) {
-		if token == "" || stringField(subscription, "confirmation_token") == token {
+		if stringField(subscription, "confirmation_token") == token {
 			selected = subscription
 			break
 		}
@@ -372,7 +375,11 @@ func (h *Handler) deliverToSubscription(ctx gateway.AwsRequestContext, topic cor
 		if !ok {
 			return false
 		}
-		body := h.sqsBody(topic, subscription, messageID, subject, message, messageStructure, attrs)
+		deliveredAttrs := attrs
+		if strings.EqualFold(messageStructure, "json") {
+			deliveredAttrs = corestore.Record{}
+		}
+		body := h.sqsBody(topic, subscription, messageID, subject, message, messageStructure, deliveredAttrs)
 		now := h.nowMillis()
 		sqsMessageID := h.generateID("")
 		h.SQSMessages.Insert(corestore.Record{
@@ -381,7 +388,7 @@ func (h *Handler) deliverToSubscription(ctx gateway.AwsRequestContext, topic cor
 			"receipt_handle":            h.generateReceiptHandle(),
 			"body":                      body,
 			"md5_of_body":               md5Hex(body),
-			"md5_of_message_attributes": md5OfMessageAttributes(attrs),
+			"md5_of_message_attributes": md5OfMessageAttributes(deliveredAttrs),
 			"first_receive_timestamp":   int64(0),
 			"attributes": corestore.Record{
 				"SentTimestamp":                    strconv.FormatInt(now, 10),
@@ -389,7 +396,7 @@ func (h *Handler) deliverToSubscription(ctx gateway.AwsRequestContext, topic cor
 				"ApproximateFirstReceiveTimestamp": "",
 				"SenderId":                         h.accountID(ctx),
 			},
-			"message_attributes": attrs,
+			"message_attributes": deliveredAttrs,
 			"visible_after":      now,
 			"sent_timestamp":     now,
 			"receive_count":      0,
@@ -430,22 +437,40 @@ func (h *Handler) sqsBody(topic corestore.Record, subscription corestore.Record,
 		message = jsonMessageForProtocol(message, "sqs")
 	}
 	envelope := map[string]any{
-		"Type":              "Notification",
-		"MessageId":         messageID,
-		"TopicArn":          stringField(topic, "arn"),
-		"Message":           message,
-		"Timestamp":         h.now().Format(time.RFC3339Nano),
-		"SignatureVersion":  "1",
-		"Signature":         "",
-		"SigningCertURL":    "",
-		"UnsubscribeURL":    "",
-		"MessageAttributes": attrs,
+		"Type":             "Notification",
+		"MessageId":        messageID,
+		"TopicArn":         stringField(topic, "arn"),
+		"Message":          message,
+		"Timestamp":        h.now().Format(time.RFC3339Nano),
+		"SignatureVersion": "1",
+		"Signature":        "",
+		"SigningCertURL":   "",
+		"UnsubscribeURL":   "",
+	}
+	if len(attrs) > 0 {
+		envelope["MessageAttributes"] = snsEnvelopeMessageAttributes(attrs)
 	}
 	if subject != "" {
 		envelope["Subject"] = subject
 	}
 	raw, _ := json.Marshal(envelope)
 	return string(raw)
+}
+
+func snsEnvelopeMessageAttributes(attrs corestore.Record) corestore.Record {
+	out := corestore.Record{}
+	for name, rawValue := range attrs {
+		value := recordValue(rawValue)
+		dataType := stringField(value, "DataType")
+		if dataType == "" {
+			dataType = "String"
+		}
+		out[name] = corestore.Record{
+			"Type":  dataType,
+			"Value": firstNonEmpty(stringField(value, "StringValue"), stringField(value, "BinaryValue")),
+		}
+	}
+	return out
 }
 
 func (h *Handler) topicAttributes(topic corestore.Record) map[string]string {
