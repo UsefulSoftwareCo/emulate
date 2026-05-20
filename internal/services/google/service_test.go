@@ -266,6 +266,90 @@ func TestGoogleGmailCalendarAndDriveSeededRoutes(t *testing.T) {
 	}
 }
 
+func TestGoogleDraftListIncludesSeededDrafts(t *testing.T) {
+	handler := newGoogleTestHandler()
+
+	res := googleRequest(handler, http.MethodGet, "/gmail/v1/users/me/drafts?maxResults=20", "", true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("draft list status = %d, body = %s", res.Code, res.Body.String())
+	}
+	ids, resultSize := gmailDraftMessageIDs(t, res.Body.Bytes())
+	if resultSize != 1 || !containsString(ids, "msg_draft") {
+		t.Fatalf("draft list message IDs = %#v, resultSizeEstimate = %d, want only msg_draft", ids, resultSize)
+	}
+}
+
+func TestGoogleDraftListFollowsDraftLabelMutations(t *testing.T) {
+	handler := newGoogleTestHandler()
+
+	res := googleRequest(handler, http.MethodPost, "/gmail/v1/users/me/messages/msg_invoice/modify", `{"addLabelIds":["DRAFT"]}`, true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("add draft label status = %d, body = %s", res.Code, res.Body.String())
+	}
+	res = googleRequest(handler, http.MethodGet, "/gmail/v1/users/me/drafts?maxResults=20", "", true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("draft list after add status = %d, body = %s", res.Code, res.Body.String())
+	}
+	ids, resultSize := gmailDraftMessageIDs(t, res.Body.Bytes())
+	if resultSize != 2 || !containsString(ids, "msg_draft") || !containsString(ids, "msg_invoice") {
+		t.Fatalf("draft list after add = %#v, resultSizeEstimate = %d", ids, resultSize)
+	}
+
+	res = googleRequest(handler, http.MethodPost, "/gmail/v1/users/me/messages/msg_invoice/modify", `{"removeLabelIds":["DRAFT"]}`, true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("remove draft label status = %d, body = %s", res.Code, res.Body.String())
+	}
+	res = googleRequest(handler, http.MethodGet, "/gmail/v1/users/me/drafts?maxResults=20", "", true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("draft list after remove status = %d, body = %s", res.Code, res.Body.String())
+	}
+	ids, resultSize = gmailDraftMessageIDs(t, res.Body.Bytes())
+	if resultSize != 1 || containsString(ids, "msg_invoice") || !containsString(ids, "msg_draft") {
+		t.Fatalf("draft list after remove = %#v, resultSizeEstimate = %d", ids, resultSize)
+	}
+}
+
+func TestGoogleSendMessageResolvesThreadFromReplyHeaders(t *testing.T) {
+	handler := newGoogleTestHandler()
+
+	res := googleRequest(handler, http.MethodPost, "/gmail/v1/users/me/messages/send", `{
+		"to":"partner@example.com",
+		"subject":"Re: Your support ticket has been updated",
+		"text":"Reply body",
+		"inReplyTo":"<msg_support_1@emulate.google.local>",
+		"references":"<msg_support_1@emulate.google.local>"
+	}`, true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("send reply status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var sent struct {
+		ID       string `json:"id"`
+		ThreadID string `json:"threadId"`
+	}
+	mustDecodeGoogleJSON(t, res.Body.Bytes(), &sent)
+	if sent.ID == "" || sent.ThreadID != "thread_support" {
+		t.Fatalf("sent reply = %#v, want thread_support", sent)
+	}
+
+	res = googleRequest(handler, http.MethodGet, "/gmail/v1/users/me/threads/thread_support?format=minimal", "", true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("thread status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var thread struct {
+		Messages []struct {
+			ID string `json:"id"`
+		} `json:"messages"`
+	}
+	mustDecodeGoogleJSON(t, res.Body.Bytes(), &thread)
+	ids := []string{}
+	for _, message := range thread.Messages {
+		ids = append(ids, message.ID)
+	}
+	if !containsString(ids, "msg_support_1") || !containsString(ids, sent.ID) {
+		t.Fatalf("thread messages = %#v, want original and sent reply", ids)
+	}
+}
+
 func TestGoogleFilterAndWatchValidation(t *testing.T) {
 	handler := newGoogleTestHandler()
 
@@ -1640,6 +1724,24 @@ func draftAttachmentFilenames(t *testing.T, raw []byte) []string {
 		}
 	}
 	return filenames
+}
+
+func gmailDraftMessageIDs(t *testing.T, raw []byte) ([]string, int) {
+	t.Helper()
+	var body struct {
+		Drafts []struct {
+			Message struct {
+				ID string `json:"id"`
+			} `json:"message"`
+		} `json:"drafts"`
+		ResultSizeEstimate int `json:"resultSizeEstimate"`
+	}
+	mustDecodeGoogleJSON(t, raw, &body)
+	ids := []string{}
+	for _, draft := range body.Drafts {
+		ids = append(ids, draft.Message.ID)
+	}
+	return ids, body.ResultSizeEstimate
 }
 
 func googleRequest(handler http.Handler, method string, path string, body string, auth bool) *httptest.ResponseRecorder {

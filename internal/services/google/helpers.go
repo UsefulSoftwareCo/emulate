@@ -597,10 +597,6 @@ func (s *Service) createStoredMessage(input messageInput) corestore.Record {
 	if gmailID == "" {
 		gmailID = "msg_" + generateUID("")
 	}
-	threadID := input.ThreadID
-	if threadID == "" {
-		threadID = "thread_" + gmailID
-	}
 	dateHeader := input.Date
 	subject := input.Subject
 	from := input.From
@@ -677,6 +673,13 @@ func (s *Service) createStoredMessage(input messageInput) corestore.Record {
 	if dateHeader == "" {
 		dateHeader = nowISO()
 	}
+	threadID := input.ThreadID
+	if threadID == "" {
+		threadID = s.resolveThreadID(input.UserEmail, stringValue(inReplyTo), stringValue(references))
+	}
+	if threadID == "" {
+		threadID = "thread_" + gmailID
+	}
 	internalDate := input.InternalDate
 	if internalDate == "" {
 		internalDate = dateHeader
@@ -709,7 +712,9 @@ func (s *Service) createStoredMessage(input messageInput) corestore.Record {
 		"body_html":     nullableString(bodyHTML),
 	})
 	s.recordHistoryWithID(historyID, "messageAdded", message, nil)
-	return s.applyFilters(message)
+	message = s.applyFilters(message)
+	s.syncDraftState(message, "")
+	return message
 }
 
 func (s *Service) getMessageByID(userEmail string, messageID string) corestore.Record {
@@ -759,7 +764,74 @@ func (s *Service) updateMessageLabels(message corestore.Record, labels []string)
 	if len(removed) > 0 {
 		s.recordHistoryWithID(historyID, "labelRemoved", updated, removed)
 	}
+	s.syncDraftState(updated, "")
 	return updated
+}
+
+func (s *Service) syncDraftState(message corestore.Record, preferredDraftID string) corestore.Record {
+	if message == nil {
+		return nil
+	}
+	userEmail := stringField(message, "user_email")
+	messageID := stringField(message, "gmail_id")
+	existing := []corestore.Record{}
+	for _, draft := range s.store.Drafts.FindBy("message_gmail_id", messageID) {
+		if stringField(draft, "user_email") == userEmail {
+			existing = append(existing, draft)
+		}
+	}
+	labels := stringSliceValue(message["label_ids"])
+	shouldHaveDraft := containsString(labels, "DRAFT") && !containsString(labels, "SENT")
+	if !shouldHaveDraft {
+		for _, draft := range existing {
+			s.store.Drafts.Delete(intField(draft, "id"))
+		}
+		return nil
+	}
+	if len(existing) > 0 {
+		keep := existing[0]
+		if preferredDraftID != "" {
+			for _, draft := range existing {
+				if stringField(draft, "gmail_id") == preferredDraftID {
+					keep = draft
+					break
+				}
+			}
+		}
+		for _, draft := range existing {
+			if intField(draft, "id") != intField(keep, "id") {
+				s.store.Drafts.Delete(intField(draft, "id"))
+			}
+		}
+		return keep
+	}
+	draftID := preferredDraftID
+	if draftID == "" {
+		draftID = generateDraftID()
+	}
+	return s.store.Drafts.Insert(corestore.Record{
+		"gmail_id":         draftID,
+		"user_email":       userEmail,
+		"message_gmail_id": messageID,
+	})
+}
+
+func isDraftMessage(message corestore.Record) bool {
+	labels := stringSliceValue(message["label_ids"])
+	return containsString(labels, "DRAFT") && !containsString(labels, "SENT")
+}
+
+func (s *Service) resolveThreadID(userEmail string, inReplyTo string, references string) string {
+	for _, value := range []string{inReplyTo, references} {
+		for _, headerMessageID := range strings.Fields(value) {
+			for _, message := range s.store.Messages.FindBy("user_email", userEmail) {
+				if stringField(message, "message_id") == headerMessageID {
+					return stringField(message, "thread_id")
+				}
+			}
+		}
+	}
+	return ""
 }
 
 func (s *Service) deleteMessage(message corestore.Record) {

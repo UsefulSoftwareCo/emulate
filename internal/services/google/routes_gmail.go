@@ -286,6 +286,16 @@ func (s *Service) handleListDrafts(c *corehttp.Context) {
 		return
 	}
 	rows := s.store.Drafts.FindBy("user_email", email)
+	validRows := make([]corestore.Record, 0, len(rows))
+	for _, draft := range rows {
+		message := s.getMessageByID(email, stringField(draft, "message_gmail_id"))
+		if !isDraftMessage(message) {
+			s.store.Drafts.Delete(intField(draft, "id"))
+			continue
+		}
+		validRows = append(validRows, draft)
+	}
+	rows = validRows
 	sort.SliceStable(rows, func(i int, j int) bool {
 		return stringField(rows[i], "created_at") < stringField(rows[j], "created_at")
 	})
@@ -294,9 +304,8 @@ func (s *Service) handleListDrafts(c *corehttp.Context) {
 	page := pageRecords(rows, offset, limit)
 	drafts := make([]map[string]any, 0, len(page))
 	for _, draft := range page {
-		if message := s.getMessageByID(email, stringField(draft, "message_gmail_id")); message != nil {
-			drafts = append(drafts, s.formatDraft(draft, message, c.Query("format")))
-		}
+		message := s.getMessageByID(email, stringField(draft, "message_gmail_id"))
+		drafts = append(drafts, s.formatDraft(draft, message, c.Query("format")))
 	}
 	body := map[string]any{"drafts": drafts, "resultSizeEstimate": len(rows)}
 	if offset+limit < len(rows) {
@@ -328,11 +337,11 @@ func (s *Service) handleCreateDraft(c *corehttp.Context) {
 		return
 	}
 	message := s.createStoredMessage(input)
-	draft := s.store.Drafts.Insert(corestore.Record{
-		"gmail_id":         generateDraftID(),
-		"user_email":       email,
-		"message_gmail_id": stringField(message, "gmail_id"),
-	})
+	draft := s.syncDraftState(message, "")
+	if draft == nil {
+		googleAPIError(c, http.StatusInternalServerError, "Draft state could not be created.", "internalError", "INTERNAL")
+		return
+	}
 	c.JSON(http.StatusOK, s.formatDraft(draft, message, "full"))
 }
 
@@ -374,6 +383,11 @@ func (s *Service) handleUpdateDraft(c *corehttp.Context) {
 	updated, _ := s.store.Messages.Update(intField(message, "id"), patch)
 	if input.Raw != nil {
 		s.replaceMessageAttachments(updated, parseRawMessage(stringValue(input.Raw)).Attachments)
+	}
+	draft = s.syncDraftState(updated, stringField(draft, "gmail_id"))
+	if draft == nil {
+		googleAPIError(c, http.StatusInternalServerError, "Draft state could not be updated.", "internalError", "INTERNAL")
+		return
 	}
 	c.JSON(http.StatusOK, s.formatDraft(draft, updated, "full"))
 }
@@ -426,7 +440,12 @@ func (s *Service) handleDeleteDraft(c *corehttp.Context) {
 func (s *Service) getDraftAndMessage(email string, draftID string) (corestore.Record, corestore.Record) {
 	for _, draft := range s.store.Drafts.FindBy("user_email", email) {
 		if stringField(draft, "gmail_id") == draftID {
-			return draft, s.getMessageByID(email, stringField(draft, "message_gmail_id"))
+			message := s.getMessageByID(email, stringField(draft, "message_gmail_id"))
+			if !isDraftMessage(message) {
+				s.store.Drafts.Delete(intField(draft, "id"))
+				return nil, nil
+			}
+			return draft, message
 		}
 	}
 	return nil, nil
