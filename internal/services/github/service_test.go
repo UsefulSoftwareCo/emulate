@@ -533,6 +533,149 @@ func TestGitHubMergeCreatesResolvableCommit(t *testing.T) {
 	}
 }
 
+func TestGitHubMergedPullCannotBeReopened(t *testing.T) {
+	handler := newGitHubTestHandler(&SeedConfig{
+		Users: []UserSeed{{Login: "octocat", Email: "octocat@github.com"}},
+		Repos: []RepoSeed{{Owner: "octocat", Name: "hello-world"}},
+	})
+
+	branches := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/hello-world/branches", "", "Bearer test_token_user1")
+	if branches.Code != http.StatusOK {
+		t.Fatalf("branches status = %d, body = %s", branches.Code, branches.Body.String())
+	}
+	mainSha := defaultBranchSha(t, branches, "main")
+	ref := doGitHubJSON(handler, http.MethodPost, "/repos/octocat/hello-world/git/refs", `{"ref":"refs/heads/feature","sha":"`+mainSha+`"}`, "Bearer test_token_user1")
+	if ref.Code != http.StatusCreated {
+		t.Fatalf("ref status = %d, body = %s", ref.Code, ref.Body.String())
+	}
+	pr := doGitHubJSON(handler, http.MethodPost, "/repos/octocat/hello-world/pulls", `{"title":"Feature","head":"feature","base":"main"}`, "Bearer test_token_user1")
+	if pr.Code != http.StatusCreated {
+		t.Fatalf("pull status = %d, body = %s", pr.Code, pr.Body.String())
+	}
+	merge := doGitHubJSON(handler, http.MethodPut, "/repos/octocat/hello-world/pulls/1/merge", `{}`, "Bearer test_token_user1")
+	if merge.Code != http.StatusOK {
+		t.Fatalf("merge status = %d, body = %s", merge.Code, merge.Body.String())
+	}
+
+	issueReopen := doGitHubJSON(handler, http.MethodPatch, "/repos/octocat/hello-world/issues/1", `{"state":"open"}`, "Bearer test_token_user1")
+	if issueReopen.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("issue reopen status = %d, body = %s", issueReopen.Code, issueReopen.Body.String())
+	}
+	pullReopen := doGitHubJSON(handler, http.MethodPatch, "/repos/octocat/hello-world/pulls/1", `{"state":"open"}`, "Bearer test_token_user1")
+	if pullReopen.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("pull reopen status = %d, body = %s", pullReopen.Code, pullReopen.Body.String())
+	}
+
+	repo := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/hello-world", "", "Bearer test_token_user1")
+	if repo.Code != http.StatusOK {
+		t.Fatalf("repo status = %d, body = %s", repo.Code, repo.Body.String())
+	}
+	var repoBody struct {
+		OpenIssuesCount int `json:"open_issues_count"`
+	}
+	decodeGitHubBody(t, repo, &repoBody)
+	if repoBody.OpenIssuesCount != 0 {
+		t.Fatalf("open_issues_count = %d, body = %s", repoBody.OpenIssuesCount, repo.Body.String())
+	}
+
+	pull := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/hello-world/pulls/1", "", "Bearer test_token_user1")
+	if pull.Code != http.StatusOK {
+		t.Fatalf("pull status = %d, body = %s", pull.Code, pull.Body.String())
+	}
+	var pullBody struct {
+		State  string `json:"state"`
+		Merged bool   `json:"merged"`
+	}
+	decodeGitHubBody(t, pull, &pullBody)
+	if pullBody.State != "closed" || !pullBody.Merged {
+		t.Fatalf("merged pull was reopened: %#v, body = %s", pullBody, pull.Body.String())
+	}
+}
+
+func TestGitHubCrossRepoMergeMaterializesHeadGitObjects(t *testing.T) {
+	service, handler := newGitHubTestServiceHandler(&SeedConfig{
+		Users: []UserSeed{
+			{Login: "octocat", Email: "octocat@github.com"},
+			{Login: "forker", Email: "forker@example.com"},
+		},
+		Repos: []RepoSeed{
+			{Owner: "octocat", Name: "hello-world"},
+			{Owner: "forker", Name: "hello-world"},
+		},
+	})
+
+	forkBranches := doGitHubJSON(handler, http.MethodGet, "/repos/forker/hello-world/branches", "", "Bearer test_token_admin")
+	if forkBranches.Code != http.StatusOK {
+		t.Fatalf("fork branches status = %d, body = %s", forkBranches.Code, forkBranches.Body.String())
+	}
+	forkMainSha := defaultBranchSha(t, forkBranches, "main")
+	forkRepo := service.lookupRepo("forker", "hello-world")
+	forkMainCommit := service.findCommitExact(forkRepo, forkMainSha)
+	if forkMainCommit == nil {
+		t.Fatalf("missing fork main commit %s", forkMainSha)
+	}
+	actor := firstRecord(service.store.Users.FindBy("login", "forker"))
+	headCommit := service.insertCommit(forkRepo, stringField(forkMainCommit, "tree_sha"), []string{forkMainSha}, "Fork feature", actor)
+
+	ref := doGitHubJSON(handler, http.MethodPost, "/repos/forker/hello-world/git/refs", `{"ref":"refs/heads/feature","sha":"`+stringField(headCommit, "sha")+`"}`, "Bearer test_token_admin")
+	if ref.Code != http.StatusCreated {
+		t.Fatalf("ref status = %d, body = %s", ref.Code, ref.Body.String())
+	}
+	pr := doGitHubJSON(handler, http.MethodPost, "/repos/octocat/hello-world/pulls", `{"title":"Fork feature","head":"forker:feature","base":"main"}`, "Bearer test_token_admin")
+	if pr.Code != http.StatusCreated {
+		t.Fatalf("pull status = %d, body = %s", pr.Code, pr.Body.String())
+	}
+	merge := doGitHubJSON(handler, http.MethodPut, "/repos/octocat/hello-world/pulls/1/merge", `{}`, "Bearer test_token_admin")
+	if merge.Code != http.StatusOK {
+		t.Fatalf("merge status = %d, body = %s", merge.Code, merge.Body.String())
+	}
+	var mergeBody struct {
+		Sha string `json:"sha"`
+	}
+	decodeGitHubBody(t, merge, &mergeBody)
+
+	commit := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/hello-world/git/commits/"+mergeBody.Sha, "", "Bearer test_token_admin")
+	if commit.Code != http.StatusOK {
+		t.Fatalf("merge commit status = %d, body = %s", commit.Code, commit.Body.String())
+	}
+	var commitBody struct {
+		Commit struct {
+			Tree struct {
+				Sha string `json:"sha"`
+			} `json:"tree"`
+		} `json:"commit"`
+		Parents []struct {
+			Sha string `json:"sha"`
+		} `json:"parents"`
+	}
+	decodeGitHubBody(t, commit, &commitBody)
+	if commitBody.Commit.Tree.Sha == "" || len(commitBody.Parents) != 2 {
+		t.Fatalf("unexpected merge commit: %#v, body = %s", commitBody, commit.Body.String())
+	}
+
+	tree := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/hello-world/git/trees/"+commitBody.Commit.Tree.Sha, "", "Bearer test_token_admin")
+	if tree.Code != http.StatusOK {
+		t.Fatalf("merge tree status = %d, body = %s", tree.Code, tree.Body.String())
+	}
+	headParent := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/hello-world/git/commits/"+commitBody.Parents[1].Sha, "", "Bearer test_token_admin")
+	if headParent.Code != http.StatusOK {
+		t.Fatalf("head parent status = %d, body = %s", headParent.Code, headParent.Body.String())
+	}
+	var headParentBody struct {
+		Parents []struct {
+			Sha string `json:"sha"`
+		} `json:"parents"`
+	}
+	decodeGitHubBody(t, headParent, &headParentBody)
+	if len(headParentBody.Parents) != 1 {
+		t.Fatalf("unexpected head parent commit: %#v, body = %s", headParentBody, headParent.Body.String())
+	}
+	forkParent := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/hello-world/git/commits/"+headParentBody.Parents[0].Sha, "", "Bearer test_token_admin")
+	if forkParent.Code != http.StatusOK {
+		t.Fatalf("fork parent status = %d, body = %s", forkParent.Code, forkParent.Body.String())
+	}
+}
+
 func TestGitHubMergeRejectsDraftPull(t *testing.T) {
 	handler := newGitHubTestHandler(&SeedConfig{
 		Users: []UserSeed{{Login: "octocat", Email: "octocat@github.com"}},

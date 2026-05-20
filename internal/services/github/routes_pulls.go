@@ -202,6 +202,10 @@ func (s *Service) handlePatchPull(c *corehttp.Context) {
 		issuePatch["body"] = nullableIssueBody(value)
 	}
 	if state := stringValue(body["state"]); state == "open" || state == "closed" {
+		if state == "open" && boolField(pr, "merged") {
+			writeValidation(c, "Validation failed")
+			return
+		}
 		patch["state"] = state
 		issuePatch["state"] = state
 		if state == "closed" && stringField(pr, "state") == "open" {
@@ -297,6 +301,9 @@ func (s *Service) handleMergePull(c *corehttp.Context) {
 	if baseCommit == nil || headCommit == nil {
 		writeValidation(c, "Could not resolve commits to merge.")
 		return
+	}
+	if intField(baseRepo, "id") != intField(headRepo, "id") {
+		s.materializeCommitGraph(baseRepo, headRepo, stringField(headCommit, "sha"), map[string]bool{}, map[string]bool{})
 	}
 	parentShas := []string{stringField(baseCommit, "sha"), stringField(headCommit, "sha")}
 	if mergeMethod != "merge" {
@@ -469,6 +476,84 @@ func (s *Service) insertCommit(repo corestore.Record, treeSha string, parentShas
 	})
 	commit, _ := s.store.Commits.Update(intField(row, "id"), corestore.Record{"node_id": generateNodeID("Commit", intField(row, "id"))})
 	return commit
+}
+
+func (s *Service) materializeCommitGraph(targetRepo corestore.Record, sourceRepo corestore.Record, sha string, seenCommits map[string]bool, seenTrees map[string]bool) {
+	if sha == "" || seenCommits[sha] || s.findCommitExact(targetRepo, sha) != nil {
+		return
+	}
+	seenCommits[sha] = true
+	source := s.findCommitExact(sourceRepo, sha)
+	if source == nil {
+		return
+	}
+	for _, parent := range stringSliceValue(source["parent_shas"]) {
+		s.materializeCommitGraph(targetRepo, sourceRepo, parent, seenCommits, seenTrees)
+	}
+	s.materializeTree(targetRepo, sourceRepo, stringField(source, "tree_sha"), seenTrees)
+	row := s.store.Commits.Insert(corestore.Record{
+		"repo_id":         intField(targetRepo, "id"),
+		"sha":             stringField(source, "sha"),
+		"node_id":         "",
+		"message":         stringField(source, "message"),
+		"author_name":     stringField(source, "author_name"),
+		"author_email":    stringField(source, "author_email"),
+		"author_date":     stringField(source, "author_date"),
+		"committer_name":  stringField(source, "committer_name"),
+		"committer_email": stringField(source, "committer_email"),
+		"committer_date":  stringField(source, "committer_date"),
+		"tree_sha":        stringField(source, "tree_sha"),
+		"parent_shas":     stringSliceValue(source["parent_shas"]),
+		"user_id":         source["user_id"],
+	})
+	s.store.Commits.Update(intField(row, "id"), corestore.Record{"node_id": generateNodeID("Commit", intField(row, "id"))})
+}
+
+func (s *Service) materializeTree(targetRepo corestore.Record, sourceRepo corestore.Record, sha string, seen map[string]bool) {
+	if sha == "" || seen[sha] || s.findTreeExact(targetRepo, sha) != nil {
+		return
+	}
+	seen[sha] = true
+	source := s.findTreeExact(sourceRepo, sha)
+	if source == nil {
+		return
+	}
+	for _, item := range treeEntries(source["tree"]) {
+		itemSha := stringValue(item["sha"])
+		switch stringValue(item["type"]) {
+		case "blob":
+			s.materializeBlob(targetRepo, sourceRepo, itemSha)
+		case "tree":
+			s.materializeTree(targetRepo, sourceRepo, itemSha, seen)
+		}
+	}
+	row := s.store.Trees.Insert(corestore.Record{
+		"repo_id":   intField(targetRepo, "id"),
+		"sha":       stringField(source, "sha"),
+		"node_id":   "",
+		"tree":      source["tree"],
+		"truncated": boolField(source, "truncated"),
+	})
+	s.store.Trees.Update(intField(row, "id"), corestore.Record{"node_id": generateNodeID("Tree", intField(row, "id"))})
+}
+
+func (s *Service) materializeBlob(targetRepo corestore.Record, sourceRepo corestore.Record, sha string) {
+	if sha == "" || s.findBlobExact(targetRepo, sha) != nil {
+		return
+	}
+	source := s.findBlobExact(sourceRepo, sha)
+	if source == nil {
+		return
+	}
+	row := s.store.Blobs.Insert(corestore.Record{
+		"repo_id":  intField(targetRepo, "id"),
+		"sha":      stringField(source, "sha"),
+		"node_id":  "",
+		"content":  source["content"],
+		"encoding": stringField(source, "encoding"),
+		"size":     intField(source, "size"),
+	})
+	s.store.Blobs.Update(intField(row, "id"), corestore.Record{"node_id": generateNodeID("Blob", intField(row, "id"))})
 }
 
 func (s *Service) mergeCommitMessage(pr corestore.Record, body map[string]any) string {

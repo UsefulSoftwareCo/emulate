@@ -353,6 +353,41 @@ func (s *Service) findCommitExact(repo corestore.Record, sha string) corestore.R
 	return nil
 }
 
+func (s *Service) findTreeExact(repo corestore.Record, sha string) corestore.Record {
+	for _, tree := range s.store.Trees.FindBy("repo_id", intField(repo, "id")) {
+		if stringField(tree, "sha") == sha {
+			return tree
+		}
+	}
+	return nil
+}
+
+func (s *Service) findBlobExact(repo corestore.Record, sha string) corestore.Record {
+	for _, blob := range s.store.Blobs.FindBy("repo_id", intField(repo, "id")) {
+		if stringField(blob, "sha") == sha {
+			return blob
+		}
+	}
+	return nil
+}
+
+func treeEntries(value any) []map[string]any {
+	switch entries := value.(type) {
+	case []map[string]any:
+		return entries
+	case []any:
+		out := make([]map[string]any, 0, len(entries))
+		for _, entry := range entries {
+			if row, ok := entry.(map[string]any); ok {
+				out = append(out, row)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
 func (s *Service) isDescendantOf(repo corestore.Record, ancestorSha string, descendantSha string) bool {
 	seen := map[string]bool{}
 	stack := []string{descendantSha}

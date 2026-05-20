@@ -166,6 +166,12 @@ func (s *Service) handlePatchIssue(c *corehttp.Context) {
 	oldState := stringField(issue, "state")
 	openIssuesDelta := 0
 	if state := stringValue(body["state"]); state == "open" || state == "closed" {
+		if state == "open" && boolField(issue, "is_pull_request") {
+			if pr := s.findPullByNumber(intField(repo, "id"), intField(issue, "number")); pr != nil && boolField(pr, "merged") {
+				writeValidation(c, "Validation failed")
+				return
+			}
+		}
 		patch["state"] = state
 		if state == "closed" && oldState == "open" {
 			patch["closed_at"] = nowISO()
