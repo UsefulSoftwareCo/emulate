@@ -998,7 +998,7 @@ func (s *Service) messagePayload(message corestore.Record, format string, metada
 	)
 	headers = appendHeaderIfPresent(headers, "References", stringField(message, "references"))
 	headers = appendHeaderIfPresent(headers, "In-Reply-To", stringField(message, "in_reply_to"))
-	if len(metadataHeaders) > 0 {
+	if format == "metadata" && len(metadataHeaders) > 0 {
 		allowed := map[string]struct{}{}
 		for _, header := range metadataHeaders {
 			allowed[strings.ToLower(header)] = struct{}{}
@@ -1239,10 +1239,7 @@ func parseRawMessage(raw string) parsedRawMessage {
 			return parsedRawMessage{}
 		}
 	}
-	headerText, body, _ := strings.Cut(string(decoded), "\r\n\r\n")
-	if body == "" {
-		headerText, body, _ = strings.Cut(string(decoded), "\n\n")
-	}
+	headerText, body := splitMIMEEntity(string(decoded))
 	headers := parseMIMEHeaders(headerText)
 	out := parsedRawMessage{
 		Valid:      true,
@@ -1257,18 +1254,17 @@ func parseRawMessage(raw string) parsedRawMessage {
 		InReplyTo:  headers["in-reply-to"],
 		DateHeader: headers["date"],
 	}
-	contentType := headers["content-type"]
-	mediaType, params, _ := mime.ParseMediaType(contentType)
-	if strings.HasPrefix(mediaType, "multipart/") && params["boundary"] != "" {
-		parseMultipartBody(params["boundary"], body, &out)
-		return out
-	}
-	if mediaType == "text/html" {
-		out.BodyHTML = strings.TrimSpace(body)
-	} else {
-		out.BodyText = strings.TrimSpace(body)
-	}
+	parseMIMEBody(headers, body, &out, true)
 	return out
+}
+
+func splitMIMEEntity(source string) (string, string) {
+	headerText, body, ok := strings.Cut(source, "\r\n\r\n")
+	if ok {
+		return headerText, body
+	}
+	headerText, body, _ = strings.Cut(source, "\n\n")
+	return headerText, body
 }
 
 func parseMIMEHeaders(headerText string) map[string]string {
@@ -1298,34 +1294,51 @@ func parseMultipartBody(boundary string, body string, out *parsedRawMessage) {
 		if part == "" || strings.HasPrefix(part, "--") {
 			continue
 		}
-		headerText, partBody, _ := strings.Cut(part, "\r\n\r\n")
-		if partBody == "" {
-			headerText, partBody, _ = strings.Cut(part, "\n\n")
-		}
+		headerText, partBody := splitMIMEEntity(part)
 		headers := parseMIMEHeaders(headerText)
-		contentType := headers["content-type"]
-		mediaType, params, _ := mime.ParseMediaType(contentType)
-		disposition, dispositionParams, _ := mime.ParseMediaType(headers["content-disposition"])
-		bodyBytes := []byte(trimMultipartStringSuffix(partBody))
-		if strings.EqualFold(headers["content-transfer-encoding"], "base64") {
-			if decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(bodyBytes))); err == nil {
-				bodyBytes = decoded
-			}
+		parseMIMEBody(headers, partBody, out, false)
+	}
+}
+
+func parseMIMEBody(headers map[string]string, body string, out *parsedRawMessage, root bool) {
+	mediaType, params, _ := mime.ParseMediaType(headers["content-type"])
+	if mediaType == "" {
+		mediaType = "text/plain"
+	}
+	if strings.HasPrefix(mediaType, "multipart/") && params["boundary"] != "" {
+		parseMultipartBody(params["boundary"], body, out)
+		return
+	}
+
+	disposition, dispositionParams, _ := mime.ParseMediaType(headers["content-disposition"])
+	bodyText := trimMultipartStringSuffix(body)
+	if root {
+		bodyText = strings.TrimSpace(body)
+	}
+	bodyBytes := []byte(bodyText)
+	if strings.EqualFold(headers["content-transfer-encoding"], "base64") {
+		if decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(string(bodyBytes))); err == nil {
+			bodyBytes = decoded
 		}
-		switch {
-		case disposition == "attachment" || dispositionParams["filename"] != "":
-			filename := firstNonEmpty(dispositionParams["filename"], params["name"])
-			out.Attachments = append(out.Attachments, parsedAttachment{
-				Filename:         filename,
-				MIMEType:         firstNonEmpty(mediaType, "application/octet-stream"),
-				Disposition:      disposition,
-				ContentID:        strings.Trim(headers["content-id"], "<>"),
-				TransferEncoding: headers["content-transfer-encoding"],
-				Body:             bodyBytes,
-			})
-		case mediaType == "text/html":
+	}
+
+	switch {
+	case disposition == "attachment" || dispositionParams["filename"] != "" || params["name"] != "":
+		filename := firstNonEmpty(dispositionParams["filename"], params["name"])
+		out.Attachments = append(out.Attachments, parsedAttachment{
+			Filename:         filename,
+			MIMEType:         firstNonEmpty(mediaType, "application/octet-stream"),
+			Disposition:      disposition,
+			ContentID:        strings.Trim(headers["content-id"], "<>"),
+			TransferEncoding: headers["content-transfer-encoding"],
+			Body:             bodyBytes,
+		})
+	case mediaType == "text/html":
+		if out.BodyHTML == "" {
 			out.BodyHTML = string(bodyBytes)
-		default:
+		}
+	default:
+		if out.BodyText == "" {
 			out.BodyText = string(bodyBytes)
 		}
 	}

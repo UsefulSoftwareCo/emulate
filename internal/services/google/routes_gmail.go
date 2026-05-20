@@ -570,9 +570,11 @@ func (s *Service) handleGetThread(c *corehttp.Context) {
 		googleAPIError(c, http.StatusNotFound, "Requested entity was not found.", "notFound", "NOT_FOUND")
 		return
 	}
+	format := c.Query("format")
+	metadataHeaders := c.Request.URL.Query()["metadataHeaders"]
 	formatted := make([]map[string]any, 0, len(messages))
 	for _, message := range messages {
-		formatted = append(formatted, formatMessageResource(s, message, "full", nil))
+		formatted = append(formatted, formatMessageResource(s, message, format, metadataHeaders))
 	}
 	c.JSON(http.StatusOK, map[string]any{"id": c.Param("id"), "messages": formatted, "historyId": stringField(messages[len(messages)-1], "history_id")})
 }

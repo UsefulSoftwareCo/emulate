@@ -429,6 +429,135 @@ func TestGoogleRawMIMEPreservesStandardHeaders(t *testing.T) {
 	}
 }
 
+func TestGoogleFullMessageIgnoresMetadataHeaderFilter(t *testing.T) {
+	handler := newGoogleTestHandler()
+	res := googleRequest(handler, http.MethodGet, "/gmail/v1/users/me/messages/msg_invoice?format=full&metadataHeaders=Subject", "", true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("get message status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Payload struct {
+			Headers []struct {
+				Name string `json:"name"`
+			} `json:"headers"`
+		} `json:"payload"`
+	}
+	mustDecodeGoogleJSON(t, res.Body.Bytes(), &body)
+	headers := map[string]bool{}
+	for _, header := range body.Payload.Headers {
+		headers[header.Name] = true
+	}
+	for _, name := range []string{"From", "To", "Subject", "Message-ID"} {
+		if !headers[name] {
+			t.Fatalf("full response was unexpectedly filtered, missing %s in %#v", name, headers)
+		}
+	}
+}
+
+func TestGoogleThreadGetHonorsMessageFormatParameters(t *testing.T) {
+	handler := newGoogleTestHandler()
+	res := googleRequest(handler, http.MethodGet, "/gmail/v1/users/me/threads/thread_billing?format=minimal", "", true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("minimal thread status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var minimal struct {
+		Messages []map[string]any `json:"messages"`
+	}
+	mustDecodeGoogleJSON(t, res.Body.Bytes(), &minimal)
+	if len(minimal.Messages) != 1 {
+		t.Fatalf("unexpected minimal messages: %#v", minimal.Messages)
+	}
+	if _, ok := minimal.Messages[0]["payload"]; ok {
+		t.Fatalf("minimal thread message included payload: %#v", minimal.Messages[0])
+	}
+
+	query := url.Values{"format": {"metadata"}}
+	query.Add("metadataHeaders", "Subject")
+	res = googleRequest(handler, http.MethodGet, "/gmail/v1/users/me/threads/thread_billing?"+query.Encode(), "", true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("metadata thread status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var metadata struct {
+		Messages []struct {
+			Payload struct {
+				Headers []struct {
+					Name string `json:"name"`
+				} `json:"headers"`
+			} `json:"payload"`
+		} `json:"messages"`
+	}
+	mustDecodeGoogleJSON(t, res.Body.Bytes(), &metadata)
+	if len(metadata.Messages) != 1 || len(metadata.Messages[0].Payload.Headers) != 1 || metadata.Messages[0].Payload.Headers[0].Name != "Subject" {
+		t.Fatalf("unexpected metadata thread headers: %#v", metadata.Messages)
+	}
+}
+
+func TestGoogleRawMIMEParsesNestedMultipartAlternative(t *testing.T) {
+	handler := newGoogleTestHandler()
+	attachment := base64.StdEncoding.EncodeToString([]byte("nested attachment"))
+	raw := strings.Join([]string{
+		"From: Sender <sender@example.com>",
+		"To: testuser@example.com",
+		"Subject: Nested MIME",
+		"Content-Type: multipart/mixed; boundary=mixed-boundary",
+		"",
+		"--mixed-boundary",
+		"Content-Type: multipart/alternative; boundary=alt-boundary",
+		"",
+		"--alt-boundary",
+		"Content-Type: text/plain; charset=UTF-8",
+		"",
+		"Plain nested body.",
+		"--alt-boundary",
+		"Content-Type: text/html; charset=UTF-8",
+		"",
+		"<p>HTML nested body.</p>",
+		"--alt-boundary--",
+		"--mixed-boundary",
+		"Content-Type: text/plain; name=\"nested.txt\"",
+		"Content-Disposition: attachment; filename=\"nested.txt\"",
+		"Content-Transfer-Encoding: base64",
+		"",
+		attachment,
+		"--mixed-boundary--",
+		"",
+	}, "\r\n")
+	encoded := base64.RawURLEncoding.EncodeToString([]byte(raw))
+
+	res := googleRequest(handler, http.MethodPost, "/gmail/v1/users/me/messages/import", `{"raw":"`+encoded+`","labelIds":["INBOX"]}`, true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("import status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		Payload struct {
+			Parts []struct {
+				MIMEType string `json:"mimeType"`
+				Filename string `json:"filename"`
+				Body     struct {
+					Data string `json:"data"`
+				} `json:"body"`
+			} `json:"parts"`
+		} `json:"payload"`
+	}
+	mustDecodeGoogleJSON(t, res.Body.Bytes(), &body)
+	parts := map[string]string{}
+	for _, part := range body.Payload.Parts {
+		switch {
+		case part.Filename != "":
+			parts["attachment"] = part.Filename
+		case part.Body.Data != "":
+			decoded, err := base64.RawURLEncoding.DecodeString(part.Body.Data)
+			if err != nil {
+				t.Fatalf("decode %s part: %v", part.MIMEType, err)
+			}
+			parts[part.MIMEType] = string(decoded)
+		}
+	}
+	if parts["text/plain"] != "Plain nested body." || parts["text/html"] != "<p>HTML nested body.</p>" || parts["attachment"] != "nested.txt" {
+		t.Fatalf("unexpected parsed MIME parts: %#v", parts)
+	}
+}
+
 func TestGoogleUploadDraftRoutes(t *testing.T) {
 	handler := newGoogleTestHandler()
 
