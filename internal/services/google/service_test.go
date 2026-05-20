@@ -945,6 +945,85 @@ func TestGoogleHistoryListUsesNumericStartHistoryID(t *testing.T) {
 	}
 }
 
+func TestGoogleHistoryListPaginatesGroupedEntriesAndFiltersLabels(t *testing.T) {
+	service := New(Options{
+		Store:   corestore.New(),
+		BaseURL: "http://localhost:4016",
+		Seed: &SeedConfig{
+			Users:  []UserSeed{{Email: "testuser@example.com", Name: "Test User"}},
+			Labels: []LabelSeed{{ID: "Label_ops", UserEmail: "testuser@example.com", Name: "Ops"}},
+		},
+	})
+	first := service.createStoredMessage(messageInput{
+		GmailID:   "msg_history_page_1",
+		ThreadID:  "thread_history_page_1",
+		UserEmail: "testuser@example.com",
+		From:      "sender@example.com",
+		To:        "testuser@example.com",
+		Subject:   "First",
+		BodyText:  "Body",
+		LabelIDs:  []string{"INBOX", "Label_ops"},
+	})
+	second := service.createStoredMessage(messageInput{
+		GmailID:   "msg_history_page_2",
+		ThreadID:  "thread_history_page_2",
+		UserEmail: "testuser@example.com",
+		From:      "sender@example.com",
+		To:        "testuser@example.com",
+		Subject:   "Second",
+		BodyText:  "Body",
+		LabelIDs:  []string{"INBOX"},
+	})
+
+	router := corehttp.NewRouter()
+	service.RegisterRoutes(router)
+
+	res := googleRequest(router, http.MethodGet, "/gmail/v1/users/me/history?startHistoryId=0&maxResults=1", "", true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("history page status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var page struct {
+		NextPageToken string `json:"nextPageToken"`
+		History       []struct {
+			ID string `json:"id"`
+		} `json:"history"`
+	}
+	mustDecodeGoogleJSON(t, res.Body.Bytes(), &page)
+	if page.NextPageToken != "1" || len(page.History) != 1 || page.History[0].ID != stringField(first, "history_id") {
+		t.Fatalf("unexpected first history page: %#v", page)
+	}
+
+	res = googleRequest(router, http.MethodGet, "/gmail/v1/users/me/history?startHistoryId=0&maxResults=1&pageToken=1", "", true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("history second page status = %d, body = %s", res.Code, res.Body.String())
+	}
+	page = struct {
+		NextPageToken string `json:"nextPageToken"`
+		History       []struct {
+			ID string `json:"id"`
+		} `json:"history"`
+	}{}
+	mustDecodeGoogleJSON(t, res.Body.Bytes(), &page)
+	if page.NextPageToken != "" || len(page.History) != 1 || page.History[0].ID != stringField(second, "history_id") {
+		t.Fatalf("unexpected second history page: %#v", page)
+	}
+
+	res = googleRequest(router, http.MethodGet, "/gmail/v1/users/me/history?startHistoryId=0&labelId=Label_ops", "", true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("history label filter status = %d, body = %s", res.Code, res.Body.String())
+	}
+	page = struct {
+		NextPageToken string `json:"nextPageToken"`
+		History       []struct {
+			ID string `json:"id"`
+		} `json:"history"`
+	}{}
+	mustDecodeGoogleJSON(t, res.Body.Bytes(), &page)
+	if len(page.History) != 1 || page.History[0].ID != stringField(first, "history_id") {
+		t.Fatalf("unexpected label-filtered history page: %#v", page)
+	}
+}
+
 func TestGoogleCalendarAttendeesUseAPICasing(t *testing.T) {
 	handler := newGoogleTestHandler()
 	res := googleRequest(handler, http.MethodPost, "/calendar/v3/calendars/primary/events", `{
@@ -1133,6 +1212,65 @@ func TestGoogleUntrashPreservesNonInboxMessageLabels(t *testing.T) {
 	mustDecodeGoogleJSON(t, res.Body.Bytes(), &sentMessage)
 	if !containsString(sentMessage.LabelIDs, "SENT") || containsString(sentMessage.LabelIDs, "TRASH") || containsString(sentMessage.LabelIDs, "INBOX") {
 		t.Fatalf("sent labels after thread untrash = %#v, want SENT without TRASH or INBOX", sentMessage.LabelIDs)
+	}
+}
+
+func TestGoogleThreadTrashAndUntrashReturnThreadResource(t *testing.T) {
+	handler := newGoogleTestHandler()
+
+	res := googleRequest(handler, http.MethodPost, "/gmail/v1/users/me/threads/thread_billing/trash", "", true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("trash thread status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var trashed struct {
+		ID       string `json:"id"`
+		Messages []struct {
+			ID       string   `json:"id"`
+			LabelIDs []string `json:"labelIds"`
+		} `json:"messages"`
+	}
+	mustDecodeGoogleJSON(t, res.Body.Bytes(), &trashed)
+	if trashed.ID != "thread_billing" || len(trashed.Messages) != 1 || !containsString(trashed.Messages[0].LabelIDs, "TRASH") {
+		t.Fatalf("unexpected trashed thread response: %#v", trashed)
+	}
+
+	res = googleRequest(handler, http.MethodPost, "/gmail/v1/users/me/threads/thread_billing/untrash", "", true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("untrash thread status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var untrashed struct {
+		ID       string `json:"id"`
+		Messages []struct {
+			ID       string   `json:"id"`
+			LabelIDs []string `json:"labelIds"`
+		} `json:"messages"`
+	}
+	mustDecodeGoogleJSON(t, res.Body.Bytes(), &untrashed)
+	if untrashed.ID != "thread_billing" ||
+		len(untrashed.Messages) != 1 ||
+		containsString(untrashed.Messages[0].LabelIDs, "TRASH") ||
+		!containsString(untrashed.Messages[0].LabelIDs, "INBOX") {
+		t.Fatalf("unexpected untrashed thread response: %#v", untrashed)
+	}
+}
+
+func TestGoogleDeleteMissingResourcesReturnNotFound(t *testing.T) {
+	handler := newGoogleTestHandler()
+
+	for _, tc := range []struct {
+		name string
+		path string
+	}{
+		{name: "message", path: "/gmail/v1/users/me/messages/msg_missing"},
+		{name: "draft", path: "/gmail/v1/users/me/drafts/draft_missing"},
+		{name: "thread", path: "/gmail/v1/users/me/threads/thread_missing"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			res := googleRequest(handler, http.MethodDelete, tc.path, "", true)
+			if res.Code != http.StatusNotFound || !strings.Contains(res.Body.String(), "Requested entity was not found") {
+				t.Fatalf("delete %s status = %d, body = %s", tc.name, res.Code, res.Body.String())
+			}
+		})
 	}
 }
 

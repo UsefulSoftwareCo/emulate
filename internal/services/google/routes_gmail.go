@@ -271,9 +271,12 @@ func (s *Service) handleDeleteMessage(c *corehttp.Context) {
 	if !ok {
 		return
 	}
-	if message := s.getMessageByID(email, c.Param("id")); message != nil {
-		s.deleteMessage(message)
+	message := s.getMessageByID(email, c.Param("id"))
+	if message == nil {
+		googleAPIError(c, http.StatusNotFound, "Requested entity was not found.", "notFound", "NOT_FOUND")
+		return
 	}
+	s.deleteMessage(message)
 	c.Writer.WriteHeader(http.StatusNoContent)
 }
 
@@ -409,9 +412,11 @@ func (s *Service) handleDeleteDraft(c *corehttp.Context) {
 		return
 	}
 	draft, message := s.getDraftAndMessage(email, c.Param("id"))
-	if draft != nil {
-		s.store.Drafts.Delete(intField(draft, "id"))
+	if draft == nil {
+		googleAPIError(c, http.StatusNotFound, "Requested entity was not found.", "notFound", "NOT_FOUND")
+		return
 	}
+	s.store.Drafts.Delete(intField(draft, "id"))
 	if message != nil {
 		s.deleteMessage(message)
 	}
@@ -625,10 +630,12 @@ func (s *Service) mutateThreadLabels(c *corehttp.Context, mutate func([]string) 
 		googleAPIError(c, http.StatusNotFound, "Requested entity was not found.", "notFound", "NOT_FOUND")
 		return
 	}
+	formatted := make([]map[string]any, 0, len(messages))
 	for _, message := range messages {
-		s.updateMessageLabels(message, mutate(stringSliceValue(message["label_ids"])))
+		updated := s.updateMessageLabels(message, mutate(stringSliceValue(message["label_ids"])))
+		formatted = append(formatted, formatMessageResource(s, updated, "full", nil))
 	}
-	c.JSON(http.StatusOK, map[string]any{"id": c.Param("id")})
+	c.JSON(http.StatusOK, map[string]any{"id": c.Param("id"), "messages": formatted})
 }
 
 func (s *Service) handleDeleteThread(c *corehttp.Context) {
@@ -636,7 +643,12 @@ func (s *Service) handleDeleteThread(c *corehttp.Context) {
 	if !ok {
 		return
 	}
-	for _, message := range s.threadMessages(email, c.Param("id")) {
+	messages := s.threadMessages(email, c.Param("id"))
+	if len(messages) == 0 {
+		googleAPIError(c, http.StatusNotFound, "Requested entity was not found.", "notFound", "NOT_FOUND")
+		return
+	}
+	for _, message := range messages {
 		s.deleteMessage(message)
 	}
 	c.Writer.WriteHeader(http.StatusNoContent)
@@ -943,7 +955,7 @@ func (s *Service) handleListHistory(c *corehttp.Context) {
 	if !ok {
 		return
 	}
-	start := c.Query("startHistoryId")
+	start := strings.TrimSpace(c.Query("startHistoryId"))
 	if strings.TrimSpace(start) == "" {
 		googleAPIError(c, http.StatusBadRequest, "Start history ID is required.", "invalidArgument", "INVALID_ARGUMENT")
 		return
@@ -952,12 +964,21 @@ func (s *Service) handleListHistory(c *corehttp.Context) {
 	for _, value := range c.Request.URL.Query()["historyTypes"] {
 		types[value] = struct{}{}
 	}
+	labelID := c.Query("labelId")
 	rows := s.store.History.FindBy("user_email", email)
+	sort.SliceStable(rows, func(i int, j int) bool {
+		left := stringField(rows[i], "gmail_id")
+		right := stringField(rows[j], "gmail_id")
+		if left != right {
+			return historyIDAfter(right, left)
+		}
+		return intField(rows[i], "id") < intField(rows[j], "id")
+	})
 	grouped := map[string][]corestore.Record{}
 	order := []string{}
 	for _, row := range rows {
 		historyID := stringField(row, "gmail_id")
-		if start != "" && !historyIDAfter(historyID, start) {
+		if !historyIDAfter(historyID, start) {
 			continue
 		}
 		changeType := stringField(row, "change_type")
@@ -966,16 +987,34 @@ func (s *Service) handleListHistory(c *corehttp.Context) {
 				continue
 			}
 		}
+		if labelID != "" && !s.historyRowMatchesLabel(email, row, labelID) {
+			continue
+		}
 		if _, ok := grouped[historyID]; !ok {
 			order = append(order, historyID)
 		}
 		grouped[historyID] = append(grouped[historyID], row)
 	}
-	items := make([]map[string]any, 0, len(order))
-	for _, historyID := range order {
+	offset := parseOffset(c.Query("pageToken"))
+	limit := normalizeLimit(c.Query("maxResults"), 100, 500)
+	pageIDs := pageStrings(order, offset, limit)
+	items := make([]map[string]any, 0, len(pageIDs))
+	for _, historyID := range pageIDs {
 		items = append(items, s.formatHistoryEntry(email, historyID, grouped[historyID]))
 	}
-	c.JSON(http.StatusOK, map[string]any{"historyId": s.currentHistoryID(email), "history": items})
+	body := map[string]any{"historyId": s.currentHistoryID(email), "history": items}
+	if offset+limit < len(order) {
+		body["nextPageToken"] = strconv.Itoa(offset + limit)
+	}
+	c.JSON(http.StatusOK, body)
+}
+
+func (s *Service) historyRowMatchesLabel(email string, row corestore.Record, labelID string) bool {
+	if containsString(stringSliceValue(row["label_ids"]), labelID) {
+		return true
+	}
+	message := s.getMessageByID(email, stringField(row, "message_gmail_id"))
+	return message != nil && containsString(stringSliceValue(message["label_ids"]), labelID)
 }
 
 func (s *Service) formatHistoryEntry(email string, historyID string, rows []corestore.Record) map[string]any {
@@ -1060,6 +1099,17 @@ func pageRecords(records []corestore.Record, offset int, limit int) []corestore.
 		end = len(records)
 	}
 	return records[offset:end]
+}
+
+func pageStrings(values []string, offset int, limit int) []string {
+	if offset >= len(values) {
+		return nil
+	}
+	end := offset + limit
+	if end > len(values) {
+		end = len(values)
+	}
+	return values[offset:end]
 }
 
 func getStringArray(body map[string]any, field string) []string {
