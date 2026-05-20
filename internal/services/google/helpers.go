@@ -1234,9 +1234,12 @@ type parsedAttachment struct {
 func parseRawMessage(raw string) parsedRawMessage {
 	decoded, err := base64.RawURLEncoding.DecodeString(raw)
 	if err != nil {
-		decoded, err = base64.StdEncoding.DecodeString(raw)
+		decoded, err = base64.URLEncoding.DecodeString(raw)
 		if err != nil {
-			return parsedRawMessage{}
+			decoded, err = base64.StdEncoding.DecodeString(raw)
+			if err != nil {
+				return parsedRawMessage{}
+			}
 		}
 	}
 	headerText, body := splitMIMEEntity(string(decoded))
@@ -1806,6 +1809,22 @@ func (s *Service) updateDriveItemRecord(item corestore.Record, addParents []stri
 		"name":              name,
 		"parent_google_ids": normalizeParentIDs(parents),
 		"web_view_link":     buildDriveWebViewLink(stringField(item, "google_id"), stringField(item, "mime_type")),
+	})
+	if !ok {
+		return item
+	}
+	return updated
+}
+
+func (s *Service) updateDriveItemContent(item corestore.Record, mimeType string, media []byte) corestore.Record {
+	if mimeType == "" {
+		mimeType = firstNonEmpty(stringField(item, "mime_type"), "application/octet-stream")
+	}
+	updated, ok := s.store.DriveItems.Update(intField(item, "id"), corestore.Record{
+		"mime_type":     mimeType,
+		"data":          base64URLString(media),
+		"size":          len(media),
+		"web_view_link": buildDriveWebViewLink(stringField(item, "google_id"), mimeType),
 	})
 	if !ok {
 		return item

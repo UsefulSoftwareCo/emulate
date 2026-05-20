@@ -456,6 +456,42 @@ func TestGoogleRawMIMEPreservesStandardHeaders(t *testing.T) {
 	}
 }
 
+func TestGoogleRawMIMEAcceptsPaddedURLSafeBase64(t *testing.T) {
+	handler := newGoogleTestHandler()
+	raw := strings.Join([]string{
+		"From: Sender <sender@example.com>",
+		"To: testuser@example.com",
+		"Subject: Padded URL Safe",
+		"Content-Type: text/plain",
+		"",
+		">AB",
+	}, "\r\n")
+	encoded := base64.URLEncoding.EncodeToString([]byte(raw))
+	if !strings.Contains(encoded, "-") || !strings.Contains(encoded, "=") {
+		t.Fatalf("test fixture did not produce padded URL-safe base64: %s", encoded)
+	}
+
+	res := googleRequest(handler, http.MethodPost, "/gmail/v1/users/me/messages/import", `{"raw":"`+encoded+`","labelIds":["INBOX"]}`, true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("import status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var imported struct {
+		Payload struct {
+			Headers []struct {
+				Name  string `json:"name"`
+				Value string `json:"value"`
+			} `json:"headers"`
+		} `json:"payload"`
+	}
+	mustDecodeGoogleJSON(t, res.Body.Bytes(), &imported)
+	for _, header := range imported.Payload.Headers {
+		if header.Name == "Subject" && header.Value == "Padded URL Safe" {
+			return
+		}
+	}
+	t.Fatalf("subject header missing from imported message: %#v", imported.Payload.Headers)
+}
+
 func TestGoogleFullMessageIgnoresMetadataHeaderFilter(t *testing.T) {
 	handler := newGoogleTestHandler()
 	res := googleRequest(handler, http.MethodGet, "/gmail/v1/users/me/messages/msg_invoice?format=full&metadataHeaders=Subject", "", true)
@@ -1133,6 +1169,37 @@ func TestGoogleDriveMultipartUploadPreservesTrailingNewline(t *testing.T) {
 	}
 
 	res = googleRequest(handler, http.MethodGet, "/drive/v3/files/"+uploaded.ID+"?alt=media", "", true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("download status = %d, body = %s", res.Code, res.Body.String())
+	}
+	body, _ := io.ReadAll(res.Result().Body)
+	if string(body) != content {
+		t.Fatalf("download body = %q, want %q", string(body), content)
+	}
+}
+
+func TestGoogleDrivePutUpdatesMediaContent(t *testing.T) {
+	handler := newGoogleTestHandler()
+	content := "replacement handbook\n"
+	req := httptest.NewRequest(http.MethodPut, "http://localhost:4016/drive/v3/files/drv_handbook", strings.NewReader(content))
+	req.Header.Set("Authorization", "Bearer test-token")
+	req.Header.Set("Content-Type", "text/plain")
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("update status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var updated struct {
+		ID       string `json:"id"`
+		MIMEType string `json:"mimeType"`
+		Size     string `json:"size"`
+	}
+	mustDecodeGoogleJSON(t, res.Body.Bytes(), &updated)
+	if updated.ID != "drv_handbook" || updated.MIMEType != "text/plain" || updated.Size != strconv.Itoa(len(content)) {
+		t.Fatalf("unexpected updated file: %#v", updated)
+	}
+
+	res = googleRequest(handler, http.MethodGet, "/drive/v3/files/drv_handbook?alt=media", "", true)
 	if res.Code != http.StatusOK {
 		t.Fatalf("download status = %d, body = %s", res.Code, res.Body.String())
 	}

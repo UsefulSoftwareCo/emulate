@@ -272,6 +272,12 @@ func (s *Service) handleUpdateDriveFile(c *corehttp.Context) {
 		googleAPIError(c, http.StatusNotFound, "Requested entity was not found.", "notFound", "NOT_FOUND")
 		return
 	}
+	if c.Request.Method == http.MethodPut {
+		media, _ := io.ReadAll(c.Request.Body)
+		updated := s.updateDriveItemContent(item, driveUploadContentType(c.Header("Content-Type")), media)
+		c.JSON(http.StatusOK, formatDriveItemResource(updated))
+		return
+	}
 	body := parseJSONBody(c.Request)
 	addParents := splitCSV(c.Query("addParents"))
 	removeParents := splitCSV(c.Query("removeParents"))
