@@ -673,9 +673,13 @@ func (s *Service) handleCreateLabel(c *corehttp.Context) {
 		return
 	}
 	body := parseJSONBody(c.Request)
-	name := stringValue(body["name"])
+	name := strings.TrimSpace(stringValue(body["name"]))
 	if name == "" {
 		googleAPIError(c, http.StatusBadRequest, "Label name is required.", "invalidArgument", "INVALID_ARGUMENT")
+		return
+	}
+	if s.findLabelByName(email, name) != nil {
+		googleAPIError(c, http.StatusBadRequest, "Label name exists or conflicts", "failedPrecondition", "FAILED_PRECONDITION")
 		return
 	}
 	color := mapValue(body["color"])
@@ -721,7 +725,11 @@ func (s *Service) handlePatchLabel(c *corehttp.Context) {
 	body := parseJSONBody(c.Request)
 	color := mapValue(body["color"])
 	patch := corestore.Record{}
-	if name := stringValue(body["name"]); name != "" {
+	if name := strings.TrimSpace(stringValue(body["name"])); name != "" {
+		if conflicting := s.findLabelByName(email, name); conflicting != nil && stringField(conflicting, "gmail_id") != stringField(label, "gmail_id") {
+			googleAPIError(c, http.StatusBadRequest, "Label name exists or conflicts", "failedPrecondition", "FAILED_PRECONDITION")
+			return
+		}
 		patch["name"] = name
 	}
 	if value := stringValue(body["messageListVisibility"]); value != "" {
@@ -881,10 +889,11 @@ func (s *Service) handleDeleteFilter(c *corehttp.Context) {
 	for _, filter := range s.store.Filters.FindBy("user_email", email) {
 		if stringField(filter, "gmail_id") == c.Param("id") {
 			s.store.Filters.Delete(intField(filter, "id"))
-			break
+			c.Writer.WriteHeader(http.StatusNoContent)
+			return
 		}
 	}
-	c.Writer.WriteHeader(http.StatusNoContent)
+	googleAPIError(c, http.StatusNotFound, "Requested entity was not found.", "notFound", "NOT_FOUND")
 }
 
 func (s *Service) handleWatch(c *corehttp.Context) {
@@ -933,6 +942,10 @@ func (s *Service) handleListHistory(c *corehttp.Context) {
 		return
 	}
 	start := c.Query("startHistoryId")
+	if strings.TrimSpace(start) == "" {
+		googleAPIError(c, http.StatusBadRequest, "Start history ID is required.", "invalidArgument", "INVALID_ARGUMENT")
+		return
+	}
 	types := map[string]struct{}{}
 	for _, value := range c.Request.URL.Query()["historyTypes"] {
 		types[value] = struct{}{}

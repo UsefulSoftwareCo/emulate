@@ -284,6 +284,11 @@ func TestGoogleFilterAndWatchValidation(t *testing.T) {
 		t.Fatalf("valid filter status = %d, body = %s", res.Code, res.Body.String())
 	}
 
+	res = googleRequest(handler, http.MethodDelete, "/gmail/v1/users/me/settings/filters/filter_missing", "", true)
+	if res.Code != http.StatusNotFound || !strings.Contains(res.Body.String(), "Requested entity was not found") {
+		t.Fatalf("missing filter delete status = %d, body = %s", res.Code, res.Body.String())
+	}
+
 	res = googleRequest(handler, http.MethodPost, "/gmail/v1/users/me/watch", `{}`, true)
 	if res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), "Topic name is required") {
 		t.Fatalf("missing topic watch status = %d, body = %s", res.Code, res.Body.String())
@@ -621,6 +626,14 @@ func TestGoogleHistoryIDsAreDecimalAndMonotonic(t *testing.T) {
 	}
 }
 
+func TestGoogleHistoryListRequiresStartHistoryID(t *testing.T) {
+	handler := newGoogleTestHandler()
+	res := googleRequest(handler, http.MethodGet, "/gmail/v1/users/me/history", "", true)
+	if res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), "Start history ID is required") {
+		t.Fatalf("history without start status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
 func TestGoogleHistoryListUsesNumericStartHistoryID(t *testing.T) {
 	runtimeStore := corestore.New()
 	service := New(Options{
@@ -745,6 +758,25 @@ func TestGoogleSystemLabelsRejectMutation(t *testing.T) {
 	res = googleRequest(handler, http.MethodDelete, "/gmail/v1/users/me/labels/INBOX", "", true)
 	if res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), "System labels cannot be deleted") {
 		t.Fatalf("delete system label status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
+func TestGoogleRejectsDuplicateLabelNames(t *testing.T) {
+	handler := newGoogleTestHandler()
+
+	res := googleRequest(handler, http.MethodPost, "/gmail/v1/users/me/labels", `{"name":"Ops/Review"}`, true)
+	if res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), "Label name exists or conflicts") {
+		t.Fatalf("duplicate label create status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = googleRequest(handler, http.MethodPost, "/gmail/v1/users/me/labels", `{"name":"Needs Review"}`, true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("create label status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = googleRequest(handler, http.MethodPatch, "/gmail/v1/users/me/labels/Label_ops", `{"name":"Needs Review"}`, true)
+	if res.Code != http.StatusBadRequest || !strings.Contains(res.Body.String(), "Label name exists or conflicts") {
+		t.Fatalf("duplicate label patch status = %d, body = %s", res.Code, res.Body.String())
 	}
 }
 
