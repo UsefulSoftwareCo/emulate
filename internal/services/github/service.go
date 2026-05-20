@@ -459,6 +459,33 @@ func (s *Service) assertIssueParticipant(c *corehttp.Context, repo corestore.Rec
 	return user, true
 }
 
+func (s *Service) assertPullBaseAccess(c *corehttp.Context, user *authUser, repo corestore.Record) bool {
+	if boolField(repo, "private") {
+		if !hasScope(user, "repo") || !s.canAccessRepo(user, repo) {
+			writeForbidden(c)
+			return false
+		}
+		return true
+	}
+	if !hasRepoMutationScope(user, repo) {
+		writeForbidden(c)
+		return false
+	}
+	return true
+}
+
+func (s *Service) assertPullHeadAccess(c *corehttp.Context, user *authUser, repo corestore.Record) bool {
+	if boolField(repo, "private") && !hasScope(user, "repo") {
+		writeForbidden(c)
+		return false
+	}
+	if !s.canAccessRepo(user, repo) {
+		writeForbidden(c)
+		return false
+	}
+	return true
+}
+
 func hasRepoMutationScope(user *authUser, repo corestore.Record) bool {
 	if boolField(repo, "private") {
 		return hasScope(user, "repo")

@@ -185,7 +185,7 @@ func (s *Service) formatRepo(repo corestore.Record, viewerID int) map[string]any
 		"license":                repo["license"],
 		"allow_forking":          boolField(repo, "allow_forking"),
 		"is_template":            boolField(repo, "is_template"),
-		"topics":                 stringSliceValue(repo["topics"]),
+		"topics":                 stringSliceOrEmpty(repo["topics"]),
 		"visibility":             stringField(repo, "visibility"),
 		"forks":                  intField(repo, "forks_count"),
 		"open_issues":            intField(repo, "open_issues_count"),

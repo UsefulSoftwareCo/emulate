@@ -65,8 +65,11 @@ func (s *Service) handleCreatePull(c *corehttp.Context) {
 		writeNotFound(c)
 		return
 	}
-	actor, ok := s.assertRepoWrite(c, repo)
+	actor, auth, ok := s.currentAuthUser(c)
 	if !ok {
+		return
+	}
+	if !s.assertPullBaseAccess(c, auth, repo) {
 		return
 	}
 	body, err := parseJSONBody(c.Request)
@@ -84,6 +87,9 @@ func (s *Service) handleCreatePull(c *corehttp.Context) {
 	headRepo, headRef, ok := s.resolvePullHead(repo, head)
 	if !ok {
 		writeValidation(c, "Validation failed")
+		return
+	}
+	if !s.assertPullHeadAccess(c, auth, headRepo) {
 		return
 	}
 	if headRef == base && intField(headRepo, "id") == intField(repo, "id") {

@@ -116,6 +116,37 @@ func TestGitHubReposIssuesCommentsAndPulls(t *testing.T) {
 	}
 }
 
+func TestGitHubRepoWithoutTopicsReturnsEmptyArrays(t *testing.T) {
+	handler := newGitHubTestHandler(&SeedConfig{
+		Users: []UserSeed{{Login: "octocat", Email: "octocat@github.com"}},
+		Repos: []RepoSeed{{Owner: "octocat", Name: "hello-world"}},
+	})
+
+	repo := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/hello-world", "", "Bearer test_token_user1")
+	if repo.Code != http.StatusOK {
+		t.Fatalf("repo status = %d, body = %s", repo.Code, repo.Body.String())
+	}
+	var repoBody struct {
+		Topics []string `json:"topics"`
+	}
+	decodeGitHubBody(t, repo, &repoBody)
+	if repoBody.Topics == nil || len(repoBody.Topics) != 0 {
+		t.Fatalf("topics should be an empty array: %#v, body = %s", repoBody.Topics, repo.Body.String())
+	}
+
+	topics := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/hello-world/topics", "", "Bearer test_token_user1")
+	if topics.Code != http.StatusOK {
+		t.Fatalf("topics status = %d, body = %s", topics.Code, topics.Body.String())
+	}
+	var topicsBody struct {
+		Names []string `json:"names"`
+	}
+	decodeGitHubBody(t, topics, &topicsBody)
+	if topicsBody.Names == nil || len(topicsBody.Names) != 0 {
+		t.Fatalf("topic names should be an empty array: %#v, body = %s", topicsBody.Names, topics.Body.String())
+	}
+}
+
 func TestGitHubListPullsFiltersForkHeadByOwnerAndBranch(t *testing.T) {
 	handler := newGitHubTestHandler(&SeedConfig{
 		Users: []UserSeed{
@@ -156,6 +187,49 @@ func TestGitHubListPullsFiltersForkHeadByOwnerAndBranch(t *testing.T) {
 	decodeGitHubBody(t, list, &body)
 	if len(body) != 1 || body[0].Head.Label != "forker:feature" {
 		t.Fatalf("unexpected filtered pulls: %#v, body = %s", body, list.Body.String())
+	}
+}
+
+func TestGitHubPublicForkOwnerCanCreatePullAgainstBaseRepo(t *testing.T) {
+	handler := newGitHubTestHandler(&SeedConfig{
+		Users: []UserSeed{
+			{Login: "octocat", Email: "octocat@github.com"},
+			{Login: "forker", Email: "forker@example.com"},
+		},
+		Tokens: map[string]TokenSeed{
+			"forker_token": {Login: "forker", Scopes: []string{"repo", "user"}},
+		},
+		Repos: []RepoSeed{
+			{Owner: "octocat", Name: "hello-world"},
+			{Owner: "forker", Name: "hello-world"},
+		},
+	})
+
+	forkBranches := doGitHubJSON(handler, http.MethodGet, "/repos/forker/hello-world/branches", "", "Bearer forker_token")
+	if forkBranches.Code != http.StatusOK {
+		t.Fatalf("fork branches status = %d, body = %s", forkBranches.Code, forkBranches.Body.String())
+	}
+	forkMainSha := defaultBranchSha(t, forkBranches, "main")
+	ref := doGitHubJSON(handler, http.MethodPost, "/repos/forker/hello-world/git/refs", `{"ref":"refs/heads/feature","sha":"`+forkMainSha+`"}`, "Bearer forker_token")
+	if ref.Code != http.StatusCreated {
+		t.Fatalf("ref status = %d, body = %s", ref.Code, ref.Body.String())
+	}
+
+	pr := doGitHubJSON(handler, http.MethodPost, "/repos/octocat/hello-world/pulls", `{"title":"Fork feature","head":"forker:feature","base":"main"}`, "Bearer forker_token")
+	if pr.Code != http.StatusCreated {
+		t.Fatalf("pull status = %d, body = %s", pr.Code, pr.Body.String())
+	}
+	var body struct {
+		Head struct {
+			Label string `json:"label"`
+		} `json:"head"`
+		Base struct {
+			Label string `json:"label"`
+		} `json:"base"`
+	}
+	decodeGitHubBody(t, pr, &body)
+	if body.Head.Label != "forker:feature" || body.Base.Label != "octocat:main" {
+		t.Fatalf("unexpected pull sides: %#v, body = %s", body, pr.Body.String())
 	}
 }
 

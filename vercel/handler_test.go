@@ -123,6 +123,38 @@ func TestHandlerForwardsGitHubService(t *testing.T) {
 	}
 }
 
+func TestHandlerRewritesGitHubPaginationLinksThroughPublicServicePrefix(t *testing.T) {
+	handler := NewHandler(Options{Services: []string{"github"}})
+	for _, name := range []string{"one", "two"} {
+		req := newJSONRequest(http.MethodPost, "https://preview.example.com/emulate/github/user/repos", `{"name":"`+name+`"}`)
+		req.Host = "preview.example.com"
+		req.Header.Set("Authorization", "Bearer test_token_admin")
+		res := httptest.NewRecorder()
+		handler.ServeHTTP(res, req)
+		if res.Code != http.StatusCreated {
+			t.Fatalf("create %s status = %d, body = %s", name, res.Code, res.Body.String())
+		}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "https://preview.example.com/emulate/github/user/repos?per_page=1", nil)
+	req.Host = "preview.example.com"
+	req.Header.Set("Authorization", "Bearer test_token_admin")
+
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	link := res.Header().Get("Link")
+	if !strings.Contains(link, "https://preview.example.com/emulate/github/user/repos?page=2&per_page=1") {
+		t.Fatalf("missing rewritten GitHub pagination link: %s", link)
+	}
+	if strings.Contains(link, "https://preview.example.com/user/repos") || strings.Contains(link, "</user/repos") {
+		t.Fatalf("contains unrewritten GitHub pagination link: %s", link)
+	}
+}
+
 func TestHandlerRewritesHTMLRootPathsThroughPublicServicePrefix(t *testing.T) {
 	handler := NewHandler(Options{Services: []string{"resend"}})
 	createEmail(t, handler, "Rewritten")

@@ -139,6 +139,14 @@ func stringSliceValue(value any) []string {
 	}
 }
 
+func stringSliceOrEmpty(value any) []string {
+	out := stringSliceValue(value)
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
 func intSliceValue(value any) []int {
 	switch v := value.(type) {
 	case []int:

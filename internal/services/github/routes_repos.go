@@ -168,6 +168,10 @@ func (s *Service) createRepoRecord(options createRepoOptions) corestore.Record {
 	if language, ok := options.Language.(string); ok && language != "" {
 		languages[language] = 10000
 	}
+	topics := append([]string(nil), options.Topics...)
+	if topics == nil {
+		topics = []string{}
+	}
 	repo := s.store.Repos.Insert(corestore.Record{
 		"node_id":                "",
 		"name":                   name,
@@ -187,7 +191,7 @@ func (s *Service) createRepoRecord(options createRepoOptions) corestore.Record {
 		"size":                   0,
 		"default_branch":         options.DefaultBranch,
 		"open_issues_count":      0,
-		"topics":                 options.Topics,
+		"topics":                 topics,
 		"has_issues":             true,
 		"has_projects":           true,
 		"has_wiki":               true,
@@ -394,7 +398,7 @@ func (s *Service) handleGetRepoTopics(c *corehttp.Context) {
 	if !s.assertRepoRead(c, repo) {
 		return
 	}
-	c.JSON(http.StatusOK, map[string]any{"names": stringSliceValue(repo["topics"])})
+	c.JSON(http.StatusOK, map[string]any{"names": stringSliceOrEmpty(repo["topics"])})
 }
 
 func (s *Service) handlePutRepoTopics(c *corehttp.Context) {
@@ -411,9 +415,9 @@ func (s *Service) handlePutRepoTopics(c *corehttp.Context) {
 		writeValidation(c, "Invalid JSON body")
 		return
 	}
-	topics := stringSliceValue(body["names"])
+	topics := stringSliceOrEmpty(body["names"])
 	updated, _ := s.store.Repos.Update(intField(repo, "id"), corestore.Record{"topics": topics})
-	c.JSON(http.StatusOK, map[string]any{"names": stringSliceValue(updated["topics"])})
+	c.JSON(http.StatusOK, map[string]any{"names": stringSliceOrEmpty(updated["topics"])})
 }
 
 func (s *Service) handleGetRepoLanguages(c *corehttp.Context) {
