@@ -9,6 +9,7 @@ import (
 	"github.com/vercel-labs/emulate/internal/core/ui"
 	"github.com/vercel-labs/emulate/internal/services/aws"
 	"github.com/vercel-labs/emulate/internal/services/resend"
+	"github.com/vercel-labs/emulate/internal/services/vercel"
 )
 
 const HealthPath = "/_emulate/health"
@@ -20,6 +21,7 @@ type ServerOptions struct {
 	Store      *store.Store
 	AssetStore *coreassets.Store
 	ResendSeed *resend.SeedConfig
+	VercelSeed *vercel.SeedConfig
 }
 
 type Server struct {
@@ -83,6 +85,13 @@ func NewServer(options ServerOptions) *Server {
 		resend.Register(router, resend.Options{
 			Store: runtimeStore,
 			Seed:  options.ResendSeed,
+		})
+	}
+	if serviceEnabled(services, "vercel") {
+		vercel.Register(router, vercel.Options{
+			Store:   runtimeStore,
+			BaseURL: options.BaseURL,
+			Seed:    options.VercelSeed,
 		})
 	}
 	router.NotFound(func(c *corehttp.Context) {

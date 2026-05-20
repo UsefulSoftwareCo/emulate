@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -34,7 +35,7 @@ func TestHandlerServesPreviewHealth(t *testing.T) {
 	if !body.OK || body.Adapter != "vercel" || body.Runtime != "go" || body.Version != "test" || body.RoutePrefix != "/emulate" {
 		t.Fatalf("unexpected body: %#v", body)
 	}
-	if strings.Join(body.Services, ",") != "aws,resend" {
+	if strings.Join(body.Services, ",") != "aws,resend,vercel" {
 		t.Fatalf("services = %#v", body.Services)
 	}
 }
@@ -85,6 +86,23 @@ func TestHandlerForwardsDirectPublicPathToService(t *testing.T) {
 
 	if res.Code != http.StatusOK {
 		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
+func TestHandlerForwardsVercelService(t *testing.T) {
+	handler := NewHandler(Options{Services: []string{"vercel"}})
+	req := httptest.NewRequest(http.MethodGet, "https://preview.example.com/emulate/vercel/v2/user", nil)
+	req.Host = "preview.example.com"
+	req.Header.Set("Authorization", "Bearer test_token_admin")
+
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), `"username":"admin"`) {
+		t.Fatalf("unexpected body: %s", res.Body.String())
 	}
 }
 
@@ -205,6 +223,84 @@ func TestHandlerLoadsAndSavesAWSS3ObjectSnapshots(t *testing.T) {
 	}
 	if got := res.Header().Get("Content-Type"); got != "text/plain" {
 		t.Fatalf("content type = %q", got)
+	}
+}
+
+func TestHandlerPersistsVercelOAuthState(t *testing.T) {
+	persistence := &memoryPersistence{snapshots: map[string][]byte{}}
+	handler := NewHandler(Options{
+		Services:    []string{"vercel"},
+		Persistence: persistence,
+	})
+	form := url.Values{
+		"username":     {"admin"},
+		"redirect_uri": {"https://client.example/callback"},
+		"scope":        {"user"},
+	}
+	req := httptest.NewRequest(
+		http.MethodPost,
+		"https://preview.example.com/emulate/vercel/oauth/authorize/callback",
+		strings.NewReader(form.Encode()),
+	)
+	req.Host = "preview.example.com"
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusFound {
+		t.Fatalf("callback status = %d, body = %s", res.Code, res.Body.String())
+	}
+	location, err := url.Parse(res.Header().Get("Location"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := location.Query().Get("code")
+	if code == "" {
+		t.Fatalf("missing callback code in %s", location.String())
+	}
+	if len(persistence.snapshots["vercel"]) == 0 {
+		t.Fatal("missing vercel snapshot after callback")
+	}
+
+	restored := NewHandler(Options{
+		Services:    []string{"vercel"},
+		Persistence: persistence,
+	})
+	tokenReq := newJSONRequest(
+		http.MethodPost,
+		"https://preview.example.com/emulate/vercel/login/oauth/token",
+		`{"code":"`+code+`","redirect_uri":"https://client.example/callback"}`,
+	)
+	tokenReq.Host = "preview.example.com"
+	tokenRes := httptest.NewRecorder()
+	restored.ServeHTTP(tokenRes, tokenReq)
+	if tokenRes.Code != http.StatusOK {
+		t.Fatalf("token status = %d, body = %s", tokenRes.Code, tokenRes.Body.String())
+	}
+	var tokenBody struct {
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.Unmarshal(tokenRes.Body.Bytes(), &tokenBody); err != nil {
+		t.Fatal(err)
+	}
+	if tokenBody.AccessToken == "" {
+		t.Fatal("missing access token")
+	}
+
+	restoredAgain := NewHandler(Options{
+		Services:    []string{"vercel"},
+		Persistence: persistence,
+	})
+	userReq := httptest.NewRequest(http.MethodGet, "https://preview.example.com/emulate/vercel/login/oauth/userinfo", nil)
+	userReq.Host = "preview.example.com"
+	userReq.Header.Set("Authorization", "Bearer "+tokenBody.AccessToken)
+	userRes := httptest.NewRecorder()
+	restoredAgain.ServeHTTP(userRes, userReq)
+	if userRes.Code != http.StatusOK {
+		t.Fatalf("userinfo status = %d, body = %s", userRes.Code, userRes.Body.String())
+	}
+	if !strings.Contains(userRes.Body.String(), `"preferred_username":"admin"`) {
+		t.Fatalf("unexpected userinfo body: %s", userRes.Body.String())
 	}
 }
 

@@ -409,7 +409,7 @@ microsoft:
 
 ## Vercel API
 
-Every endpoint below is fully stateful with Vercel-style JSON responses and cursor-based pagination.
+Every endpoint below is fully stateful with Vercel-style JSON responses and cursor-based pagination. The native Go runtime implements this same Vercel REST surface for local CLI runs and Vercel Go Function previews.
 
 ### User & Teams
 - `GET /v2/user` - authenticated user
@@ -736,7 +736,7 @@ This creates:
 - `vercel.json`, with `/emulate/:path*` rewritten to `/api/emulate?path=:path*`
 - `go.mod`, pinned to the installed `emulate` package version
 
-The scaffold currently enables the native `aws` and `resend` handlers. Use `npx emulate vercel init --service resend` to limit the function to one service.
+The scaffold currently enables the native `aws`, `resend`, and `vercel` handlers. Use `npx emulate vercel init --service vercel` to limit the function to one service.
 
 State uses warm memory by default: cold starts reset to a fresh store, warm invocations reuse mutations, and concurrent function instances can diverge. For snapshots across cold starts, implement `vercel.Persistence` in `api/emulate.go` and pass it to `emulate.NewHandler`.
 
@@ -777,7 +777,7 @@ export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
 })
 ```
 
-Embedded mode is the broadest zero infra path for JavaScript emulator packages on Vercel preview deployments. The emulator code runs in the Next.js function, so OAuth callback URLs can point at the preview origin. For native Go `aws` and `resend` previews, use `npx emulate vercel init`.
+Embedded mode is the broadest zero infra path for JavaScript emulator packages on Vercel preview deployments. The emulator code runs in the Next.js function, so OAuth callback URLs can point at the preview origin. For native Go `aws`, `resend`, and `vercel` previews, use `npx emulate vercel init`.
 
 ### Native runtime proxy
 

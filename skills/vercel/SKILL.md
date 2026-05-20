@@ -6,7 +6,7 @@ allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 
 # Vercel API Emulator
 
-Fully stateful Vercel REST API emulation with Vercel-style JSON responses and cursor-based pagination.
+Fully stateful Vercel REST API emulation with Vercel-style JSON responses and cursor-based pagination. The native Go runtime implements this same Vercel REST surface for local CLI runs and Vercel Go Function previews.
 
 ## Start
 

@@ -18,7 +18,7 @@ import (
 
 const DefaultRoutePrefix = "/emulate"
 
-var defaultServices = []string{"aws", "resend"}
+var defaultServices = []string{"aws", "resend", "vercel"}
 
 var mutatingMethods = map[string]struct{}{
 	http.MethodPost:   {},
