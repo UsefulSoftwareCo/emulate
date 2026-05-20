@@ -330,18 +330,23 @@ func (s *Service) authUserFromLogin(login string, scopes []string) (*authUser, b
 	return &authUser{Login: login, ID: intField(user, "id"), Scopes: scopes}, true
 }
 
-func (s *Service) currentUser(c *corehttp.Context) (corestore.Record, bool) {
+func (s *Service) currentAuthUser(c *corehttp.Context) (corestore.Record, *authUser, bool) {
 	auth, ok := s.authUser(c)
 	if !ok {
 		writeUnauthorized(c)
-		return nil, false
+		return nil, nil, false
 	}
 	user := firstRecord(s.store.Users.FindBy("login", auth.Login))
 	if user == nil {
 		writeUnauthorized(c)
-		return nil, false
+		return nil, nil, false
 	}
-	return user, true
+	return user, auth, true
+}
+
+func (s *Service) currentUser(c *corehttp.Context) (corestore.Record, bool) {
+	user, _, ok := s.currentAuthUser(c)
+	return user, ok
 }
 
 func (s *Service) lookupOwner(login string) corestore.Record {
@@ -368,6 +373,10 @@ func (s *Service) assertRepoRead(c *corehttp.Context, repo corestore.Record) boo
 		writeUnauthorized(c)
 		return false
 	}
+	if !hasScope(user, "repo") {
+		writeForbidden(c)
+		return false
+	}
 	if s.canAccessRepo(user, repo) {
 		return true
 	}
@@ -391,7 +400,7 @@ func (s *Service) filterReadableRepos(c *corehttp.Context, repos []corestore.Rec
 			out = append(out, repo)
 			continue
 		}
-		if authenticated && s.canAccessRepo(auth, repo) {
+		if authenticated && hasScope(auth, "repo") && s.canAccessRepo(auth, repo) {
 			out = append(out, repo)
 		}
 	}
@@ -399,11 +408,15 @@ func (s *Service) filterReadableRepos(c *corehttp.Context, repos []corestore.Rec
 }
 
 func (s *Service) assertRepoWrite(c *corehttp.Context, repo corestore.Record) (corestore.Record, bool) {
-	user, ok := s.currentUser(c)
+	user, auth, ok := s.currentAuthUser(c)
 	if !ok {
 		return nil, false
 	}
-	if s.hasRepoAdmin(user, repo) || s.canAccessRepo(&authUser{Login: stringField(user, "login"), ID: intField(user, "id")}, repo) {
+	if !hasRepoMutationScope(auth, repo) {
+		writeForbidden(c)
+		return nil, false
+	}
+	if s.hasRepoAdmin(user, repo) || s.canAccessRepo(auth, repo) {
 		return user, true
 	}
 	writeForbidden(c)
@@ -411,8 +424,12 @@ func (s *Service) assertRepoWrite(c *corehttp.Context, repo corestore.Record) (c
 }
 
 func (s *Service) assertRepoAdmin(c *corehttp.Context, repo corestore.Record) (corestore.Record, bool) {
-	user, ok := s.currentUser(c)
+	user, auth, ok := s.currentAuthUser(c)
 	if !ok {
+		return nil, false
+	}
+	if !hasRepoMutationScope(auth, repo) {
+		writeForbidden(c)
 		return nil, false
 	}
 	if s.hasRepoAdmin(user, repo) {
@@ -420,6 +437,39 @@ func (s *Service) assertRepoAdmin(c *corehttp.Context, repo corestore.Record) (c
 	}
 	writeForbidden(c)
 	return nil, false
+}
+
+func (s *Service) assertIssueParticipant(c *corehttp.Context, repo corestore.Record) (corestore.Record, bool) {
+	user, auth, ok := s.currentAuthUser(c)
+	if !ok {
+		return nil, false
+	}
+	if boolField(repo, "private") {
+		if !hasScope(auth, "repo") || !s.canAccessRepo(auth, repo) {
+			writeForbidden(c)
+			return nil, false
+		}
+	}
+	return user, true
+}
+
+func hasRepoMutationScope(user *authUser, repo corestore.Record) bool {
+	if boolField(repo, "private") {
+		return hasScope(user, "repo")
+	}
+	return hasScope(user, "repo") || hasScope(user, "public_repo")
+}
+
+func hasScope(user *authUser, scope string) bool {
+	if user == nil {
+		return false
+	}
+	for _, candidate := range user.Scopes {
+		if candidate == scope {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) canAccessRepo(user *authUser, repo corestore.Record) bool {

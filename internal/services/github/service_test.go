@@ -105,6 +105,49 @@ func TestGitHubRejectsRefsToMissingCommits(t *testing.T) {
 	}
 }
 
+func TestGitHubCreatePullRejectsMissingBranches(t *testing.T) {
+	handler := newGitHubTestHandler(&SeedConfig{
+		Users: []UserSeed{{Login: "octocat", Email: "octocat@github.com"}},
+		Repos: []RepoSeed{{Owner: "octocat", Name: "hello-world"}},
+	})
+
+	res := doGitHubJSON(handler, http.MethodPost, "/repos/octocat/hello-world/pulls", `{"title":"Missing","head":"feature","base":"main"}`, "Bearer test_token_user1")
+	if res.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	branches := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/hello-world/branches", "", "Bearer test_token_user1")
+	if branches.Code != http.StatusOK {
+		t.Fatalf("branches status = %d, body = %s", branches.Code, branches.Body.String())
+	}
+	if strings.Contains(branches.Body.String(), `"name":"feature"`) {
+		t.Fatalf("missing head branch was created: %s", branches.Body.String())
+	}
+}
+
+func TestGitHubPatchPullRejectsMissingBaseBranch(t *testing.T) {
+	handler := newGitHubTestHandler(&SeedConfig{
+		Users: []UserSeed{{Login: "octocat", Email: "octocat@github.com"}},
+		Repos: []RepoSeed{{Owner: "octocat", Name: "hello-world"}},
+	})
+
+	branches := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/hello-world/branches", "", "Bearer test_token_user1")
+	mainSha := defaultBranchSha(t, branches, "main")
+	ref := doGitHubJSON(handler, http.MethodPost, "/repos/octocat/hello-world/git/refs", `{"ref":"refs/heads/feature","sha":"`+mainSha+`"}`, "Bearer test_token_user1")
+	if ref.Code != http.StatusCreated {
+		t.Fatalf("ref status = %d, body = %s", ref.Code, ref.Body.String())
+	}
+	pr := doGitHubJSON(handler, http.MethodPost, "/repos/octocat/hello-world/pulls", `{"title":"Feature","head":"feature","base":"main"}`, "Bearer test_token_user1")
+	if pr.Code != http.StatusCreated {
+		t.Fatalf("pull status = %d, body = %s", pr.Code, pr.Body.String())
+	}
+
+	patch := doGitHubJSON(handler, http.MethodPatch, "/repos/octocat/hello-world/pulls/1", `{"base":"missing"}`, "Bearer test_token_user1")
+	if patch.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("patch status = %d, body = %s", patch.Code, patch.Body.String())
+	}
+}
+
 func TestGitHubMergeCreatesResolvableCommit(t *testing.T) {
 	handler := newGitHubTestHandler(&SeedConfig{
 		Users: []UserSeed{{Login: "octocat", Email: "octocat@github.com"}},
@@ -229,6 +272,28 @@ func TestGitHubPublicRepoListsHidePrivateRepos(t *testing.T) {
 	}
 }
 
+func TestGitHubPublicRepoIssuesAllowAuthenticatedNonCollaborator(t *testing.T) {
+	handler := newGitHubTestHandler(&SeedConfig{
+		Users: []UserSeed{
+			{Login: "octocat", Email: "octocat@github.com"},
+			{Login: "intruder", Email: "intruder@example.com"},
+		},
+		Tokens: map[string]TokenSeed{
+			"intruder_token": {Login: "intruder", Scopes: []string{"repo", "user"}},
+		},
+		Repos: []RepoSeed{{Owner: "octocat", Name: "hello-world"}},
+	})
+
+	issue := doGitHubJSON(handler, http.MethodPost, "/repos/octocat/hello-world/issues", `{"title":"Bug"}`, "Bearer intruder_token")
+	if issue.Code != http.StatusCreated {
+		t.Fatalf("issue status = %d, body = %s", issue.Code, issue.Body.String())
+	}
+	comment := doGitHubJSON(handler, http.MethodPost, "/repos/octocat/hello-world/issues/1/comments", `{"body":"confirmed"}`, "Bearer intruder_token")
+	if comment.Code != http.StatusCreated {
+		t.Fatalf("comment status = %d, body = %s", comment.Code, comment.Body.String())
+	}
+}
+
 func TestGitHubPatchRepoPrivateSyncsVisibility(t *testing.T) {
 	handler := newGitHubTestHandler(&SeedConfig{
 		Users: []UserSeed{{Login: "octocat", Email: "octocat@github.com"}},
@@ -246,6 +311,41 @@ func TestGitHubPatchRepoPrivateSyncsVisibility(t *testing.T) {
 	decodeGitHubBody(t, res, &body)
 	if !body.Private || body.Visibility != "private" {
 		t.Fatalf("unexpected repo visibility: %#v", body)
+	}
+}
+
+func TestGitHubRepoScopeRequiredForPrivateReadAndRepoMutation(t *testing.T) {
+	handler := newGitHubTestHandler(&SeedConfig{
+		Users: []UserSeed{{Login: "octocat", Email: "octocat@github.com"}},
+		Tokens: map[string]TokenSeed{
+			"user_only_token": {Login: "octocat", Scopes: []string{"user"}},
+		},
+		Repos: []RepoSeed{
+			{Owner: "octocat", Name: "hello-world"},
+			{Owner: "octocat", Name: "private-repo", Private: true},
+		},
+	})
+
+	privateRepo := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/private-repo", "", "Bearer user_only_token")
+	if privateRepo.Code != http.StatusForbidden {
+		t.Fatalf("private repo status = %d, body = %s", privateRepo.Code, privateRepo.Body.String())
+	}
+	userRepos := doGitHubJSON(handler, http.MethodGet, "/user/repos", "", "Bearer user_only_token")
+	if userRepos.Code != http.StatusOK {
+		t.Fatalf("user repos status = %d, body = %s", userRepos.Code, userRepos.Body.String())
+	}
+	if strings.Contains(userRepos.Body.String(), "private-repo") {
+		t.Fatalf("user-only token listed private repo: %s", userRepos.Body.String())
+	}
+
+	branches := doGitHubJSON(handler, http.MethodGet, "/repos/octocat/hello-world/branches", "", "Bearer user_only_token")
+	if branches.Code != http.StatusOK {
+		t.Fatalf("branches status = %d, body = %s", branches.Code, branches.Body.String())
+	}
+	mainSha := defaultBranchSha(t, branches, "main")
+	ref := doGitHubJSON(handler, http.MethodPost, "/repos/octocat/hello-world/git/refs", `{"ref":"refs/heads/user-only","sha":"`+mainSha+`"}`, "Bearer user_only_token")
+	if ref.Code != http.StatusForbidden {
+		t.Fatalf("ref status = %d, body = %s", ref.Code, ref.Body.String())
 	}
 }
 

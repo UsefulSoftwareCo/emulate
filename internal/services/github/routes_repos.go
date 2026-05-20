@@ -52,13 +52,17 @@ func (s *Service) handleGetRepo(c *corehttp.Context) {
 }
 
 func (s *Service) handleCreateUserRepo(c *corehttp.Context) {
-	user, ok := s.currentUser(c)
+	user, auth, ok := s.currentAuthUser(c)
 	if !ok {
 		return
 	}
 	body, err := parseJSONBody(c.Request)
 	if err != nil {
 		writeValidation(c, "Invalid JSON body")
+		return
+	}
+	if !hasRepoCreationScope(auth, body) {
+		writeForbidden(c)
 		return
 	}
 	repo, ok := s.createRepoFromBody(c, body, user, "User")
@@ -69,7 +73,7 @@ func (s *Service) handleCreateUserRepo(c *corehttp.Context) {
 }
 
 func (s *Service) handleCreateOrgRepo(c *corehttp.Context) {
-	user, ok := s.currentUser(c)
+	user, auth, ok := s.currentAuthUser(c)
 	if !ok {
 		return
 	}
@@ -85,6 +89,10 @@ func (s *Service) handleCreateOrgRepo(c *corehttp.Context) {
 	body, err := parseJSONBody(c.Request)
 	if err != nil {
 		writeValidation(c, "Invalid JSON body")
+		return
+	}
+	if !hasRepoCreationScope(auth, body) {
+		writeForbidden(c)
 		return
 	}
 	repo, ok := s.createRepoFromBody(c, body, org, "Organization")
@@ -505,4 +513,15 @@ func sortedRepos(repos []corestore.Record, sortKey string, direction string) []c
 		})
 	}
 	return out
+}
+
+func hasRepoCreationScope(user *authUser, body map[string]any) bool {
+	private := false
+	if value, ok := body["private"].(bool); ok {
+		private = value
+	}
+	if private {
+		return hasScope(user, "repo")
+	}
+	return hasScope(user, "repo") || hasScope(user, "public_repo")
 }

@@ -250,20 +250,6 @@ func (s *Service) handleGetTree(c *corehttp.Context) {
 	writeNotFound(c)
 }
 
-func (s *Service) getOrCreateBranch(repo corestore.Record, branchName string) corestore.Record {
-	if branch := s.findBranch(repo, branchName); branch != nil {
-		return branch
-	}
-	sha := ""
-	if defaultBranch := s.findBranch(repo, stringField(repo, "default_branch")); defaultBranch != nil {
-		sha = stringField(defaultBranch, "sha")
-	}
-	if sha == "" {
-		return nil
-	}
-	return s.createBranch(repo, branchName, sha)
-}
-
 func (s *Service) createBranch(repo corestore.Record, branchName string, sha string) corestore.Record {
 	branch := s.store.Branches.Insert(corestore.Record{
 		"repo_id":   intField(repo, "id"),

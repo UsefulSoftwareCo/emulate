@@ -85,7 +85,7 @@ func (s *Service) handleCreateIssueComment(c *corehttp.Context) {
 	if !ok {
 		return
 	}
-	actor, ok := s.assertRepoWrite(c, repo)
+	actor, ok := s.assertIssueParticipant(c, repo)
 	if !ok {
 		return
 	}

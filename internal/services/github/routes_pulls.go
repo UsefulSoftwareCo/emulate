@@ -81,23 +81,19 @@ func (s *Service) handleCreatePull(c *corehttp.Context) {
 		writeValidation(c, "Validation failed")
 		return
 	}
-	headRepo := repo
-	headRef := head
-	if strings.Contains(head, ":") {
-		parts := strings.SplitN(head, ":", 2)
-		headRef = parts[1]
-		if other := s.lookupRepo(parts[0], stringField(repo, "name")); other != nil {
-			headRepo = other
-		}
+	headRepo, headRef, ok := s.resolvePullHead(repo, head)
+	if !ok {
+		writeValidation(c, "Validation failed")
+		return
 	}
 	if headRef == base && intField(headRepo, "id") == intField(repo, "id") {
 		writeValidation(c, "Validation failed")
 		return
 	}
-	headBranch := s.getOrCreateBranch(headRepo, headRef)
-	baseBranch := s.getOrCreateBranch(repo, base)
+	headBranch := s.findBranch(headRepo, headRef)
+	baseBranch := s.findBranch(repo, base)
 	if headBranch == nil || baseBranch == nil {
-		writeValidation(c, "The repository is empty.")
+		writeValidation(c, "Validation failed")
 		return
 	}
 	number := s.nextIssueNumber(intField(repo, "id"))
@@ -219,9 +215,9 @@ func (s *Service) handlePatchPull(c *corehttp.Context) {
 		patch["draft"] = draft
 	}
 	if base := strings.TrimSpace(stringValue(body["base"])); base != "" {
-		branch := s.getOrCreateBranch(repo, base)
+		branch := s.findBranch(repo, base)
 		if branch == nil {
-			writeValidation(c, "The repository is empty.")
+			writeValidation(c, "Validation failed")
 			return
 		}
 		patch["base_ref"] = base
@@ -357,6 +353,23 @@ func (s *Service) findPullIssue(repoID int, number int) corestore.Record {
 		}
 	}
 	return nil
+}
+
+func (s *Service) resolvePullHead(baseRepo corestore.Record, head string) (corestore.Record, string, bool) {
+	if !strings.Contains(head, ":") {
+		return baseRepo, head, true
+	}
+	parts := strings.SplitN(head, ":", 2)
+	owner := strings.TrimSpace(parts[0])
+	ref := strings.TrimSpace(parts[1])
+	if owner == "" || ref == "" {
+		return nil, "", false
+	}
+	headRepo := s.lookupRepo(owner, stringField(baseRepo, "name"))
+	if headRepo == nil {
+		return nil, "", false
+	}
+	return headRepo, ref, true
 }
 
 func (s *Service) insertCommit(repo corestore.Record, treeSha string, parentShas []string, message string, actor corestore.Record) corestore.Record {

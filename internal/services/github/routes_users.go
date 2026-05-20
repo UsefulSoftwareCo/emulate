@@ -78,7 +78,7 @@ func (s *Service) handleListCurrentUserRepos(c *corehttp.Context) {
 		return
 	}
 	repos := s.reposForUser(user, listType)
-	s.respondRepoList(c, repos, intField(user, "id"))
+	s.respondRepoList(c, s.filterReadableRepos(c, repos), intField(user, "id"))
 }
 
 func (s *Service) handleListUserRepos(c *corehttp.Context) {

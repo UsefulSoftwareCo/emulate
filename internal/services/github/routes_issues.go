@@ -88,7 +88,7 @@ func (s *Service) handleCreateIssue(c *corehttp.Context) {
 		writeNotFound(c)
 		return
 	}
-	actor, ok := s.assertRepoWrite(c, repo)
+	actor, ok := s.assertIssueParticipant(c, repo)
 	if !ok {
 		return
 	}
