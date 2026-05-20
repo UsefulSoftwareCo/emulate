@@ -305,6 +305,33 @@ func TestGoogleFilterAndWatchValidation(t *testing.T) {
 	}
 }
 
+func TestGoogleFilterAppliesToCreateResponse(t *testing.T) {
+	handler := newGoogleTestHandler()
+
+	res := googleRequest(handler, http.MethodPost, "/gmail/v1/users/me/settings/filters", `{"criteria":{"from":"support@example.com"},"action":{"addLabelIds":["Label_ops"]}}`, true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("create filter status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = googleRequest(handler, http.MethodPost, "/gmail/v1/users/me/messages/import", `{
+		"from":"Support Bot <support@example.com>",
+		"to":"testuser@example.com",
+		"subject":"Filtered import",
+		"text":"Filter should be visible in the create response.",
+		"labelIds":["INBOX"]
+	}`, true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("import status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		LabelIDs []string `json:"labelIds"`
+	}
+	mustDecodeGoogleJSON(t, res.Body.Bytes(), &body)
+	if !containsString(body.LabelIDs, "Label_ops") {
+		t.Fatalf("filtered label missing from create response: %#v", body.LabelIDs)
+	}
+}
+
 func TestGoogleRejectsInvalidRawMIMEPayloads(t *testing.T) {
 	handler := newGoogleTestHandler()
 	cases := []struct {
@@ -737,6 +764,84 @@ func TestGoogleHistoryRowsUseMessageMutationID(t *testing.T) {
 	}
 	if matchedUpdateRows != 2 {
 		t.Fatalf("expected label add and remove rows, got %d", matchedUpdateRows)
+	}
+}
+
+func TestGoogleHistoryListGroupsRowsByMutationID(t *testing.T) {
+	service := New(Options{
+		Store:   corestore.New(),
+		BaseURL: "http://localhost:4016",
+		Seed: &SeedConfig{
+			Users: []UserSeed{{Email: "testuser@example.com", Name: "Test User"}},
+		},
+	})
+	message := service.createStoredMessage(messageInput{
+		GmailID:   "msg_history_grouped",
+		ThreadID:  "thread_history_grouped",
+		UserEmail: "testuser@example.com",
+		From:      "sender@example.com",
+		To:        "testuser@example.com",
+		Subject:   "Grouped History",
+		BodyText:  "Body",
+		LabelIDs:  []string{"INBOX", "UNREAD"},
+	})
+	startHistoryID := stringField(message, "history_id")
+	updated := service.updateMessageLabels(message, []string{"SENT"})
+	updateHistoryID := stringField(updated, "history_id")
+
+	router := corehttp.NewRouter()
+	service.RegisterRoutes(router)
+	res := googleRequest(router, http.MethodGet, "/gmail/v1/users/me/history?startHistoryId="+url.QueryEscape(startHistoryID), "", true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("history status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var body struct {
+		HistoryID string `json:"historyId"`
+		History   []struct {
+			ID          string `json:"id"`
+			LabelsAdded []struct {
+				LabelIDs []string `json:"labelIds"`
+			} `json:"labelsAdded"`
+			LabelsRemoved []struct {
+				LabelIDs []string `json:"labelIds"`
+			} `json:"labelsRemoved"`
+		} `json:"history"`
+	}
+	mustDecodeGoogleJSON(t, res.Body.Bytes(), &body)
+	if body.HistoryID != updateHistoryID {
+		t.Fatalf("historyId = %q, want %q", body.HistoryID, updateHistoryID)
+	}
+	if len(body.History) != 1 || body.History[0].ID != updateHistoryID {
+		t.Fatalf("history rows were not grouped by mutation ID: %#v", body.History)
+	}
+	if len(body.History[0].LabelsAdded) != 1 || !containsString(body.History[0].LabelsAdded[0].LabelIDs, "SENT") {
+		t.Fatalf("missing grouped labelsAdded: %#v", body.History[0].LabelsAdded)
+	}
+	if len(body.History[0].LabelsRemoved) != 1 ||
+		!containsString(body.History[0].LabelsRemoved[0].LabelIDs, "INBOX") ||
+		!containsString(body.History[0].LabelsRemoved[0].LabelIDs, "UNREAD") {
+		t.Fatalf("missing grouped labelsRemoved: %#v", body.History[0].LabelsRemoved)
+	}
+
+	res = googleRequest(router, http.MethodGet, "/gmail/v1/users/me/history?startHistoryId="+url.QueryEscape(startHistoryID)+"&historyTypes=messageAdded", "", true)
+	if res.Code != http.StatusOK {
+		t.Fatalf("filtered history status = %d, body = %s", res.Code, res.Body.String())
+	}
+	body = struct {
+		HistoryID string `json:"historyId"`
+		History   []struct {
+			ID          string `json:"id"`
+			LabelsAdded []struct {
+				LabelIDs []string `json:"labelIds"`
+			} `json:"labelsAdded"`
+			LabelsRemoved []struct {
+				LabelIDs []string `json:"labelIds"`
+			} `json:"labelsRemoved"`
+		} `json:"history"`
+	}{}
+	mustDecodeGoogleJSON(t, res.Body.Bytes(), &body)
+	if body.HistoryID != updateHistoryID || len(body.History) != 0 {
+		t.Fatalf("filtered history cursor/body = %#v, want cursor %q and no entries", body, updateHistoryID)
 	}
 }
 

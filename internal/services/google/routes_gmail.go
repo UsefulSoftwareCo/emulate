@@ -953,10 +953,11 @@ func (s *Service) handleListHistory(c *corehttp.Context) {
 		types[value] = struct{}{}
 	}
 	rows := s.store.History.FindBy("user_email", email)
-	items := []map[string]any{}
-	var latest string
+	grouped := map[string][]corestore.Record{}
+	order := []string{}
 	for _, row := range rows {
-		if start != "" && !historyIDAfter(stringField(row, "gmail_id"), start) {
+		historyID := stringField(row, "gmail_id")
+		if start != "" && !historyIDAfter(historyID, start) {
 			continue
 		}
 		changeType := stringField(row, "change_type")
@@ -965,31 +966,89 @@ func (s *Service) handleListHistory(c *corehttp.Context) {
 				continue
 			}
 		}
-		message := s.getMessageByID(email, stringField(row, "message_gmail_id"))
-		entry := map[string]any{"id": stringField(row, "gmail_id")}
-		ref := map[string]any{"message": map[string]any{"id": stringField(row, "message_gmail_id"), "threadId": stringField(row, "thread_id")}}
-		if message != nil {
-			ref["message"] = formatMessageResource(s, message, "minimal", nil)
+		if _, ok := grouped[historyID]; !ok {
+			order = append(order, historyID)
 		}
-		switch changeType {
+		grouped[historyID] = append(grouped[historyID], row)
+	}
+	items := make([]map[string]any, 0, len(order))
+	for _, historyID := range order {
+		items = append(items, s.formatHistoryEntry(email, historyID, grouped[historyID]))
+	}
+	c.JSON(http.StatusOK, map[string]any{"historyId": s.currentHistoryID(email), "history": items})
+}
+
+func (s *Service) formatHistoryEntry(email string, historyID string, rows []corestore.Record) map[string]any {
+	entry := map[string]any{"id": historyID}
+	messagesAdded := []map[string]any{}
+	messagesDeleted := []map[string]any{}
+	labelsAdded := []map[string]any{}
+	labelsRemoved := []map[string]any{}
+	for _, row := range rows {
+		switch stringField(row, "change_type") {
 		case "messageAdded":
-			entry["messagesAdded"] = []map[string]any{ref}
+			messagesAdded = append(messagesAdded, s.formatHistoryRef(email, row, false))
 		case "messageDeleted":
-			entry["messagesDeleted"] = []map[string]any{ref}
+			messagesDeleted = append(messagesDeleted, s.formatHistoryRef(email, row, false))
 		case "labelAdded":
-			ref["labelIds"] = stringSliceValue(row["label_ids"])
-			entry["labelsAdded"] = []map[string]any{ref}
+			labelsAdded = append(labelsAdded, s.formatHistoryRef(email, row, true))
 		case "labelRemoved":
-			ref["labelIds"] = stringSliceValue(row["label_ids"])
-			entry["labelsRemoved"] = []map[string]any{ref}
+			labelsRemoved = append(labelsRemoved, s.formatHistoryRef(email, row, true))
 		}
-		latest = stringField(row, "gmail_id")
-		items = append(items, entry)
+	}
+	if len(messagesAdded) > 0 {
+		entry["messagesAdded"] = messagesAdded
+	}
+	if len(messagesDeleted) > 0 {
+		entry["messagesDeleted"] = messagesDeleted
+	}
+	if len(labelsAdded) > 0 {
+		entry["labelsAdded"] = labelsAdded
+	}
+	if len(labelsRemoved) > 0 {
+		entry["labelsRemoved"] = labelsRemoved
+	}
+	return entry
+}
+
+func (s *Service) formatHistoryRef(email string, row corestore.Record, includeLabels bool) map[string]any {
+	ref := map[string]any{
+		"message": map[string]any{
+			"id":       stringField(row, "message_gmail_id"),
+			"threadId": stringField(row, "thread_id"),
+		},
+	}
+	if message := s.getMessageByID(email, stringField(row, "message_gmail_id")); message != nil {
+		ref["message"] = formatMessageResource(s, message, "minimal", nil)
+	}
+	if includeLabels {
+		ref["labelIds"] = stringSliceValue(row["label_ids"])
+	}
+	return ref
+}
+
+func (s *Service) currentHistoryID(email string) string {
+	latest := ""
+	for _, message := range s.store.Messages.FindBy("user_email", email) {
+		latest = laterHistoryID(latest, stringField(message, "history_id"))
+	}
+	for _, row := range s.store.History.FindBy("user_email", email) {
+		latest = laterHistoryID(latest, stringField(row, "gmail_id"))
 	}
 	if latest == "" {
-		latest = generateHistoryID()
+		return "0"
 	}
-	c.JSON(http.StatusOK, map[string]any{"historyId": latest, "history": items})
+	return latest
+}
+
+func laterHistoryID(current string, candidate string) string {
+	if candidate == "" {
+		return current
+	}
+	if current == "" || historyIDAfter(candidate, current) {
+		return candidate
+	}
+	return current
 }
 
 func pageRecords(records []corestore.Record, offset int, limit int) []corestore.Record {

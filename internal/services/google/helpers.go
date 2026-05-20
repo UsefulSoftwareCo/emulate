@@ -709,8 +709,7 @@ func (s *Service) createStoredMessage(input messageInput) corestore.Record {
 		"body_html":     nullableString(bodyHTML),
 	})
 	s.recordHistoryWithID(historyID, "messageAdded", message, nil)
-	s.applyFilters(message)
-	return message
+	return s.applyFilters(message)
 }
 
 func (s *Service) getMessageByID(userEmail string, messageID string) corestore.Record {
@@ -777,7 +776,7 @@ func (s *Service) deleteMessage(message corestore.Record) {
 	}
 }
 
-func (s *Service) applyFilters(message corestore.Record) {
+func (s *Service) applyFilters(message corestore.Record) corestore.Record {
 	from := strings.ToLower(stringField(message, "from"))
 	for _, filter := range s.store.Filters.FindBy("user_email", stringField(message, "user_email")) {
 		criteriaFrom := strings.ToLower(stringField(filter, "criteria_from"))
@@ -788,6 +787,7 @@ func (s *Service) applyFilters(message corestore.Record) {
 		updated := s.updateMessageLabels(message, labels)
 		message = updated
 	}
+	return message
 }
 
 func applyLabelMutation(current []string, add []string, remove []string) []string {
