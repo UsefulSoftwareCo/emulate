@@ -13,7 +13,7 @@ import (
 )
 
 func TestAdminAPIs(t *testing.T) {
-	_, router := newTestService(t)
+	service, router := newTestService(t)
 
 	projects := mongoJSON(router, http.MethodGet, "/api/atlas/v2/groups", "")
 	if projects.Code != http.StatusOK || !strings.Contains(projects.Body.String(), `"name":"Project0"`) {
@@ -39,6 +39,33 @@ func TestAdminAPIs(t *testing.T) {
 	user := mongoJSON(router, http.MethodPost, "/api/atlas/v2/groups/"+groupID+"/databaseUsers", `{"username":"app","roles":[{"databaseName":"test","roleName":"readWrite"}]}`)
 	if user.Code != http.StatusCreated || !strings.Contains(user.Body.String(), `"username":"app"`) || !strings.Contains(user.Body.String(), `"roleName":"readWrite"`) {
 		t.Fatalf("create user status = %d, body = %s", user.Code, user.Body.String())
+	}
+
+	missingUsers := mongoJSON(router, http.MethodGet, "/api/atlas/v2/groups/missing/databaseUsers", "")
+	if missingUsers.Code != http.StatusNotFound || !strings.Contains(missingUsers.Body.String(), "GROUP_NOT_FOUND") {
+		t.Fatalf("missing group users status = %d, body = %s", missingUsers.Code, missingUsers.Body.String())
+	}
+
+	missingUserCreate := mongoJSON(router, http.MethodPost, "/api/atlas/v2/groups/missing/databaseUsers", `{"username":"ghost"}`)
+	if missingUserCreate.Code != http.StatusNotFound || !strings.Contains(missingUserCreate.Body.String(), "GROUP_NOT_FOUND") {
+		t.Fatalf("missing group user create status = %d, body = %s", missingUserCreate.Code, missingUserCreate.Body.String())
+	}
+
+	deleteProject := mongoJSON(router, http.MethodPost, "/api/atlas/v2/groups", `{"name":"DeleteMe"}`)
+	if deleteProject.Code != http.StatusCreated {
+		t.Fatalf("delete project create status = %d, body = %s", deleteProject.Code, deleteProject.Body.String())
+	}
+	deleteGroupID := stringFromJSON(t, deleteProject.Body.Bytes(), "id")
+	deleteProjectUser := mongoJSON(router, http.MethodPost, "/api/atlas/v2/groups/"+deleteGroupID+"/databaseUsers", `{"username":"delete-me"}`)
+	if deleteProjectUser.Code != http.StatusCreated {
+		t.Fatalf("delete project user create status = %d, body = %s", deleteProjectUser.Code, deleteProjectUser.Body.String())
+	}
+	deletedProject := mongoJSON(router, http.MethodDelete, "/api/atlas/v2/groups/"+deleteGroupID, "")
+	if deletedProject.Code != http.StatusNoContent {
+		t.Fatalf("delete project status = %d, body = %s", deletedProject.Code, deletedProject.Body.String())
+	}
+	if users := service.store.Users.FindBy("group_id", deleteGroupID); len(users) != 0 {
+		t.Fatalf("expected project delete to remove database users, got %#v", users)
 	}
 
 	databases := mongoJSON(router, http.MethodGet, "/api/atlas/v2/groups/"+groupID+"/clusters/Cluster0/databases", "")
@@ -76,6 +103,16 @@ func TestDataAPIs(t *testing.T) {
 		t.Fatalf("find status = %d, body = %s", find.Code, find.Body.String())
 	}
 
+	negativeSkip := mongoJSON(router, http.MethodPost, "/app/data-api/v1/action/find", `{"dataSource":"Cluster0","database":"test","collection":"items","skip":-1}`)
+	if negativeSkip.Code != http.StatusBadRequest || !strings.Contains(negativeSkip.Body.String(), "skip must be zero or greater") {
+		t.Fatalf("negative skip status = %d, body = %s", negativeSkip.Code, negativeSkip.Body.String())
+	}
+
+	negativeLimit := mongoJSON(router, http.MethodPost, "/app/data-api/v1/action/find", `{"dataSource":"Cluster0","database":"test","collection":"items","limit":-1}`)
+	if negativeLimit.Code != http.StatusBadRequest || !strings.Contains(negativeLimit.Body.String(), "limit must be zero or greater") {
+		t.Fatalf("negative limit status = %d, body = %s", negativeLimit.Code, negativeLimit.Body.String())
+	}
+
 	update := mongoJSON(router, http.MethodPost, "/app/data-api/v1/action/updateOne", `{"dataSource":"Cluster0","database":"test","collection":"items","filter":{"name":"A"},"update":{"$inc":{"price":5}}}`)
 	if update.Code != http.StatusOK || !strings.Contains(update.Body.String(), `"matchedCount":1`) {
 		t.Fatalf("update status = %d, body = %s", update.Code, update.Body.String())
@@ -94,6 +131,16 @@ func TestDataAPIs(t *testing.T) {
 	aggregate := mongoJSON(router, http.MethodPost, "/app/data-api/v1/action/aggregate", `{"dataSource":"Cluster0","database":"test","collection":"items","pipeline":[{"$match":{"price":{"$gte":20}}},{"$count":"total"}]}`)
 	if aggregate.Code != http.StatusOK || !strings.Contains(aggregate.Body.String(), `"total":2`) {
 		t.Fatalf("aggregate status = %d, body = %s", aggregate.Code, aggregate.Body.String())
+	}
+
+	negativeAggregateLimit := mongoJSON(router, http.MethodPost, "/app/data-api/v1/action/aggregate", `{"dataSource":"Cluster0","database":"test","collection":"items","pipeline":[{"$limit":-1}]}`)
+	if negativeAggregateLimit.Code != http.StatusBadRequest || !strings.Contains(negativeAggregateLimit.Body.String(), "$limit must be zero or greater") {
+		t.Fatalf("negative aggregate limit status = %d, body = %s", negativeAggregateLimit.Code, negativeAggregateLimit.Body.String())
+	}
+
+	negativeAggregateSkip := mongoJSON(router, http.MethodPost, "/app/data-api/v1/action/aggregate", `{"dataSource":"Cluster0","database":"test","collection":"items","pipeline":[{"$skip":-1}]}`)
+	if negativeAggregateSkip.Code != http.StatusBadRequest || !strings.Contains(negativeAggregateSkip.Body.String(), "$skip must be zero or greater") {
+		t.Fatalf("negative aggregate skip status = %d, body = %s", negativeAggregateSkip.Code, negativeAggregateSkip.Body.String())
 	}
 
 	deleteMany := mongoJSON(router, http.MethodPost, "/app/data-api/v1/action/deleteMany", `{"dataSource":"Cluster0","database":"test","collection":"items","filter":{"price":{"$gte":20}}}`)

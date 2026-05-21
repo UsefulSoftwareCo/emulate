@@ -44,11 +44,19 @@ func (s *Service) handleFind(c *corehttp.Context) {
 		records = sortRecords(records, sortSpec)
 	}
 	skip := intValue(body["skip"])
+	if skip < 0 {
+		mongoError(c, http.StatusBadRequest, "InvalidParameter", "skip must be zero or greater")
+		return
+	}
 	if skip > len(records) {
 		skip = len(records)
 	}
 	records = records[skip:]
 	limit := intValue(body["limit"])
+	if limit < 0 {
+		mongoError(c, http.StatusBadRequest, "InvalidParameter", "limit must be zero or greater")
+		return
+	}
 	if limit > 0 && limit < len(records) {
 		records = records[:limit]
 	}
@@ -221,11 +229,19 @@ func (s *Service) handleAggregate(c *corehttp.Context) {
 			results = next
 		case stage["$limit"] != nil:
 			limit := intValue(stage["$limit"])
+			if limit < 0 {
+				mongoError(c, http.StatusBadRequest, "InvalidParameter", "$limit must be zero or greater")
+				return
+			}
 			if limit < len(results) {
 				results = results[:limit]
 			}
 		case stage["$skip"] != nil:
 			skip := intValue(stage["$skip"])
+			if skip < 0 {
+				mongoError(c, http.StatusBadRequest, "InvalidParameter", "$skip must be zero or greater")
+				return
+			}
 			if skip > len(results) {
 				skip = len(results)
 			}

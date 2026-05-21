@@ -14,11 +14,13 @@ Use the MongoDB Atlas emulator for Atlas Admin API v2 and Data API v1 flows in l
 npx emulate --service mongoatlas
 ```
 
-Default base URL:
+When run alone, the default base URL is:
 
 ```bash
-http://localhost:4010
+http://localhost:4000
 ```
+
+When all services run together from the default base port, MongoDB Atlas is available at `http://localhost:4010`.
 
 ## Vercel Preview
 

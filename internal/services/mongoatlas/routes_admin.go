@@ -78,6 +78,9 @@ func (s *Service) handleDeleteProject(c *corehttp.Context) {
 		s.deleteClusterData(stringField(cluster, "cluster_id"))
 		s.store.Clusters.Delete(intField(cluster, "id"))
 	}
+	for _, user := range s.store.Users.FindBy("group_id", groupID) {
+		s.store.Users.Delete(intField(user, "id"))
+	}
 	s.store.Projects.Delete(intField(project, "id"))
 	c.Writer.WriteHeader(http.StatusNoContent)
 }
@@ -191,6 +194,10 @@ func (s *Service) handleDeleteCluster(c *corehttp.Context) {
 
 func (s *Service) handleListDatabaseUsers(c *corehttp.Context) {
 	groupID := c.Param("groupId")
+	if firstRecord(s.store.Projects.FindBy("group_id", groupID)) == nil {
+		mongoError(c, http.StatusNotFound, "GROUP_NOT_FOUND", "Group '"+groupID+"' not found.")
+		return
+	}
 	users := s.store.Users.FindBy("group_id", groupID)
 	results := make([]map[string]any, 0, len(users))
 	for _, user := range users {
@@ -202,6 +209,10 @@ func (s *Service) handleListDatabaseUsers(c *corehttp.Context) {
 func (s *Service) handleGetDatabaseUser(c *corehttp.Context) {
 	groupID := c.Param("groupId")
 	username := c.Param("username")
+	if firstRecord(s.store.Projects.FindBy("group_id", groupID)) == nil {
+		mongoError(c, http.StatusNotFound, "GROUP_NOT_FOUND", "Group '"+groupID+"' not found.")
+		return
+	}
 	user := s.userByName(groupID, username)
 	if user == nil {
 		mongoError(c, http.StatusNotFound, "USER_NOT_FOUND", "Database user '"+username+"' not found.")
@@ -212,6 +223,10 @@ func (s *Service) handleGetDatabaseUser(c *corehttp.Context) {
 
 func (s *Service) handleCreateDatabaseUser(c *corehttp.Context) {
 	groupID := c.Param("groupId")
+	if firstRecord(s.store.Projects.FindBy("group_id", groupID)) == nil {
+		mongoError(c, http.StatusNotFound, "GROUP_NOT_FOUND", "Group '"+groupID+"' not found.")
+		return
+	}
 	body := readJSONBody(c.Request)
 	username := stringValue(body["username"])
 	if username == "" {
@@ -230,6 +245,10 @@ func (s *Service) handleCreateDatabaseUser(c *corehttp.Context) {
 func (s *Service) handleDeleteDatabaseUser(c *corehttp.Context) {
 	groupID := c.Param("groupId")
 	username := c.Param("username")
+	if firstRecord(s.store.Projects.FindBy("group_id", groupID)) == nil {
+		mongoError(c, http.StatusNotFound, "GROUP_NOT_FOUND", "Group '"+groupID+"' not found.")
+		return
+	}
 	user := s.userByName(groupID, username)
 	if user == nil {
 		mongoError(c, http.StatusNotFound, "USER_NOT_FOUND", "Database user '"+username+"' not found.")
