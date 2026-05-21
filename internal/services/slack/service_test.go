@@ -373,6 +373,38 @@ func TestSlackIncomingWebhookAndInspector(t *testing.T) {
 	}
 }
 
+func TestSlackIncomingWebhookThreadReplyUpdatesParentMetadata(t *testing.T) {
+	service, handler := newSlackTestService()
+
+	post := slackRequest(handler, http.MethodPost, "/api/chat.postMessage", `{"channel":"general","text":"parent"}`, true)
+	var posted struct {
+		OK bool   `json:"ok"`
+		TS string `json:"ts"`
+	}
+	mustDecodeSlackJSON(t, post.Body.Bytes(), &posted)
+	if !posted.OK || posted.TS == "" {
+		t.Fatalf("unexpected post body: %#v", posted)
+	}
+
+	webhook := firstRecord(service.store.IncomingWebhooks.All())
+	reply := slackRequest(handler, http.MethodPost, stringField(webhook, "url"), `{"text":"webhook reply","thread_ts":"`+posted.TS+`"}`, false)
+	if reply.Code != http.StatusOK || reply.Body.String() != "ok" {
+		t.Fatalf("webhook reply status = %d body = %s", reply.Code, reply.Body.String())
+	}
+
+	parent := service.findMessage("C000000001", posted.TS)
+	if parent == nil {
+		t.Fatal("parent message missing")
+	}
+	if intField(parent, "reply_count") != 1 {
+		t.Fatalf("reply_count = %d, parent = %#v", intField(parent, "reply_count"), parent)
+	}
+	replyUsers := stringSliceValue(parent["reply_users"])
+	if len(replyUsers) != 1 || replyUsers[0] != "B000000001" {
+		t.Fatalf("unexpected reply users: %#v", replyUsers)
+	}
+}
+
 func TestSlackIncomingWebhookRejectsInvalidPathSecrets(t *testing.T) {
 	service, handler := newSlackTestService()
 

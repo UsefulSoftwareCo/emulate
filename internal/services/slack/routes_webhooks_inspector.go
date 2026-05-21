@@ -61,13 +61,17 @@ func (s *Service) handleIncomingWebhook(c *corehttp.Context) {
 	if text == "" {
 		text = "(rich message)"
 	}
+	channelID := stringField(channel, "channel_id")
 	s.insertMessage(messageInput{
-		ChannelID: stringField(channel, "channel_id"),
+		ChannelID: channelID,
 		User:      c.Param("botId"),
 		Text:      text,
 		Subtype:   "bot_message",
 		ThreadTS:  threadTS,
 	})
+	if threadTS != "" {
+		s.incrementThreadReply(channelID, threadTS, c.Param("botId"))
+	}
 	c.Text(http.StatusOK, "ok")
 }
 
