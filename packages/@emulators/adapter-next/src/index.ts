@@ -1,25 +1,15 @@
-import {
-  createServer,
-  debug,
-  serializeTokenMap,
-  restoreTokenMap,
-  type ServicePlugin,
-  type Store,
-  type TokenMap,
-  type TokenEntry,
-  type StoreSnapshot,
-  type PersistenceAdapter,
-  type AppKeyResolver,
-  type WebhookDispatcher,
-} from "@emulators/core";
-
-export type { PersistenceAdapter } from "@emulators/core";
+export interface PersistenceAdapter {
+  load(): string | null | Promise<string | null>;
+  save(data: string): void | Promise<void>;
+}
 
 export interface EmulatorModule {
-  plugin?: ServicePlugin;
-  default?: ServicePlugin;
-  seedFromConfig?(store: Store, baseUrl: string, config: unknown, webhooks?: WebhookDispatcher): void;
-  createAppKeyResolver?(store: Store): AppKeyResolver;
+  serviceName?: string;
+  service?: {
+    name?: string;
+    runtime?: string;
+  };
+  [key: string]: unknown;
 }
 
 interface EmulatorEntry {
@@ -62,28 +52,10 @@ export interface EmulateProxyContext {
   forwardedPathSegments: string[];
 }
 
-interface Fetchable {
-  fetch(request: Request, ...rest: unknown[]): Response | Promise<Response>;
-}
-
-interface ServiceApp {
-  app: Fetchable;
-  store: Store;
-  tokenMap: TokenMap;
-  plugin: ServicePlugin;
-  webhooks: WebhookDispatcher;
-}
-
-interface FullSnapshot {
-  store: StoreSnapshot;
-  tokens: Record<string, TokenEntry[]>;
-}
-
 type NextRequest = Request;
 type NextResponse = Response;
 type RouteHandler = (req: NextRequest, ctx: { params: Promise<{ path: string[] }> }) => Promise<NextResponse>;
 
-const MUTATING_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const BODYLESS_METHODS = new Set(["GET", "HEAD"]);
 const HOP_BY_HOP_HEADERS = new Set([
   "connection",
@@ -103,60 +75,22 @@ interface ResponseRewriteOptions {
   upstreamPrefix?: string;
 }
 
-function resolvePlugin(mod: EmulatorModule): ServicePlugin {
-  const plugin = mod.plugin ?? mod.default;
-  if (!plugin) {
-    throw new Error("Emulator module must export `plugin` or a default export implementing ServicePlugin");
-  }
-  return plugin;
-}
+export function createEmulateHandler(_config: EmulateHandlerConfig) {
+  const handler: RouteHandler = async () =>
+    new Response(
+      "In-process service handlers were removed. Use createEmulateProxy for local native runtimes or npx emulate vercel init for Vercel previews.",
+      { status: 501 },
+    );
 
-function takeSnapshot(apps: Map<string, ServiceApp>): FullSnapshot {
-  const mergedStore: StoreSnapshot = { collections: {}, data: {} };
-  const tokens: Record<string, TokenEntry[]> = {};
-
-  for (const [name, sa] of apps) {
-    const snap = sa.store.snapshot();
-    for (const [colName, colSnap] of Object.entries(snap.collections)) {
-      mergedStore.collections[`${name}:${colName}`] = colSnap;
-    }
-    for (const [key, val] of Object.entries(snap.data)) {
-      mergedStore.data[`${name}:${key}`] = val;
-    }
-    tokens[name] = serializeTokenMap(sa.tokenMap);
-  }
-
-  return { store: mergedStore, tokens };
-}
-
-function restoreFromSnapshot(apps: Map<string, ServiceApp>, snapshot: FullSnapshot): void {
-  const storesByName = new Map<string, StoreSnapshot>();
-  for (const [qualifiedName, colSnap] of Object.entries(snapshot.store.collections)) {
-    const sepIdx = qualifiedName.indexOf(":");
-    const name = qualifiedName.slice(0, sepIdx);
-    const colName = qualifiedName.slice(sepIdx + 1);
-    if (!storesByName.has(name)) {
-      storesByName.set(name, { collections: {}, data: {} });
-    }
-    storesByName.get(name)!.collections[colName] = colSnap;
-  }
-  for (const [qualifiedKey, val] of Object.entries(snapshot.store.data)) {
-    const sepIdx = qualifiedKey.indexOf(":");
-    const name = qualifiedKey.slice(0, sepIdx);
-    const dataKey = qualifiedKey.slice(sepIdx + 1);
-    if (!storesByName.has(name)) {
-      storesByName.set(name, { collections: {}, data: {} });
-    }
-    storesByName.get(name)!.data[dataKey] = val;
-  }
-
-  for (const [name, sa] of apps) {
-    const snap = storesByName.get(name);
-    if (snap) {
-      sa.store.restore(snap);
-    }
-    restoreTokenMap(sa.tokenMap, snapshot.tokens[name] ?? []);
-  }
+  return {
+    GET: handler,
+    HEAD: handler,
+    POST: handler,
+    PUT: handler,
+    PATCH: handler,
+    DELETE: handler,
+    OPTIONS: handler,
+  };
 }
 
 function detectPrefix(url: string, pathSegments: string[]): string {
@@ -377,143 +311,6 @@ async function rewriteResponse(response: Response, options: ResponseRewriteOptio
   });
 }
 
-export function createEmulateHandler(config: EmulateHandlerConfig) {
-  const { services: serviceEntries, persistence } = config;
-
-  let apps: Map<string, ServiceApp> | null = null;
-  let mountPath: string | null = null;
-  let initPromise: Promise<void> | null = null;
-  let pendingSave: Promise<void> = Promise.resolve();
-
-  function enqueueSave(): void {
-    if (!persistence || !apps) return;
-    pendingSave = pendingSave.then(async () => {
-      if (!apps) return;
-      const snapshot = takeSnapshot(apps);
-      const json = JSON.stringify(snapshot);
-      try {
-        await persistence.save(json);
-      } catch (err) {
-        debug("persistence", "save failed: %o", err);
-      }
-    });
-  }
-
-  async function initApps(origin: string, mountPath: string): Promise<Map<string, ServiceApp>> {
-    const serviceApps = new Map<string, ServiceApp>();
-
-    for (const [name, entry] of Object.entries(serviceEntries)) {
-      const plugin = resolvePlugin(entry.emulator);
-      const servicePrefix = `${mountPath}/${name}`;
-      const baseUrl = `${origin}${servicePrefix}`;
-
-      let appKeyResolver: AppKeyResolver | undefined;
-      const { app, store, tokenMap, webhooks } = createServer(plugin, {
-        baseUrl,
-        appKeyResolver: entry.emulator.createAppKeyResolver ? (appId) => appKeyResolver!(appId) : undefined,
-      });
-
-      if (entry.emulator.createAppKeyResolver) {
-        appKeyResolver = entry.emulator.createAppKeyResolver(store);
-      }
-
-      serviceApps.set(name, { app, store, tokenMap, plugin, webhooks });
-    }
-
-    let restored = false;
-    if (persistence) {
-      const raw = await persistence.load();
-      if (raw) {
-        try {
-          const snapshot = JSON.parse(raw) as FullSnapshot;
-          restoreFromSnapshot(serviceApps, snapshot);
-          restored = true;
-        } catch {
-          // Corrupted data, fall through to seeding
-        }
-      }
-    }
-
-    if (!restored) {
-      for (const [name, entry] of Object.entries(serviceEntries)) {
-        const sa = serviceApps.get(name)!;
-        const servicePrefix = `${mountPath}/${name}`;
-        const baseUrl = `${origin}${servicePrefix}`;
-        sa.plugin.seed?.(sa.store, baseUrl);
-        if (entry.seed && entry.emulator.seedFromConfig) {
-          entry.emulator.seedFromConfig(sa.store, baseUrl, entry.seed, sa.webhooks);
-        }
-      }
-      if (persistence) {
-        enqueueSave();
-      }
-    }
-
-    return serviceApps;
-  }
-
-  async function ensureInit(req: Request, pathSegments: string[]): Promise<Map<string, ServiceApp>> {
-    if (apps) return apps;
-    if (!initPromise) {
-      const url = new URL(req.url);
-      const origin = url.origin;
-      mountPath = detectPrefix(req.url, pathSegments);
-      initPromise = initApps(origin, mountPath).then((result) => {
-        apps = result;
-      });
-    }
-    await initPromise;
-    return apps!;
-  }
-
-  async function handleRequest(req: NextRequest, ctx: { params: Promise<{ path: string[] }> }): Promise<NextResponse> {
-    const { path: pathSegments } = await ctx.params;
-    const serviceApps = await ensureInit(req, pathSegments);
-
-    if (pathSegments.length === 0) {
-      return new Response("Not found", { status: 404 });
-    }
-
-    const serviceName = pathSegments[0];
-    const sa = serviceApps.get(serviceName);
-    if (!sa) {
-      return new Response(`Unknown service: ${serviceName}`, { status: 404 });
-    }
-
-    const restPath = "/" + pathSegments.slice(1).join("/");
-    const url = new URL(req.url);
-    const strippedUrl = new URL(restPath + url.search, url.origin);
-
-    const strippedReq = new Request(strippedUrl.toString(), {
-      method: req.method,
-      headers: req.headers,
-      body: req.body,
-      duplex: "half",
-    } as RequestInit & { duplex: string });
-
-    let response = await sa.app.fetch(strippedReq);
-
-    const servicePrefix = `${mountPath!}/${serviceName}`;
-    response = await rewriteResponse(response, { publicPrefix: servicePrefix });
-
-    if (persistence && MUTATING_METHODS.has(req.method)) {
-      enqueueSave();
-    }
-
-    return response;
-  }
-
-  const handler: RouteHandler = handleRequest;
-
-  return {
-    GET: handler,
-    POST: handler,
-    PUT: handler,
-    PATCH: handler,
-    DELETE: handler,
-  };
-}
-
 export function createEmulateProxy(config: EmulateProxyConfig) {
   const singleTarget = config.target ? normalizeProxyTarget(config.target) : undefined;
   const serviceTargets = config.targets
@@ -586,17 +383,6 @@ export function createEmulateProxy(config: EmulateProxyConfig) {
   };
 }
 
-export function withEmulate<T>(nextConfig: T, options?: { routePrefix?: string }): T {
-  const config = nextConfig as Record<string, unknown>;
-  const prefix = options?.routePrefix ?? "/emulate";
-  const routePattern = `${prefix}/**`;
-  const fontGlob = "./node_modules/@emulators/core/dist/fonts/**";
-
-  const topLevel = { ...((config.outputFileTracingIncludes as Record<string, string[]> | undefined) ?? {}) };
-  const existing = topLevel[routePattern] ?? [];
-  if (!existing.includes(fontGlob)) {
-    topLevel[routePattern] = [...existing, fontGlob];
-  }
-
-  return { ...config, outputFileTracingIncludes: topLevel } as T;
+export function withEmulate<T>(nextConfig: T): T {
+  return nextConfig;
 }

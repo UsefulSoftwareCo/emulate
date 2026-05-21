@@ -1,7 +1,6 @@
 import { spawn } from "node:child_process";
 import { access, mkdtemp, rm } from "node:fs/promises";
 import net from "node:net";
-import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -166,14 +165,14 @@ export async function waitForHttp(url, options = {}) {
 }
 
 async function runtimeCommand(options) {
-  if (options.runtime === "cli" || options.runtime === "typescript") return cliCommand(options);
+  if (options.runtime === "cli") return cliCommand(options);
   if (options.runtime === "go") return goCommand(options);
   throw new Error(`Unsupported runtime: ${options.runtime}`);
 }
 
 async function cliCommand(options) {
   const cliPath =
-    options.cliPath ?? options.env.EMULATE_CLI ?? options.env.EMULATE_TYPESCRIPT_CLI ?? path.join(repoRoot, "packages/emulate/dist/index.js");
+    options.cliPath ?? options.env.EMULATE_CLI ?? path.join(repoRoot, "packages/emulate/dist/index.js");
   await assertExecutableFile(cliPath, "emulate CLI");
   const workingDirectory = await runtimeWorkingDirectory(options);
   return {
@@ -216,7 +215,7 @@ async function runtimeWorkingDirectory(options) {
   if (options.cwd) {
     return { cwd: options.cwd, cleanup: null };
   }
-  const cwd = await mkdtemp(path.join(os.tmpdir(), "emulate-sdk-js-"));
+  const cwd = await mkdtemp("/tmp/emulate-sdk-js-");
   return {
     cwd,
     cleanup: async () => {

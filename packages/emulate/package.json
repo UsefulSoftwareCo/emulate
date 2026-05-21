@@ -61,23 +61,8 @@
   },
   "dependencies": {},
   "devDependencies": {
-    "@emulators/core": "workspace:*",
-    "@emulators/github": "workspace:*",
-    "@emulators/apple": "workspace:*",
-    "@emulators/microsoft": "workspace:*",
-    "@emulators/okta": "workspace:*",
-    "@emulators/aws": "workspace:*",
-    "@emulators/google": "workspace:*",
-    "@emulators/mongoatlas": "workspace:*",
-    "@emulators/slack": "workspace:*",
-    "@emulators/vercel": "workspace:*",
-    "@emulators/resend": "workspace:*",
-    "@emulators/stripe": "workspace:*",
-    "@emulators/clerk": "workspace:*",
-    "commander": "^14",
-    "picocolors": "^1.1.1",
     "tsup": "^8",
     "typescript": "^5.7",
-    "yaml": "^2"
+    "vitest": "^4.1.0"
   }
 }

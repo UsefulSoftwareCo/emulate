@@ -76,35 +76,17 @@ await resend.emails.send({
 })
 ```
 
-### Embedded in Next.js (adapter-next)
+### Next.js proxy
 
-When using `@emulators/adapter-next`, the emulator runs inside your Next.js app at `/emulate/resend`. Set `RESEND_BASE_URL` via `next.config.ts`:
-
-```typescript
-// next.config.ts
-import { withEmulate } from '@emulators/adapter-next'
-
-export default withEmulate({
-  env: {
-    RESEND_BASE_URL: `http://localhost:${process.env.PORT ?? '3000'}/emulate/resend`,
-  },
-})
-```
+Use `@emulators/adapter-next` to proxy a separately running native Resend runtime through your Next.js app:
 
 ```typescript
 // app/emulate/[...path]/route.ts
-import { createEmulateHandler } from '@emulators/adapter-next'
-import * as resend from '@emulators/resend'
+import { createEmulateProxy } from '@emulators/adapter-next'
 
-export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
-  services: {
-    resend: {
-      emulator: resend,
-      seed: {
-        domains: [{ name: 'example.com' }],
-      },
-    },
-  },
+export const { GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS } = createEmulateProxy({
+  target: process.env.EMULATE_RESEND_URL ?? 'http://127.0.0.1:4000',
+  routePrefix: '/emulate',
 })
 ```
 

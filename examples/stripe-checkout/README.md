@@ -2,7 +2,7 @@
 
 A Next.js storefront demonstrating the full [Stripe Checkout](https://stripe.com/docs/payments/checkout) flow against the emulated Stripe API from `emulate`.
 
-No real payments are processed. The emulator runs in-process, seeds products and prices, hosts a checkout page, and fires webhooks on completion.
+No real payments are processed. The native emulator process seeds products and prices and hosts a checkout page.
 
 ## How it works
 
@@ -14,7 +14,7 @@ No real payments are processed. The emulator runs in-process, seeds products and
 6. The webhook handler records the order in memory
 7. The user is redirected to the success page showing order confirmation
 
-The Stripe SDK is configured with `host: localhost` and `protocol: http` so all API calls stay local. A thin proxy route at `/v1/[...path]` forwards SDK requests to the embedded emulator at `/emulate/stripe/v1/*`.
+The Stripe SDK is configured with `host: localhost` and `protocol: http` so all API calls stay local. A thin proxy route at `/v1/[...path]` forwards SDK requests to the native emulator at `/emulate/stripe/v1/*`.
 
 ## Getting started
 
@@ -22,6 +22,7 @@ From the repository root:
 
 ```bash
 pnpm install
+npx emulate --service stripe
 pnpm --filter stripe-checkout dev
 ```
 
@@ -57,7 +58,7 @@ src/
     v1/
       [...path]/route.ts        Proxy: forwards Stripe SDK calls to the emulator
     emulate/
-      [...path]/route.ts        Embedded emulator (Stripe)
+      [...path]/route.ts        Native proxy route (Stripe)
   lib/
     stripe.ts                   Stripe SDK client (pointed at localhost)
     cart.tsx                    CartProvider context + useCart hook

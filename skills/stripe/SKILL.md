@@ -6,7 +6,7 @@ allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 
 # Stripe API Emulator
 
-Fully stateful Stripe API emulation. Customers, products, prices, checkout sessions, payment intents, charges, and payment methods persist in memory. The hosted checkout UI lets you complete payments in the browser. Embedded JavaScript mode dispatches webhooks on state changes; the native Go runtime implements the API, payment state, seed config, and hosted checkout foundation, but does not deliver outbound webhook callbacks yet.
+Fully stateful Stripe API emulation. Customers, products, prices, checkout sessions, payment intents, charges, and payment methods persist in memory. The hosted checkout UI lets you complete payments in the browser. The native Go runtime implements the API, payment state, seed config, and hosted checkout foundation, but does not deliver outbound webhook callbacks yet.
 
 No real payments are processed. Every Stripe SDK call hits the emulator and produces realistic responses.
 
@@ -54,60 +54,17 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 })
 ```
 
-### Embedded in Next.js (adapter-next)
+### Next.js proxy
 
-When using `@emulators/adapter-next`, the emulator runs inside your Next.js app at `/emulate/stripe`. The SDK needs to point at `localhost` with a proxy route to forward `/v1/*` calls to `/emulate/stripe/v1/*`:
-
-```typescript
-// next.config.ts
-import { withEmulate } from '@emulators/adapter-next'
-
-export default withEmulate({
-  env: {
-    STRIPE_SECRET_KEY: 'sk_test_emulated',
-  },
-})
-```
-
-```typescript
-// lib/stripe.ts
-import Stripe from 'stripe'
-
-const port = process.env.PORT ?? '3000'
-
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-12-18.acacia',
-  host: 'localhost',
-  port: parseInt(port, 10),
-  protocol: 'http',
-})
-```
+Use `@emulators/adapter-next` to proxy a separately running native Stripe runtime through your Next.js app:
 
 ```typescript
 // app/emulate/[...path]/route.ts
-import { createEmulateHandler } from '@emulators/adapter-next'
-import * as stripe from '@emulators/stripe'
+import { createEmulateProxy } from '@emulators/adapter-next'
 
-export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
-  services: {
-    stripe: {
-      emulator: stripe,
-      seed: {
-        products: [
-          { id: 'prod_widget', name: 'Widget', description: 'A useful widget' },
-        ],
-        prices: [
-          { id: 'price_widget', product_name: 'Widget', currency: 'usd', unit_amount: 1000 },
-        ],
-        webhooks: [
-          {
-            url: `http://localhost:${process.env.PORT ?? '3000'}/api/webhooks/stripe`,
-            events: ['*'],
-          },
-        ],
-      },
-    },
-  },
+export const { GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS } = createEmulateProxy({
+  target: process.env.EMULATE_STRIPE_URL ?? 'http://127.0.0.1:4000',
+  routePrefix: '/emulate',
 })
 ```
 
@@ -169,7 +126,7 @@ stripe:
       secret: whsec_test
 ```
 
-The `product_name` field in prices links to the product by name. In embedded JavaScript mode, use `events: ['*']` to receive all webhook events, or specify individual event types.
+The `product_name` field in prices links to the product by name. Outbound webhook callback delivery is not implemented in the native Stripe engine yet.
 
 ## API Endpoints
 
@@ -243,7 +200,7 @@ curl http://localhost:4000/v1/checkout/sessions
 curl -X POST http://localhost:4000/v1/checkout/sessions/cs_xxx/expire
 ```
 
-The session's `url` field points to a hosted checkout page at `/checkout/cs_xxx`. Clicking "Pay" on that page completes the session and redirects to `success_url`. In embedded JavaScript mode, it also fires the `checkout.session.completed` webhook. The `{CHECKOUT_SESSION_ID}` template in `success_url` is replaced with the actual session ID.
+The session's `url` field points to a hosted checkout page at `/checkout/cs_xxx`. Clicking "Pay" on that page completes the session and redirects to `success_url`. The `{CHECKOUT_SESSION_ID}` template in `success_url` is replaced with the actual session ID.
 
 ### Payment Intents
 
@@ -259,7 +216,7 @@ curl http://localhost:4000/v1/payment_intents/pi_xxx
 curl -X POST http://localhost:4000/v1/payment_intents/pi_xxx \
   -d "amount=3000"
 
-# Confirm (embedded JavaScript mode also triggers payment_intent.succeeded + charge.succeeded webhooks)
+# Confirm
 curl -X POST http://localhost:4000/v1/payment_intents/pi_xxx/confirm
 
 # Cancel
@@ -298,23 +255,7 @@ curl http://localhost:4000/v1/payment_methods
 
 ## Webhooks
 
-Embedded JavaScript mode dispatches webhook events when state changes. Register webhooks via seed config or programmatically. Native Go Stripe does not deliver outbound webhook callbacks yet.
-
-### Events dispatched
-
-| Event | Trigger |
-|-------|---------|
-| `customer.created` | Customer created |
-| `customer.updated` | Customer updated |
-| `customer.deleted` | Customer deleted |
-| `product.created` | Product created |
-| `price.created` | Price created |
-| `payment_intent.created` | Payment intent created |
-| `payment_intent.succeeded` | Payment intent confirmed |
-| `payment_intent.canceled` | Payment intent canceled |
-| `charge.succeeded` | Payment intent confirmed (charge auto-created) |
-| `checkout.session.completed` | Checkout completed via hosted page |
-| `checkout.session.expired` | Checkout session expired |
+Webhook seed config is accepted for compatibility, but the native Go Stripe runtime does not deliver outbound webhook callbacks yet. Do not rely on webhook side effects in tests until callback delivery lands in the native engine.
 
 ### Webhook handler example
 
@@ -348,7 +289,7 @@ export async function POST(request: Request) {
 
 ## Common Patterns
 
-### Checkout Flow (embedded Next.js)
+### Checkout Flow (Next.js)
 
 ```typescript
 // Server action
@@ -387,7 +328,6 @@ const pi = await stripe.paymentIntents.create({
   customer: 'cus_xxx',
 })
 
-// Embedded JavaScript mode also dispatches payment_intent.succeeded + charge.succeeded webhooks.
 const confirmed = await stripe.paymentIntents.confirm(pi.id)
 console.log(confirmed.status) // 'succeeded'
 ```

@@ -1,6 +1,4 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { serve } from "@emulators/core";
-import type { AddressInfo } from "node:net";
 import {
   IAMClient,
   ListUsersCommand,
@@ -86,7 +84,6 @@ import {
 } from "@aws-sdk/client-sns";
 import { STSClient, GetCallerIdentityCommand, AssumeRoleCommand } from "@aws-sdk/client-sts";
 import { createPresignedPost } from "@aws-sdk/s3-presigned-post";
-import { createTestApp } from "./helpers.js";
 
 type EmulatorHandle = { url: string; close: () => Promise<void> };
 
@@ -95,21 +92,7 @@ async function startEmulator(): Promise<EmulatorHandle> {
   if (override) {
     return { url: override, close: async () => {} };
   }
-
-  const { app } = createTestApp();
-  const server = serve({ fetch: app.fetch, port: 0 });
-  await new Promise<void>((resolve, reject) => {
-    server.once("listening", () => resolve());
-    server.once("error", reject);
-  });
-  const { port } = server.address() as AddressInfo;
-  return {
-    url: `http://127.0.0.1:${port}`,
-    close: () =>
-      new Promise<void>((resolve, reject) => {
-        server.close((err) => (err ? reject(err) : resolve()));
-      }),
-  };
+  throw new Error("AWS_EMULATOR_E2E_URL is required for native AWS SDK conformance tests");
 }
 
 async function streamToString(stream: unknown): Promise<string> {
@@ -120,13 +103,14 @@ async function streamToString(stream: unknown): Promise<string> {
   return Buffer.concat(chunks).toString();
 }
 
+const describeExternalS3E2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalSqsE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalSnsE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalIamStsE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalDynamoDBE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalEventBridgeE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 
-describe("AWS plugin - real @aws-sdk/client-s3 E2E", () => {
+describeExternalS3E2E("AWS native runtime - real @aws-sdk/client-s3 E2E", () => {
   let emulator: EmulatorHandle;
   let s3: S3Client;
 
@@ -322,7 +306,7 @@ describe("AWS plugin - real @aws-sdk/client-s3 E2E", () => {
   });
 });
 
-describeExternalSqsE2E("AWS plugin - real @aws-sdk/client-sqs E2E", () => {
+describeExternalSqsE2E("AWS native runtime - real @aws-sdk/client-sqs E2E", () => {
   let emulator: EmulatorHandle;
   let sqs: SQSClient;
 
@@ -438,7 +422,7 @@ describeExternalSqsE2E("AWS plugin - real @aws-sdk/client-sqs E2E", () => {
   });
 });
 
-describeExternalSnsE2E("AWS plugin - real @aws-sdk/client-sns E2E", () => {
+describeExternalSnsE2E("AWS native runtime - real @aws-sdk/client-sns E2E", () => {
   let emulator: EmulatorHandle;
   let sns: SNSClient;
   let sqs: SQSClient;
@@ -564,7 +548,7 @@ describeExternalSnsE2E("AWS plugin - real @aws-sdk/client-sns E2E", () => {
   });
 });
 
-describeExternalDynamoDBE2E("AWS plugin - real @aws-sdk/client-dynamodb E2E", () => {
+describeExternalDynamoDBE2E("AWS native runtime - real @aws-sdk/client-dynamodb E2E", () => {
   let emulator: EmulatorHandle;
   let dynamodb: DynamoDBClient;
 
@@ -696,7 +680,7 @@ describeExternalDynamoDBE2E("AWS plugin - real @aws-sdk/client-dynamodb E2E", ()
   });
 });
 
-describeExternalEventBridgeE2E("AWS plugin - real @aws-sdk/client-eventbridge E2E", () => {
+describeExternalEventBridgeE2E("AWS native runtime - real @aws-sdk/client-eventbridge E2E", () => {
   let emulator: EmulatorHandle;
   let events: EventBridgeClient;
   let sqs: SQSClient;
@@ -842,7 +826,7 @@ describeExternalEventBridgeE2E("AWS plugin - real @aws-sdk/client-eventbridge E2
   });
 });
 
-describeExternalIamStsE2E("AWS plugin - real @aws-sdk/client-iam and @aws-sdk/client-sts E2E", () => {
+describeExternalIamStsE2E("AWS native runtime - real @aws-sdk/client-iam and @aws-sdk/client-sts E2E", () => {
   let emulator: EmulatorHandle;
   let iam: IAMClient;
   let sts: STSClient;

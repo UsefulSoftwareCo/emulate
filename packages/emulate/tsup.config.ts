@@ -1,15 +1,8 @@
 import { defineConfig } from "tsup";
-import { cpSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 const pkg = JSON.parse(readFileSync(resolve(__dirname, "package.json"), "utf-8"));
-
-const copyFonts = async () => {
-  const src = resolve(__dirname, "../@emulators/core/src/fonts");
-  const dest = resolve(__dirname, "dist/fonts");
-  mkdirSync(dest, { recursive: true });
-  cpSync(src, dest, { recursive: true });
-};
 
 const addShebang = async () => {
   const entry = resolve(__dirname, "dist/index.js");
@@ -33,9 +26,7 @@ export default defineConfig([
     clean: true,
     splitting: true,
     sourcemap: true,
-    noExternal: [/^@emulators\//],
     async onSuccess() {
-      await copyFonts();
       await addShebang();
     },
   },
@@ -47,7 +38,5 @@ export default defineConfig([
     clean: false,
     splitting: true,
     sourcemap: true,
-    noExternal: [/^@emulators\//],
-    onSuccess: copyFonts,
   },
 ]);

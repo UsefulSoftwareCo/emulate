@@ -34,9 +34,6 @@
     "type-check": "tsc --noEmit",
     "lint": "eslint src"
   },
-  "dependencies": {
-    "@emulators/core": "workspace:*"
-  },
   "devDependencies": {
     "@aws-sdk/client-dynamodb": "^3.1050.0",
     "@aws-sdk/client-eventbridge": "3.1051.0",

@@ -34,9 +34,6 @@
     "type-check": "tsc --noEmit",
     "lint": "eslint src"
   },
-  "dependencies": {
-    "@emulators/core": "workspace:*"
-  },
   "devDependencies": {
     "resend": "^6.10.0",
     "tsup": "^8",

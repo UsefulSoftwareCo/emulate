@@ -315,49 +315,27 @@ Then use these in your app to construct API and OAuth URLs. See each service's s
 
 ## Next.js Integration
 
-The `@emulators/adapter-next` package supports embedded JavaScript emulators and native runtime proxy routes on the same Next.js origin. For native Go `apple`, `aws`, `clerk`, `github`, `google`, `microsoft`, `mongoatlas`, `okta`, `resend`, `slack`, `stripe`, and `vercel` previews on Vercel, run `npx emulate vercel init` to generate `api/emulate.go`, `vercel.json`, and `go.mod`. See the **next** skill (`skills/next/SKILL.md`) for full setup, Auth.js configuration, Vercel Go Function state behavior, persistence, font tracing, and `createEmulateProxy` details.
+The `@emulators/adapter-next` package proxies native runtime routes on the same Next.js origin. For native Go `apple`, `aws`, `clerk`, `github`, `google`, `microsoft`, `mongoatlas`, `okta`, `resend`, `slack`, `stripe`, and `vercel` previews on Vercel, run `npx emulate vercel init` to generate `api/emulate.go`, `vercel.json`, and `go.mod`. See the **next** skill (`skills/next/SKILL.md`) for setup, Auth.js configuration, Vercel Go Function state behavior, and `createEmulateProxy` details.
 
 ## Persistence
 
-By default, all emulator state is in-memory. For persistence across process restarts and serverless cold starts, use a `PersistenceAdapter`.
-
-### Built-in file persistence
-
-```typescript
-import { filePersistence } from '@emulators/core'
-
-// CLI or local dev: persists to a JSON file
-const adapter = filePersistence('.emulate/state.json')
-```
-
-### Custom adapters
-
-```typescript
-import type { PersistenceAdapter } from '@emulators/core'
-
-const kvAdapter: PersistenceAdapter = {
-  async load() { return await kv.get('emulate-state') },
-  async save(data) { await kv.set('emulate-state', data) },
-}
-```
-
-State is loaded on cold start and saved after every mutating request (POST, PUT, PATCH, DELETE). Saves are serialized to prevent race conditions.
+By default, all local CLI and programmatic API state is in-memory. Vercel Go Function previews use warm in-memory state by default. For snapshots across cold starts, implement `vercel.Persistence` in `api/emulate.go` and pass it to `emulate.NewHandler`.
 
 ## Architecture
 
 ```
 packages/
-  emulate/           # CLI entry point + programmatic API
+  emulate/           # npm CLI shim + native process programmatic API
   @emulators/
-    core/            # HTTP server, Store, plugin interface, middleware
-    adapter-next/    # Next.js App Router integration
-    vercel/          # Vercel API service plugin
-    github/          # GitHub API service plugin
-    google/          # Google OAuth 2.0 / OIDC plugin
-    slack/           # Slack Web API, OAuth, incoming webhooks plugin
-    apple/           # Sign in with Apple / OIDC plugin
-    microsoft/       # Microsoft Entra ID OAuth 2.0 / OIDC plugin
-    aws/             # AWS S3, SQS, IAM, STS plugin
+    core/            # compatibility helpers
+    adapter-next/    # Next.js App Router proxy integration
+    vercel/          # Vercel API metadata package
+    github/          # GitHub API metadata package
+    google/          # Google metadata package
+    slack/           # Slack metadata package
+    apple/           # Apple metadata package
+    microsoft/       # Microsoft metadata package
+    aws/             # AWS metadata package and SDK conformance tests
 ```
 
-The core provides a generic `Store` with typed `Collection<T>` instances supporting CRUD, indexing, filtering, and pagination. Each service plugin registers routes with the shared internal app and uses the store for state.
+Service routing, state, UI, and protocol behavior live in Go under `internal/`.

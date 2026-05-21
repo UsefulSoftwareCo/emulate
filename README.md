@@ -101,7 +101,7 @@ github:
 npm install emulate
 ```
 
-Each call to `createEmulator` starts a single service:
+Each call to `createEmulator` starts a native Go process for a single service:
 
 ```typescript
 import { createEmulator } from 'emulate'
@@ -134,7 +134,7 @@ beforeAll(async () => {
   process.env.VERCEL_EMULATOR_URL = vercel.url
 })
 
-afterEach(() => { github.reset(); vercel.reset() })
+afterEach(() => Promise.all([github.reset(), vercel.reset()]))
 afterAll(() => Promise.all([github.close(), vercel.close()]))
 ```
 
@@ -453,7 +453,7 @@ Every endpoint below is fully stateful with Vercel-style JSON responses and curs
 
 Every endpoint below is fully stateful. Creates, updates, and deletes persist in memory and affect related entities.
 
-The native Go runtime implements the core SDK-facing GitHub surface for local CLI runs and Vercel Go Function previews: users, orgs, seeded repositories, repository CRUD, topics, languages, branches, refs, issues, issue comments, pull requests, OAuth authorize/token flows, rate limit, and metadata. The JavaScript `@emulators/github` package remains the broader GitHub emulator while native parity continues to expand.
+The native Go runtime implements the GitHub service engine for local CLI runs, the programmatic API, and Vercel Go Function previews: users, orgs, seeded repositories, repository CRUD, topics, languages, branches, refs, issues, issue comments, pull requests, OAuth authorize/token flows, rate limit, and metadata. The `@emulators/github` package remains importable as npm metadata, but it no longer contains a Node.js service implementation.
 
 ### Users
 - `GET /user` - authenticated user
@@ -789,7 +789,7 @@ To expose the native Resend emulator in a Vercel preview without separate infras
 
 Stripe API emulation with customers, products, prices, checkout sessions, payment intents, charges, payment methods, customer sessions, and a hosted checkout page.
 
-The native Go runtime implements the current high-value Stripe API and checkout routes for local CLI runs and Vercel Go Function previews. Native Stripe stores payment state and serves checkout pages, but outbound Stripe webhook delivery is still embedded JavaScript mode only. To expose Stripe on a Vercel preview without separate infrastructure, run `npx emulate vercel init --service stripe`. The generated route serves Stripe at `/emulate/stripe/*`.
+The native Go runtime implements the current high-value Stripe API and checkout routes for local CLI runs, the programmatic API, and Vercel Go Function previews. Native Stripe stores payment state and serves checkout pages. To expose Stripe on a Vercel preview without separate infrastructure, run `npx emulate vercel init --service stripe`. The generated route serves Stripe at `/emulate/stripe/*`.
 
 - `POST /v1/customers`, `GET /v1/customers`, `GET /v1/customers/:id`, `POST /v1/customers/:id`, `DELETE /v1/customers/:id`
 - `GET /v1/payment_methods`, `POST /v1/customer_sessions`
@@ -813,7 +813,7 @@ MongoDB Atlas emulation with Atlas Admin API v2 and Atlas Data API v1. The nativ
 
 ## Next.js Integration
 
-Use `@emulators/adapter-next` to run emulator routes on the same origin as your Next.js app. Embedded mode runs JavaScript emulators directly in the app. Proxy mode forwards to a separately running native runtime.
+Use `@emulators/adapter-next` to proxy native emulator routes through the same origin as your Next.js app. For zero-infra Vercel previews, use the generated Go Function scaffold.
 
 ### Vercel Go Function preview
 
@@ -836,41 +836,8 @@ State uses warm memory by default: cold starts reset to a fresh store, warm invo
 ### Install
 
 ```bash
-npm install @emulators/adapter-next @emulators/github @emulators/google
+npm install @emulators/adapter-next
 ```
-
-Only install the emulators you need. Each `@emulators/*` package is published independently.
-
-### Embedded route handler
-
-Create a catch-all route that serves emulator traffic in-process:
-
-```typescript
-// app/emulate/[...path]/route.ts
-import { createEmulateHandler } from '@emulators/adapter-next'
-import * as github from '@emulators/github'
-import * as google from '@emulators/google'
-
-export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
-  services: {
-    github: {
-      emulator: github,
-      seed: {
-        users: [{ login: 'octocat', name: 'The Octocat' }],
-        repos: [{ owner: 'octocat', name: 'hello-world', auto_init: true }],
-      },
-    },
-    google: {
-      emulator: google,
-      seed: {
-        users: [{ email: 'test@example.com', name: 'Test User' }],
-      },
-    },
-  },
-})
-```
-
-Embedded mode is the broadest zero infra path for JavaScript emulator packages on Vercel preview deployments. The emulator code runs in the Next.js function, so OAuth callback URLs can point at the preview origin. For native Go `apple`, `aws`, `clerk`, `github`, `google`, `microsoft`, `mongoatlas`, `okta`, `resend`, `slack`, `stripe`, and `vercel` previews, use `npx emulate vercel init`.
 
 ### Native runtime proxy
 
@@ -934,75 +901,28 @@ GitHub({
 
 No `oauth_apps` need to be seeded. When none are configured, the emulator skips `client_id`, `client_secret`, and `redirect_uri` validation.
 
-### Font files in serverless
-
-Emulator UI pages use bundled fonts. Wrap your Next.js config to include them in the serverless trace:
-
-```typescript
-// next.config.mjs
-import { withEmulate } from '@emulators/adapter-next'
-
-export default withEmulate({
-  // your normal Next.js config
-})
-```
-
-If you mount the catch-all at a custom path, pass the matching prefix:
-
-```typescript
-export default withEmulate(nextConfig, { routePrefix: '/api/emulate' })
-```
-
-### Persistence
-
-By default, emulator state is in-memory and resets on every cold start. To persist state across restarts, pass a `persistence` adapter:
-
-```typescript
-import { createEmulateHandler } from '@emulators/adapter-next'
-import * as github from '@emulators/github'
-
-const kvAdapter = {
-  async load() { return await kv.get('emulate-state') },
-  async save(data: string) { await kv.set('emulate-state', data) },
-}
-
-export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
-  services: { github: { emulator: github } },
-  persistence: kvAdapter,
-})
-```
-
-For local development, `@emulators/core` ships `filePersistence`:
-
-```typescript
-import { filePersistence } from '@emulators/core'
-
-// ...
-persistence: filePersistence('.emulate/state.json'),
-```
-
-The persistence adapter is called on cold start (load) and after every mutating request (save). Saves are serialized via an internal queue to prevent race conditions.
+`createEmulateHandler` is deprecated. In-process service handlers have been removed; use `createEmulateProxy` for local native runtimes or `npx emulate vercel init` for Vercel previews.
 
 ## Architecture
 
 ```
 packages/
-  emulate/          # npm CLI shim and programmatic API
+  emulate/          # npm CLI shim and native process programmatic API
   @emulators/
-    core/           # HTTP server, in-memory store, plugin interface, middleware
-    adapter-next/   # Next.js App Router integration
-    vercel/         # Vercel API service
-    github/         # GitHub API service
-    google/         # Google OAuth 2.0 / OIDC + Gmail, Calendar, Drive
-    slack/          # Slack Web API, OAuth v2, incoming webhooks
-    apple/          # Apple Sign In / OIDC
-    microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
-    aws/            # AWS S3, SQS, SNS, EventBridge, DynamoDB, IAM, STS
+    core/           # compatibility helpers
+    adapter-next/   # Next.js App Router proxy integration
+    vercel/         # Vercel API metadata package
+    github/         # GitHub API metadata package
+    google/         # Google metadata package
+    slack/          # Slack metadata package
+    apple/          # Apple metadata package
+    microsoft/      # Microsoft metadata package
+    aws/            # AWS metadata package and SDK conformance tests
 apps/
   web/              # Documentation site (Next.js)
 ```
 
-The native Go runtime is the default CLI engine and is distributed through npm as platform-specific optional binary packages. The TypeScript packages remain available for the programmatic API, framework adapters, and SDK conformance tests.
+The native Go runtime is the service engine and is distributed through npm as platform-specific optional binary packages. The TypeScript packages remain available for npm package names, the native process programmatic API, framework proxy adapters, and SDK conformance tests.
 
 ## Auth
 

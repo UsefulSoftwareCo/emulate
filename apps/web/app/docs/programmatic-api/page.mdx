@@ -1,10 +1,10 @@
 # Programmatic API
 
-Use emulators as libraries in your tests and scripts. There are two approaches: the `emulate` CLI package (which wraps all services) and the individual `@emulators/*` scoped packages.
+Use the native emulate runtime from tests and scripts.
 
 ## CLI package
 
-The `emulate` package provides a `createEmulator` helper that starts any service by name.
+The `emulate` package provides a `createEmulator` helper that starts a native Go process for any service by name.
 
 ```bash
 npm install emulate
@@ -41,7 +41,7 @@ beforeAll(async () => {
   process.env.VERCEL_EMULATOR_URL = vercel.url
 })
 
-afterEach(() => { github.reset(); vercel.reset() })
+afterEach(() => Promise.all([github.reset(), vercel.reset()]))
 afterAll(() => Promise.all([github.close(), vercel.close()]))
 ```
 
@@ -95,7 +95,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
     </tr>
     <tr>
       <td><code>reset()</code></td>
-      <td>Wipe the store and replay seed data</td>
+      <td>Restart the native process and replay seed data, returns a Promise</td>
     </tr>
     <tr>
       <td><code>close()</code></td>
@@ -106,7 +106,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 ## Scoped packages
 
-Each emulator is published as its own `@emulators/*` package. Install only the ones you need:
+Each emulator name is still published as its own `@emulators/*` package for package discovery and compatibility:
 
 ```bash
 npm install @emulators/github @emulators/google @emulators/stripe
@@ -134,18 +134,18 @@ npm install @emulators/github @emulators/google @emulators/stripe
     <tr><td><code>@emulators/mongoatlas</code></td><td>MongoDB Atlas Admin API + Data API</td></tr>
     <tr><td><code>@emulators/resend</code></td><td>Resend email API</td></tr>
     <tr><td><code>@emulators/stripe</code></td><td>Stripe billing and payments API</td></tr>
-    <tr><td><code>@emulators/core</code></td><td>Shared store, middleware, and utilities</td></tr>
-    <tr><td><code>@emulators/adapter-next</code></td><td>Next.js App Router integration</td></tr>
+    <tr><td><code>@emulators/core</code></td><td>Compatibility helpers</td></tr>
+    <tr><td><code>@emulators/adapter-next</code></td><td>Next.js App Router proxy integration</td></tr>
   </tbody>
 </table>
 
 ### Direct usage
 
-Each scoped package exports its service plugin and seed helpers:
+Each scoped package exports metadata only. Service routing, state, and protocol behavior run in the native Go engine:
 
 ```typescript
 import * as github from '@emulators/github'
 import * as stripe from '@emulators/stripe'
 ```
 
-These are the same modules used internally by the CLI and the [Next.js adapter](/docs/nextjs). See the Next.js Integration page for a full example of using scoped packages with `createEmulateHandler`.
+Use `createEmulator` from `emulate` to start services in tests, and use [`@emulators/adapter-next`](/docs/nextjs) to proxy native runtimes through Next.js.
