@@ -34,18 +34,97 @@ func generateHexID() string {
 }
 
 func readJSONBody(r *http.Request) map[string]any {
+	return readJSONBodyWithOrder(r).Values
+}
+
+type orderedJSONBody struct {
+	Values map[string]any
+	Orders map[string][]string
+}
+
+func (body orderedJSONBody) Order(path string) []string {
+	return append([]string(nil), body.Orders[path]...)
+}
+
+func readJSONBodyWithOrder(r *http.Request) orderedJSONBody {
 	defer r.Body.Close()
 	raw, _ := io.ReadAll(r.Body)
 	if len(strings.TrimSpace(string(raw))) == 0 {
-		return map[string]any{}
+		return orderedJSONBody{Values: map[string]any{}, Orders: map[string][]string{}}
 	}
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.UseNumber()
-	var body map[string]any
-	if err := decoder.Decode(&body); err != nil || body == nil {
-		return map[string]any{}
+	orders := map[string][]string{}
+	value, err := readOrderedJSONValue(decoder, "", orders)
+	if err != nil {
+		return orderedJSONBody{Values: map[string]any{}, Orders: map[string][]string{}}
 	}
-	return body
+	body, ok := value.(map[string]any)
+	if !ok || body == nil {
+		return orderedJSONBody{Values: map[string]any{}, Orders: map[string][]string{}}
+	}
+	return orderedJSONBody{Values: body, Orders: orders}
+}
+
+func readOrderedJSONValue(decoder *json.Decoder, path string, orders map[string][]string) (any, error) {
+	token, err := decoder.Token()
+	if err != nil {
+		return nil, err
+	}
+
+	delimiter, ok := token.(json.Delim)
+	if !ok {
+		return token, nil
+	}
+
+	switch delimiter {
+	case '{':
+		object := map[string]any{}
+		keys := make([]string, 0)
+		for decoder.More() {
+			keyToken, err := decoder.Token()
+			if err != nil {
+				return nil, err
+			}
+			key, ok := keyToken.(string)
+			if !ok {
+				return nil, fmt.Errorf("invalid JSON object key")
+			}
+			value, err := readOrderedJSONValue(decoder, joinJSONPath(path, key), orders)
+			if err != nil {
+				return nil, err
+			}
+			object[key] = value
+			keys = append(keys, key)
+		}
+		if _, err := decoder.Token(); err != nil {
+			return nil, err
+		}
+		orders[path] = keys
+		return object, nil
+	case '[':
+		items := make([]any, 0)
+		for i := 0; decoder.More(); i++ {
+			value, err := readOrderedJSONValue(decoder, joinJSONPath(path, strconv.Itoa(i)), orders)
+			if err != nil {
+				return nil, err
+			}
+			items = append(items, value)
+		}
+		if _, err := decoder.Token(); err != nil {
+			return nil, err
+		}
+		return items, nil
+	default:
+		return nil, fmt.Errorf("unexpected JSON delimiter %q", delimiter)
+	}
+}
+
+func joinJSONPath(parent string, child string) string {
+	if parent == "" {
+		return child
+	}
+	return parent + "." + child
 }
 
 func mongoOK(c *corehttp.Context, status int, value map[string]any) {
@@ -260,7 +339,7 @@ func matchesFilter(data map[string]any, filter map[string]any) bool {
 		}
 
 		docValue, exists := nestedValue(data, key)
-		if operators, ok := value.(map[string]any); ok && value != nil {
+		if operators, ok := value.(map[string]any); ok && value != nil && hasOperatorKey(operators) {
 			for op, opValue := range operators {
 				switch op {
 				case "$eq":
@@ -276,11 +355,11 @@ func matchesFilter(data map[string]any, filter map[string]any) bool {
 						return false
 					}
 				case "$in":
-					if !arrayContains(opValue, docValue) {
+					if !matchesAnyValue(opValue, docValue) {
 						return false
 					}
 				case "$nin":
-					if arrayContains(opValue, docValue) {
+					if matchesAnyValue(opValue, docValue) {
 						return false
 					}
 				case "$exists":
@@ -302,7 +381,11 @@ func matchesFilter(data map[string]any, filter map[string]any) bool {
 						return false
 					}
 				case "$options":
+					if operators["$regex"] == nil {
+						return false
+					}
 				default:
+					return false
 				}
 			}
 			continue
@@ -503,10 +586,12 @@ func applyUpdate(data map[string]any, update map[string]any) map[string]any {
 	return out
 }
 
-func sortRecords(records []corestore.Record, spec map[string]any) []corestore.Record {
+func sortRecords(records []corestore.Record, spec map[string]any, order []string) []corestore.Record {
 	out := append([]corestore.Record(nil), records...)
+	keys := orderedSpecKeys(spec, order)
 	sort.SliceStable(out, func(i int, j int) bool {
-		for key, directionValue := range spec {
+		for _, key := range keys {
+			directionValue := spec[key]
 			direction := intValue(directionValue)
 			if direction == 0 {
 				direction = 1
@@ -529,10 +614,12 @@ func sortRecords(records []corestore.Record, spec map[string]any) []corestore.Re
 	return out
 }
 
-func sortMaps(records []map[string]any, spec map[string]any) []map[string]any {
+func sortMaps(records []map[string]any, spec map[string]any, order []string) []map[string]any {
 	out := append([]map[string]any(nil), records...)
+	keys := orderedSpecKeys(spec, order)
 	sort.SliceStable(out, func(i int, j int) bool {
-		for key, directionValue := range spec {
+		for _, key := range keys {
+			directionValue := spec[key]
 			direction := intValue(directionValue)
 			if direction == 0 {
 				direction = 1
@@ -553,6 +640,25 @@ func sortMaps(records []map[string]any, spec map[string]any) []map[string]any {
 		return false
 	})
 	return out
+}
+
+func orderedSpecKeys(spec map[string]any, order []string) []string {
+	keys := make([]string, 0, len(spec))
+	seen := map[string]bool{}
+	for _, key := range order {
+		if _, ok := spec[key]; ok {
+			keys = append(keys, key)
+			seen[key] = true
+		}
+	}
+	remaining := make([]string, 0)
+	for key := range spec {
+		if !seen[key] {
+			remaining = append(remaining, key)
+		}
+	}
+	sort.Strings(remaining)
+	return append(keys, remaining...)
 }
 
 func compareNumber(left any, right any, op string) bool {
@@ -611,17 +717,47 @@ func valuesEqual(left any, right any) bool {
 	return string(leftJSON) == string(rightJSON)
 }
 
-func arrayContains(value any, target any) bool {
-	items, ok := value.([]any)
+func matchesAnyValue(options any, docValue any) bool {
+	items, ok := arrayItems(options)
 	if !ok {
 		return false
 	}
 	for _, item := range items {
-		if valuesEqual(item, target) {
+		if valuesEqual(item, docValue) {
 			return true
+		}
+		docItems, ok := arrayItems(docValue)
+		if !ok {
+			continue
+		}
+		for _, docItem := range docItems {
+			if valuesEqual(item, docItem) {
+				return true
+			}
 		}
 	}
 	return false
+}
+
+func arrayItems(value any) ([]any, bool) {
+	switch v := value.(type) {
+	case []any:
+		return append([]any(nil), v...), true
+	case []string:
+		items := make([]any, 0, len(v))
+		for _, item := range v {
+			items = append(items, item)
+		}
+		return items, true
+	case []int:
+		items := make([]any, 0, len(v))
+		for _, item := range v {
+			items = append(items, item)
+		}
+		return items, true
+	default:
+		return nil, false
+	}
 }
 
 func boolValue(value any) bool {
@@ -655,6 +791,15 @@ var dangerousKeys = map[string]bool{"__proto__": true, "constructor": true, "pro
 func hasDangerousKey(parts []string) bool {
 	for _, part := range parts {
 		if dangerousKeys[part] {
+			return true
+		}
+	}
+	return false
+}
+
+func hasOperatorKey(values map[string]any) bool {
+	for key := range values {
+		if strings.HasPrefix(key, "$") {
 			return true
 		}
 	}

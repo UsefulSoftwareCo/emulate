@@ -2,6 +2,7 @@ package mongoatlas
 
 import (
 	"net/http"
+	"strconv"
 
 	corehttp "github.com/vercel-labs/emulate/internal/core/http"
 	corestore "github.com/vercel-labs/emulate/internal/core/store"
@@ -34,14 +35,15 @@ func (s *Service) handleFindOne(c *corehttp.Context) {
 }
 
 func (s *Service) handleFind(c *corehttp.Context) {
-	body := readJSONBody(c.Request)
+	parsed := readJSONBodyWithOrder(c.Request)
+	body := parsed.Values
 	cluster, ok := s.resolveDataRequest(c, body, true)
 	if !ok {
 		return
 	}
 	records := filterRecords(recordsForCollection(s.store, stringField(cluster, "cluster_id"), stringValue(body["database"]), stringValue(body["collection"])), mapValue(body["filter"]))
 	if sortSpec := mapValue(body["sort"]); len(sortSpec) > 0 {
-		records = sortRecords(records, sortSpec)
+		records = sortRecords(records, sortSpec, parsed.Order("sort"))
 	}
 	skip := intValue(body["skip"])
 	if skip < 0 {
@@ -206,7 +208,8 @@ func (s *Service) handleDeleteMany(c *corehttp.Context) {
 }
 
 func (s *Service) handleAggregate(c *corehttp.Context) {
-	body := readJSONBody(c.Request)
+	parsed := readJSONBodyWithOrder(c.Request)
+	body := parsed.Values
 	cluster, ok := s.resolveDataRequest(c, body, true)
 	if !ok {
 		return
@@ -216,7 +219,7 @@ func (s *Service) handleAggregate(c *corehttp.Context) {
 	for _, record := range records {
 		results = append(results, recordData(record))
 	}
-	for _, stage := range mapSliceValue(body["pipeline"]) {
+	for index, stage := range mapSliceValue(body["pipeline"]) {
 		switch {
 		case stage["$match"] != nil:
 			filter := mapValue(stage["$match"])
@@ -247,7 +250,7 @@ func (s *Service) handleAggregate(c *corehttp.Context) {
 			}
 			results = results[skip:]
 		case stage["$sort"] != nil:
-			results = sortMaps(results, mapValue(stage["$sort"]))
+			results = sortMaps(results, mapValue(stage["$sort"]), parsed.Order("pipeline."+strconv.Itoa(index)+".$sort"))
 		case stage["$project"] != nil:
 			projection := mapValue(stage["$project"])
 			for i, result := range results {

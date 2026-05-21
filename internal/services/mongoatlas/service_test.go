@@ -149,6 +149,56 @@ func TestDataAPIs(t *testing.T) {
 	}
 }
 
+func TestDataAPIFilterTreatsNestedObjectAsEquality(t *testing.T) {
+	_, router := newTestService(t)
+
+	mongoJSON(router, http.MethodPost, "/app/data-api/v1/action/insertOne", `{"dataSource":"Cluster0","database":"test","collection":"object_filters","document":{"name":"NestedA","metadata":{"tenant":"a"}}}`)
+	mongoJSON(router, http.MethodPost, "/app/data-api/v1/action/insertOne", `{"dataSource":"Cluster0","database":"test","collection":"object_filters","document":{"name":"NestedB","metadata":{"tenant":"b"}}}`)
+
+	deleteMany := mongoJSON(router, http.MethodPost, "/app/data-api/v1/action/deleteMany", `{"dataSource":"Cluster0","database":"test","collection":"object_filters","filter":{"metadata":{"tenant":"a"}}}`)
+	if deleteMany.Code != http.StatusOK || !strings.Contains(deleteMany.Body.String(), `"deletedCount":1`) {
+		t.Fatalf("deleteMany status = %d, body = %s", deleteMany.Code, deleteMany.Body.String())
+	}
+
+	remaining := mongoJSON(router, http.MethodPost, "/app/data-api/v1/action/find", `{"dataSource":"Cluster0","database":"test","collection":"object_filters","projection":{"name":1,"_id":0}}`)
+	if remaining.Code != http.StatusOK || strings.Contains(remaining.Body.String(), "NestedA") || !strings.Contains(remaining.Body.String(), "NestedB") {
+		t.Fatalf("remaining documents status = %d, body = %s", remaining.Code, remaining.Body.String())
+	}
+
+	unsupported := mongoJSON(router, http.MethodPost, "/app/data-api/v1/action/find", `{"dataSource":"Cluster0","database":"test","collection":"object_filters","filter":{"metadata":{"$unsupported":"b"}}}`)
+	if unsupported.Code != http.StatusOK || !strings.Contains(unsupported.Body.String(), `"documents":[]`) {
+		t.Fatalf("unsupported operator status = %d, body = %s", unsupported.Code, unsupported.Body.String())
+	}
+}
+
+func TestDataAPIInMatchesArrayFields(t *testing.T) {
+	_, router := newTestService(t)
+
+	mongoJSON(router, http.MethodPost, "/app/data-api/v1/action/insertOne", `{"dataSource":"Cluster0","database":"test","collection":"array_filters","document":{"name":"Tagged","tags":["urgent","billing"]}}`)
+
+	find := mongoJSON(router, http.MethodPost, "/app/data-api/v1/action/find", `{"dataSource":"Cluster0","database":"test","collection":"array_filters","filter":{"tags":{"$in":["urgent"]}},"projection":{"name":1,"_id":0}}`)
+	if find.Code != http.StatusOK || !strings.Contains(find.Body.String(), `"documents":[{"name":"Tagged"}]`) {
+		t.Fatalf("find status = %d, body = %s", find.Code, find.Body.String())
+	}
+}
+
+func TestDataAPIMultiKeySortUsesRequestOrder(t *testing.T) {
+	_, router := newTestService(t)
+
+	mongoJSON(router, http.MethodPost, "/app/data-api/v1/action/insertMany", `{"dataSource":"Cluster0","database":"test","collection":"sort_items","documents":[{"name":"a1","group":"a","score":1},{"name":"b3","group":"b","score":3},{"name":"a2","group":"a","score":2},{"name":"b1","group":"b","score":1}]}`)
+
+	want := `"documents":[{"name":"b3"},{"name":"a2"},{"name":"a1"},{"name":"b1"}]`
+	find := mongoJSON(router, http.MethodPost, "/app/data-api/v1/action/find", `{"dataSource":"Cluster0","database":"test","collection":"sort_items","sort":{"score":-1,"group":1},"projection":{"name":1,"_id":0}}`)
+	if find.Code != http.StatusOK || !strings.Contains(find.Body.String(), want) {
+		t.Fatalf("find sort status = %d, body = %s", find.Code, find.Body.String())
+	}
+
+	aggregate := mongoJSON(router, http.MethodPost, "/app/data-api/v1/action/aggregate", `{"dataSource":"Cluster0","database":"test","collection":"sort_items","pipeline":[{"$sort":{"score":-1,"group":1}},{"$project":{"name":1,"_id":0}}]}`)
+	if aggregate.Code != http.StatusOK || !strings.Contains(aggregate.Body.String(), want) {
+		t.Fatalf("aggregate sort status = %d, body = %s", aggregate.Code, aggregate.Body.String())
+	}
+}
+
 func TestSeedFromConfig(t *testing.T) {
 	service, _ := newTestService(t)
 	service.SeedFromConfig(SeedConfig{
