@@ -16,9 +16,9 @@ export type Provider = {
   tokenResponseAccessTokenField?: string;
 };
 
-const GITHUB_URL = process.env.GITHUB_EMULATOR_URL ?? "http://localhost:4001";
+const GITHUB_URL = process.env.GITHUB_EMULATOR_URL ?? "http://localhost:4000";
 const VERCEL_URL = process.env.VERCEL_EMULATOR_URL ?? "http://localhost:4000";
-const GOOGLE_URL = process.env.GOOGLE_EMULATOR_URL ?? "http://localhost:4002";
+const GOOGLE_URL = process.env.GOOGLE_EMULATOR_URL ?? "http://localhost:4000";
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
 
 export const providers: Record<string, Provider> = {

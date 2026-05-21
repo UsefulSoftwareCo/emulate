@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -139,11 +139,13 @@ describe("createEmulator", () => {
     await expect(createEmulator({ service: "unknown-svc" })).rejects.toThrow("Unknown service");
   });
 
-  it("cleans up the native process when startup readiness times out", async () => {
+  it("cleans up startup resources when readiness times out", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "emulate-api-timeout-"));
+    const seedTempDir = await mkdtemp(join(tmpdir(), "emulate-api-seed-cleanup-"));
     const fakeBinary = join(tempDir, "fake-emulate.js");
     const pidFile = join(tempDir, "pid");
     const previousFakePidFile = process.env.EMULATE_FAKE_PID_FILE;
+    const previousTmpdir = process.env.TMPDIR;
 
     await writeFile(
       fakeBinary,
@@ -159,13 +161,20 @@ describe("createEmulator", () => {
 
     process.env.EMULATE_NATIVE_BINARY = fakeBinary;
     process.env.EMULATE_FAKE_PID_FILE = pidFile;
+    process.env.TMPDIR = seedTempDir;
 
     try {
-      await expect(createEmulator({ service: "github", port: 14030, startupTimeoutMs: 500 })).rejects.toThrow(
-        "Timed out waiting for native emulate process",
-      );
+      await expect(
+        createEmulator({
+          service: "github",
+          port: 14030,
+          startupTimeoutMs: 500,
+          seed: { github: { users: [{ login: "seed-user" }] } },
+        }),
+      ).rejects.toThrow("Timed out waiting for native emulate process");
       const pid = Number(await readFile(pidFile, "utf8"));
       expect(isProcessRunning(pid)).toBe(false);
+      await expect(readdir(seedTempDir)).resolves.toHaveLength(0);
     } finally {
       process.env.EMULATE_NATIVE_BINARY = binaryPath;
       if (previousFakePidFile == null) {
@@ -173,7 +182,13 @@ describe("createEmulator", () => {
       } else {
         process.env.EMULATE_FAKE_PID_FILE = previousFakePidFile;
       }
+      if (previousTmpdir == null) {
+        delete process.env.TMPDIR;
+      } else {
+        process.env.TMPDIR = previousTmpdir;
+      }
       await rm(tempDir, { recursive: true, force: true });
+      await rm(seedTempDir, { recursive: true, force: true });
     }
   });
 });

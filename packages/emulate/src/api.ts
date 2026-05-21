@@ -69,18 +69,8 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
     baseUrl: options.baseUrl,
   });
   const seed = await prepareSeed(options.seed);
-  let runtime = await startRuntime({
-    binary,
-    service,
-    port,
-    seedPath: seed.path,
-    baseUrl: options.baseUrl,
-    startupTimeoutMs,
-  });
-
-  async function restart(): Promise<void> {
-    await closeRuntime(runtime);
-    runtime = await startRuntime({
+  const start = () =>
+    startRuntime({
       binary,
       service,
       port,
@@ -88,6 +78,18 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
       baseUrl: options.baseUrl,
       startupTimeoutMs,
     });
+
+  let runtime: NativeRuntime;
+  try {
+    runtime = await start();
+  } catch (error) {
+    await seed.cleanup();
+    throw error;
+  }
+
+  async function restart(): Promise<void> {
+    await closeRuntime(runtime);
+    runtime = await start();
   }
 
   return {
