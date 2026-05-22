@@ -992,9 +992,7 @@ describeExternalEventBridgeE2E("AWS native runtime - real @aws-sdk/client-eventb
 
     const published = await events.send(
       new PutEventsCommand({
-        Entries: [
-          { Source: "app.orders", DetailType: "OrderCreated", Detail: JSON.stringify({ name: "Ada" }) },
-        ],
+        Entries: [{ Source: "app.orders", DetailType: "OrderCreated", Detail: JSON.stringify({ name: "Ada" }) }],
       }),
     );
     expect(published.FailedEntryCount).toBe(0);
