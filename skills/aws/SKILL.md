@@ -24,6 +24,9 @@ The generated route serves AWS at `/emulate/aws/*`. State uses warm memory by de
 # AWS only
 npx emulate --service aws
 
+# Enable local Node.js Lambda ZipFile execution
+npx emulate --service aws --allow-local-lambda
+
 # Default port (when run alone)
 # http://localhost:4000
 ```
@@ -513,9 +516,9 @@ In the native Go runtime, `@aws-sdk/client-kms` can use endpoint `${AWS_EMULATOR
 
 ### Lambda
 
-In the native Go runtime, `@aws-sdk/client-lambda` v3 can use endpoint `${AWS_EMULATOR_URL}` directly. Lambda uses AWS REST JSON paths such as `/2015-03-31/functions` and returns JSON responses. The control plane works without Docker. Valid inline `ZipFile` packages for `nodejs*` runtimes run locally with the installed `node` executable; functions without an executable zip keep the deterministic stub response path.
+In the native Go runtime, `@aws-sdk/client-lambda` v3 can use endpoint `${AWS_EMULATOR_URL}` directly. Lambda uses AWS REST JSON paths such as `/2015-03-31/functions` and returns JSON responses. The control plane works without Docker. Valid inline `ZipFile` packages for `nodejs*` runtimes run locally with the installed `node` executable when `npx emulate` is started with `--allow-local-lambda` and the invoke request is signed by a known AWS access key; functions without local execution keep the deterministic stub response path.
 
-Supported Lambda operations include function create/get/config/list/delete, configuration and code updates, request-response `Invoke` for zipped Node.js handlers, stub `Invoke` through `invoke_payload`, versions, aliases, tags, and stored resource policy statements. Creating or invoking a function creates local CloudWatch Logs metadata under `/aws/lambda/<function-name>`, and local Node.js console output is written there. Seed functions with `lambda.functions[].invoke_payload` for deterministic stubs or `lambda.functions[].code_zip_base64` for a base64 Lambda zip used by the local Node.js runner.
+Supported Lambda operations include function create/get/config/list/delete, configuration and code updates, request-response `Invoke` for zipped Node.js handlers when local Lambda execution is enabled, stub `Invoke` through `invoke_payload`, versions, aliases, tags, and stored resource policy statements. Creating or invoking a function creates local CloudWatch Logs metadata under `/aws/lambda/<function-name>`, and local Node.js console output is written there. Seed functions with `lambda.functions[].invoke_payload` for deterministic stubs or `lambda.functions[].code_zip_base64` for a base64 Lambda zip used by the local Node.js runner.
 
 ```bash
 # List Lambda functions

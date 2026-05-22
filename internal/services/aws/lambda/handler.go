@@ -14,6 +14,7 @@ import (
 	"time"
 
 	corestore "github.com/vercel-labs/emulate/internal/core/store"
+	"github.com/vercel-labs/emulate/internal/services/aws/auth"
 	"github.com/vercel-labs/emulate/internal/services/aws/gateway"
 	"github.com/vercel-labs/emulate/internal/services/aws/protocols"
 )
@@ -21,16 +22,17 @@ import (
 const jsonContentType = "application/json"
 
 type Handler struct {
-	Functions   *corestore.Collection
-	Versions    *corestore.Collection
-	Aliases     *corestore.Collection
-	LogGroups   *corestore.Collection
-	LogStreams  *corestore.Collection
-	LogEvents   *corestore.Collection
-	AccountID   string
-	Region      string
-	Now         func() time.Time
-	IDGenerator func(string) string
+	Functions               *corestore.Collection
+	Versions                *corestore.Collection
+	Aliases                 *corestore.Collection
+	LogGroups               *corestore.Collection
+	LogStreams              *corestore.Collection
+	LogEvents               *corestore.Collection
+	AccountID               string
+	Region                  string
+	AllowLocalCodeExecution bool
+	Now                     func() time.Time
+	IDGenerator             func(string) string
 }
 
 type route struct {
@@ -396,10 +398,12 @@ func (h *Handler) invoke(req *http.Request, ctx gateway.AwsRequestContext, route
 	}
 	logLines := []string{"Lambda API-only invoke " + invocationType + " RequestId: " + requestID}
 	functionError := ""
-	if result, ran := h.invokeLocalNode(ctx, invoked, executedVersion, ctx.RawBody, requestID); ran {
-		payload = result.Payload
-		logLines = result.Logs
-		functionError = result.FunctionError
+	if h.localCodeExecutionAllowed(ctx) {
+		if result, ran := h.invokeLocalNode(ctx, invoked, executedVersion, ctx.RawBody, requestID); ran {
+			payload = result.Payload
+			logLines = result.Logs
+			functionError = result.FunctionError
+		}
 	}
 	tail := h.recordInvocation(ctx, invoked, requestID, invocationType, executedVersion, logLines)
 	headers := map[string]string{"x-amz-executed-version": executedVersion}
@@ -410,6 +414,10 @@ func (h *Handler) invoke(req *http.Request, ctx gateway.AwsRequestContext, route
 		headers["x-amz-log-result"] = tail
 	}
 	return lambdaBodyResponse(http.StatusOK, payload, headers)
+}
+
+func (h *Handler) localCodeExecutionAllowed(ctx gateway.AwsRequestContext) bool {
+	return h.AllowLocalCodeExecution && ctx.Auth.Status == auth.StatusKnown
 }
 
 func (h *Handler) publishVersion(ctx gateway.AwsRequestContext, route route, requestID string) protocols.ErrorResponse {

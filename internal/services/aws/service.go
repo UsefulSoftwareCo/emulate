@@ -25,15 +25,16 @@ import (
 )
 
 type Options struct {
-	Store            *corestore.Store
-	DefaultAccountID string
-	DefaultRegion    string
-	AuthMode         auth.Mode
-	CredentialStore  *auth.Store
-	S3PathFallback   bool
-	AssetStore       *coreassets.Store
-	BaseURL          string
-	Seed             *SeedConfig
+	Store                    *corestore.Store
+	DefaultAccountID         string
+	DefaultRegion            string
+	AuthMode                 auth.Mode
+	CredentialStore          *auth.Store
+	S3PathFallback           bool
+	AssetStore               *coreassets.Store
+	BaseURL                  string
+	Seed                     *SeedConfig
+	LambdaLocalCodeExecution bool
 }
 
 type Service struct {
@@ -191,14 +192,15 @@ func New(options Options) *Service {
 			Region:    defaultRegion,
 		},
 		lambda: awslambda.Handler{
-			Functions:  awsStore.LambdaFunctions,
-			Versions:   awsStore.LambdaVersions,
-			Aliases:    awsStore.LambdaAliases,
-			LogGroups:  awsStore.LogGroups,
-			LogStreams: awsStore.LogStreams,
-			LogEvents:  awsStore.LogEvents,
-			AccountID:  defaultAccountID,
-			Region:     defaultRegion,
+			Functions:               awsStore.LambdaFunctions,
+			Versions:                awsStore.LambdaVersions,
+			Aliases:                 awsStore.LambdaAliases,
+			LogGroups:               awsStore.LogGroups,
+			LogStreams:              awsStore.LogStreams,
+			LogEvents:               awsStore.LogEvents,
+			AccountID:               defaultAccountID,
+			Region:                  defaultRegion,
+			AllowLocalCodeExecution: options.LambdaLocalCodeExecution,
 		},
 	}
 }

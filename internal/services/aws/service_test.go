@@ -4158,7 +4158,8 @@ func TestServiceRunsLocalNodeLambdaHandler(t *testing.T) {
 	if _, err := exec.LookPath("node"); err != nil {
 		t.Skip("node is required for local Lambda Node.js runner coverage")
 	}
-	handler := newTestHandler()
+	handler := newTestHandlerWithOptions(Options{LambdaLocalCodeExecution: true})
+	const accessKeyID = "AKIAIOSFODNN7EXAMPLE"
 	zipFile := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = async (event, context) => {
   console.log("node runner", event.name, process.env.MODE, context.functionName);
   return {
@@ -4182,7 +4183,7 @@ func TestServiceRunsLocalNodeLambdaHandler(t *testing.T) {
 		t.Fatalf("create status = %d, body = %s", create.Code, create.Body.String())
 	}
 
-	invoke := executeAWSLambdaRawRequest(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner/invocations?LogType=Tail", []byte(`{"name":"Ada"}`))
+	invoke := executeAWSLambdaRawRequestWithAccessKey(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner/invocations?LogType=Tail", []byte(`{"name":"Ada"}`), accessKeyID)
 	if invoke.Code != http.StatusOK {
 		t.Fatalf("invoke status = %d, body = %s", invoke.Code, invoke.Body.String())
 	}
@@ -4218,6 +4219,27 @@ func TestServiceRunsLocalNodeLambdaHandler(t *testing.T) {
 		t.Fatalf("unexpected log events: %#v", logBody.Events)
 	}
 
+	openHandleZip := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = async () => {
+  setInterval(() => {}, 1000);
+  return { ok: true };
+};
+`})
+	openHandleUpdate := executeAWSLambdaRequest(t, handler, http.MethodPut, "/2015-03-31/functions/node-runner/code", map[string]any{"ZipFile": openHandleZip})
+	if openHandleUpdate.Code != http.StatusOK {
+		t.Fatalf("update open handle code status = %d, body = %s", openHandleUpdate.Code, openHandleUpdate.Body.String())
+	}
+	openHandleInvoke := executeAWSLambdaRawRequestWithAccessKey(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner/invocations", []byte(`{}`), accessKeyID)
+	if openHandleInvoke.Code != http.StatusOK {
+		t.Fatalf("open handle invoke status = %d, body = %s", openHandleInvoke.Code, openHandleInvoke.Body.String())
+	}
+	var openHandleBody struct {
+		OK bool `json:"ok"`
+	}
+	decodeJSONBody(t, openHandleInvoke, &openHandleBody)
+	if !openHandleBody.OK {
+		t.Fatalf("unexpected open handle body: %#v", openHandleBody)
+	}
+
 	errorZip := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = async () => {
   console.error("before boom");
   throw new Error("boom");
@@ -4227,7 +4249,7 @@ func TestServiceRunsLocalNodeLambdaHandler(t *testing.T) {
 	if updated.Code != http.StatusOK {
 		t.Fatalf("update code status = %d, body = %s", updated.Code, updated.Body.String())
 	}
-	failed := executeAWSLambdaRawRequest(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner/invocations?LogType=Tail", []byte(`{}`))
+	failed := executeAWSLambdaRawRequestWithAccessKey(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner/invocations?LogType=Tail", []byte(`{}`), accessKeyID)
 	if failed.Code != http.StatusOK {
 		t.Fatalf("failed invoke status = %d, body = %s", failed.Code, failed.Body.String())
 	}
@@ -4247,6 +4269,57 @@ func TestServiceRunsLocalNodeLambdaHandler(t *testing.T) {
 	}
 	if !strings.Contains(string(failedTail), "before boom") {
 		t.Fatalf("tail log missing error output: %s", string(failedTail))
+	}
+}
+
+func TestServiceDoesNotRunLocalNodeLambdaHandlerWithoutOptIn(t *testing.T) {
+	handler := newTestHandler()
+	zipFile := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = async () => ({ executed: true });`})
+
+	create := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions", map[string]any{
+		"FunctionName": "node-runner-disabled",
+		"Runtime":      "nodejs22.x",
+		"Role":         "arn:aws:iam::123456789012:role/lambda-execution-role",
+		"Handler":      "index.handler",
+		"Code":         map[string]any{"ZipFile": zipFile},
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", create.Code, create.Body.String())
+	}
+
+	invoke := executeAWSLambdaRawRequest(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner-disabled/invocations", []byte(`{}`))
+	if invoke.Code != http.StatusOK {
+		t.Fatalf("invoke status = %d, body = %s", invoke.Code, invoke.Body.String())
+	}
+	if invoke.Body.String() != "{}" {
+		t.Fatalf("invoke body = %s", invoke.Body.String())
+	}
+	if got := invoke.Header().Get("x-amz-function-error"); got != "" {
+		t.Fatalf("function error = %q", got)
+	}
+}
+
+func TestServiceDoesNotRunLocalNodeLambdaHandlerWithoutKnownCredential(t *testing.T) {
+	handler := newTestHandlerWithOptions(Options{LambdaLocalCodeExecution: true})
+	zipFile := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = async () => ({ executed: true });`})
+
+	create := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions", map[string]any{
+		"FunctionName": "node-runner-unknown-key",
+		"Runtime":      "nodejs22.x",
+		"Role":         "arn:aws:iam::123456789012:role/lambda-execution-role",
+		"Handler":      "index.handler",
+		"Code":         map[string]any{"ZipFile": zipFile},
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", create.Code, create.Body.String())
+	}
+
+	invoke := executeAWSLambdaRawRequest(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner-unknown-key/invocations", []byte(`{}`))
+	if invoke.Code != http.StatusOK {
+		t.Fatalf("invoke status = %d, body = %s", invoke.Code, invoke.Body.String())
+	}
+	if invoke.Body.String() != "{}" {
+		t.Fatalf("invoke body = %s", invoke.Body.String())
 	}
 }
 
@@ -4758,9 +4831,14 @@ func newTestHandler() http.Handler {
 }
 
 func newTestHandlerWithCredentialStore(credentialStore *auth.Store) http.Handler {
+	return newTestHandlerWithOptions(Options{CredentialStore: credentialStore})
+}
+
+func newTestHandlerWithOptions(options Options) http.Handler {
 	router := corehttp.NewRouter()
 	ui.RegisterAssetRoutes(router)
-	Register(router, Options{Store: corestore.New(), CredentialStore: credentialStore})
+	options.Store = corestore.New()
+	Register(router, options)
 	router.NotFound(func(c *corehttp.Context) {
 		c.JSON(http.StatusNotFound, map[string]any{"message": "Not Found"})
 	})

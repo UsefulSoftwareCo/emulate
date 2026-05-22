@@ -527,6 +527,7 @@ export interface AwsSeedConfig {
       environment?: Record<string, string>;
       tags?: Record<string, string>;
       invoke_payload?: string;
+      code_zip_base64?: string;
     }>;
   };
   iam?: {

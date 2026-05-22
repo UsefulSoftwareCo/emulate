@@ -296,7 +296,9 @@ function errorPayload(error) {
 function respond(envelope) {
   envelope.logs = logs;
   const encoded = Buffer.from(JSON.stringify(envelope)).toString("base64");
-  process.stdout.write("\n" + marker + encoded + "\n");
+  process.stdout.write("\n" + marker + encoded + "\n", () => {
+    process.exit(envelope.ok ? 0 : 1);
+  });
 }
 
 function parseEvent() {

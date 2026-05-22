@@ -51,6 +51,7 @@ npx emulate list
 | `--seed` | auto-detect | Path to seed config (YAML or JSON) |
 | `--base-url` | none | Override advertised base URL |
 | `--portless` | off | Serve over HTTPS via portless (auto-registers aliases) |
+| `--allow-local-lambda` | off | Allow AWS Lambda Node.js ZipFile code to run locally |
 
 The port can also be set via `EMULATE_PORT` or `PORT` environment variables.
 
@@ -146,6 +147,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
+| `allowLocalLambda` | `false` | Allow AWS Lambda Node.js ZipFile code to run locally for invokes signed by a known AWS access key |
 
 ### Instance methods
 
@@ -829,11 +831,11 @@ In the native Go runtime, `@aws-sdk/client-kms` v3 can use the `/kms/` endpoint 
 
 ### Lambda
 
-In the native Go runtime, `@aws-sdk/client-lambda` v3 can use the AWS emulator root endpoint directly. Lambda uses AWS REST JSON paths such as `/2015-03-31/functions` and returns JSON responses. The control plane works without Docker. Valid inline `ZipFile` packages for `nodejs*` runtimes run locally with the installed `node` executable; functions without an executable zip keep the deterministic stub response path.
+In the native Go runtime, `@aws-sdk/client-lambda` v3 can use the AWS emulator root endpoint directly. Lambda uses AWS REST JSON paths such as `/2015-03-31/functions` and returns JSON responses. The control plane works without Docker. Valid inline `ZipFile` packages for `nodejs*` runtimes run locally with the installed `node` executable when `npx emulate` is started with `--allow-local-lambda` and the invoke request is signed by a known AWS access key; functions without local execution keep the deterministic stub response path.
 
 - `CreateFunction` / `GetFunction` / `GetFunctionConfiguration` / `ListFunctions` / `DeleteFunction` - function lifecycle and discovery
 - `UpdateFunctionConfiguration` / `UpdateFunctionCode` - local metadata, code-hash updates, and inline zip storage for local invocation
-- `Invoke` - runs valid zipped Node.js handlers for request-response invokes. Seeded `invoke_payload` is returned when no local runner applies, otherwise `{}` is returned. `InvocationType: Event` and `DryRun` return accepted/no-content responses.
+- `Invoke` - runs valid zipped Node.js handlers for request-response invokes when local Lambda execution is enabled. Seeded `invoke_payload` is returned when no local runner applies, otherwise `{}` is returned. `InvocationType: Event` and `DryRun` return accepted/no-content responses.
 - `PublishVersion` / `ListVersionsByFunction` - local version metadata, including stored inline code for published versions
 - `CreateAlias` / `GetAlias` / `ListAliases` / `UpdateAlias` / `DeleteAlias` - alias metadata
 - `TagResource` / `UntagResource` / `ListTags` - function tags
