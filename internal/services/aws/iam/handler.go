@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -351,7 +352,11 @@ func (h *Handler) putUserPolicy(params map[string]string, requestID string) prot
 	if policyName == "" {
 		return h.queryError("ValidationError", "The request must contain the parameter PolicyName.", http.StatusBadRequest, requestID)
 	}
-	policies := upsertInlinePolicy(inlinePolicies(user), policyName, params["PolicyDocument"])
+	policyDocument := params["PolicyDocument"]
+	if !validPolicyDocument(policyDocument) {
+		return h.malformedPolicyDocument(requestID)
+	}
+	policies := upsertInlinePolicy(inlinePolicies(user), policyName, policyDocument)
 	h.Users.Update(intField(user, "id"), corestore.Record{"inline_policies": policies})
 	return emptyResponse("PutUserPolicy", requestID)
 }
@@ -399,7 +404,11 @@ func (h *Handler) putRolePolicy(params map[string]string, requestID string) prot
 	if policyName == "" {
 		return h.queryError("ValidationError", "The request must contain the parameter PolicyName.", http.StatusBadRequest, requestID)
 	}
-	policies := upsertInlinePolicy(inlinePolicies(role), policyName, params["PolicyDocument"])
+	policyDocument := params["PolicyDocument"]
+	if !validPolicyDocument(policyDocument) {
+		return h.malformedPolicyDocument(requestID)
+	}
+	policies := upsertInlinePolicy(inlinePolicies(role), policyName, policyDocument)
 	h.Roles.Update(intField(role, "id"), corestore.Record{"inline_policies": policies})
 	return emptyResponse("PutRolePolicy", requestID)
 }
@@ -447,13 +456,17 @@ func (h *Handler) createPolicy(params map[string]string, requestID string) proto
 	if _, ok := h.findPolicyByARN(arn); ok {
 		return h.queryError("EntityAlreadyExists", "Policy with name "+policyName+" already exists.", http.StatusConflict, requestID)
 	}
+	policyDocument := params["PolicyDocument"]
+	if !validPolicyDocument(policyDocument) {
+		return h.malformedPolicyDocument(requestID)
+	}
 	policy := h.Policies.Insert(corestore.Record{
 		"policy_name":        policyName,
 		"policy_id":          h.generateID("ANPA"),
 		"arn":                arn,
 		"path":               path,
 		"default_version_id": "v1",
-		"policy_document":    params["PolicyDocument"],
+		"policy_document":    policyDocument,
 		"description":        params["Description"],
 		"tags":               indexedTags(params),
 	})
@@ -530,11 +543,8 @@ func (h *Handler) deletePolicy(params map[string]string, requestID string) proto
 		return h.noSuchPolicy(params["PolicyArn"], requestID)
 	}
 	policyARN := stringField(policy, "arn")
-	for _, user := range h.Users.All() {
-		h.Users.Update(intField(user, "id"), corestore.Record{"attached_policies": removeString(attachedPolicies(user), policyARN)})
-	}
-	for _, role := range h.Roles.All() {
-		h.Roles.Update(intField(role, "id"), corestore.Record{"attached_policies": removeString(attachedPolicies(role), policyARN)})
+	if h.policyAttachmentCount(policyARN) > 0 {
+		return h.queryError("DeleteConflict", "Cannot delete a policy attached to users or roles.", http.StatusConflict, requestID)
 	}
 	h.Policies.Delete(intField(policy, "id"))
 	return emptyResponse("DeletePolicy", requestID)
@@ -557,6 +567,9 @@ func (h *Handler) detachUserPolicy(params map[string]string, requestID string) p
 	user, ok := h.findUser(params["UserName"])
 	if !ok {
 		return h.noSuchUser(params["UserName"], requestID)
+	}
+	if _, ok := h.findPolicyByARN(params["PolicyArn"]); !ok {
+		return h.noSuchPolicy(params["PolicyArn"], requestID)
 	}
 	h.Users.Update(intField(user, "id"), corestore.Record{"attached_policies": removeString(attachedPolicies(user), params["PolicyArn"])})
 	return emptyResponse("DetachUserPolicy", requestID)
@@ -587,6 +600,9 @@ func (h *Handler) detachRolePolicy(params map[string]string, requestID string) p
 	role, ok := h.findRole(params["RoleName"])
 	if !ok {
 		return h.noSuchRole(params["RoleName"], requestID)
+	}
+	if _, ok := h.findPolicyByARN(params["PolicyArn"]); !ok {
+		return h.noSuchPolicy(params["PolicyArn"], requestID)
 	}
 	h.Roles.Update(intField(role, "id"), corestore.Record{"attached_policies": removeString(attachedPolicies(role), params["PolicyArn"])})
 	return emptyResponse("DetachRolePolicy", requestID)
@@ -821,6 +837,10 @@ func (h *Handler) noSuchRole(roleName string, requestID string) protocols.ErrorR
 
 func (h *Handler) noSuchPolicy(policyName string, requestID string) protocols.ErrorResponse {
 	return h.queryError("NoSuchEntity", "The policy with name "+policyName+" cannot be found.", http.StatusNotFound, requestID)
+}
+
+func (h *Handler) malformedPolicyDocument(requestID string) protocols.ErrorResponse {
+	return h.queryError("MalformedPolicyDocument", "The policy document is malformed.", http.StatusBadRequest, requestID)
 }
 
 func (h *Handler) queryError(code string, message string, status int, requestID string) protocols.ErrorResponse {
@@ -1072,6 +1092,19 @@ func indexedTags(params map[string]string) []corestore.Record {
 		tags = append(tags, corestore.Record{"key": key, "value": params[prefix+".Value"]})
 	}
 	return tags
+}
+
+func validPolicyDocument(policyDocument string) bool {
+	policyDocument = strings.TrimSpace(policyDocument)
+	if policyDocument == "" {
+		return false
+	}
+	var parsed any
+	if err := json.Unmarshal([]byte(policyDocument), &parsed); err != nil {
+		return false
+	}
+	_, ok := parsed.(map[string]any)
+	return ok
 }
 
 func normalizePath(path string) string {
