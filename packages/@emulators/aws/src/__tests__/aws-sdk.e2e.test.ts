@@ -187,9 +187,7 @@ async function streamToString(stream: unknown): Promise<string> {
 }
 
 function awsQueryEncoded(value: string): string {
-  return encodeURIComponent(value).replace(/[!'()*]/g, (char) =>
-    `%${char.charCodeAt(0).toString(16).toUpperCase()}`,
-  );
+  return encodeURIComponent(value).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
 }
 
 const describeExternalS3E2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
@@ -1658,13 +1656,9 @@ describeExternalIamStsE2E("AWS native runtime - real @aws-sdk/client-iam and @aw
 
     await iam.send(new AttachUserPolicyCommand({ UserName: "sdk-policy-user", PolicyArn: managed.Policy?.Arn }));
     await iam.send(new AttachRolePolicyCommand({ RoleName: "sdk-policy-role", PolicyArn: managed.Policy?.Arn }));
-    const attachedUserPolicies = await iam.send(
-      new ListAttachedUserPoliciesCommand({ UserName: "sdk-policy-user" }),
-    );
+    const attachedUserPolicies = await iam.send(new ListAttachedUserPoliciesCommand({ UserName: "sdk-policy-user" }));
     expect((attachedUserPolicies.AttachedPolicies ?? []).map((item) => item.PolicyArn)).toContain(managed.Policy?.Arn);
-    const attachedRolePolicies = await iam.send(
-      new ListAttachedRolePoliciesCommand({ RoleName: "sdk-policy-role" }),
-    );
+    const attachedRolePolicies = await iam.send(new ListAttachedRolePoliciesCommand({ RoleName: "sdk-policy-role" }));
     expect((attachedRolePolicies.AttachedPolicies ?? []).map((item) => item.PolicyArn)).toContain(managed.Policy?.Arn);
 
     await iam.send(new DetachUserPolicyCommand({ UserName: "sdk-policy-user", PolicyArn: managed.Policy?.Arn }));
