@@ -112,6 +112,112 @@ func TestHandlerPutsGetsAndFiltersLogEvents(t *testing.T) {
 	}
 }
 
+func TestHandlerSupportsLogGroupIdentifier(t *testing.T) {
+	handler := newTestLogsHandler()
+	handler.call("CreateLogGroup", map[string]any{"logGroupName": "app"})
+	handler.call("CreateLogStream", map[string]any{"logGroupName": "app", "logStreamName": "web"})
+	handler.call("PutLogEvents", map[string]any{
+		"logGroupName":  "app",
+		"logStreamName": "web",
+		"logEvents": []map[string]any{
+			{"timestamp": 1000, "message": "first error"},
+		},
+	})
+
+	identifier := "arn:aws:logs:us-east-1:123456789012:log-group:app:*"
+	response := handler.call("DescribeLogStreams", map[string]any{"logGroupIdentifier": identifier})
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("describe streams status = %d, body = %s", response.StatusCode, response.Body)
+	}
+	var streams struct {
+		LogStreams []struct {
+			LogStreamName string `json:"logStreamName"`
+		} `json:"logStreams"`
+	}
+	decodeLogsBody(t, response, &streams)
+	if len(streams.LogStreams) != 1 || streams.LogStreams[0].LogStreamName != "web" {
+		t.Fatalf("unexpected streams: %#v", streams.LogStreams)
+	}
+
+	response = handler.call("GetLogEvents", map[string]any{"logGroupIdentifier": identifier, "logStreamName": "web", "startFromHead": true})
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("get by identifier status = %d, body = %s", response.StatusCode, response.Body)
+	}
+	var got struct {
+		Events []struct {
+			Message string `json:"message"`
+		} `json:"events"`
+	}
+	decodeLogsBody(t, response, &got)
+	if len(got.Events) != 1 || got.Events[0].Message != "first error" {
+		t.Fatalf("unexpected identifier events: %#v", got.Events)
+	}
+
+	response = handler.call("FilterLogEvents", map[string]any{"logGroupIdentifier": "app", "filterPattern": "error"})
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("filter by identifier status = %d, body = %s", response.StatusCode, response.Body)
+	}
+	var filtered struct {
+		Events []struct {
+			Message string `json:"message"`
+		} `json:"events"`
+	}
+	decodeLogsBody(t, response, &filtered)
+	if len(filtered.Events) != 1 || filtered.Events[0].Message != "first error" {
+		t.Fatalf("unexpected identifier filtered events: %#v", filtered.Events)
+	}
+
+	response = handler.call("GetLogEvents", map[string]any{"logGroupName": "app", "logGroupIdentifier": identifier, "logStreamName": "web"})
+	if response.StatusCode != http.StatusBadRequest || response.Headers["x-amzn-errortype"] != "InvalidParameterException" {
+		t.Fatalf("both identifiers status = %d, headers = %#v, body = %s", response.StatusCode, response.Headers, response.Body)
+	}
+}
+
+func TestHandlerGetLogEventsEndTimeIsExclusive(t *testing.T) {
+	handler := newTestLogsHandler()
+	handler.call("CreateLogGroup", map[string]any{"logGroupName": "app"})
+	handler.call("CreateLogStream", map[string]any{"logGroupName": "app", "logStreamName": "web"})
+	handler.call("PutLogEvents", map[string]any{
+		"logGroupName":  "app",
+		"logStreamName": "web",
+		"logEvents": []map[string]any{
+			{"timestamp": 1000, "message": "first"},
+			{"timestamp": 2000, "message": "second"},
+			{"timestamp": 3000, "message": "third"},
+		},
+	})
+
+	response := handler.call("GetLogEvents", map[string]any{"logGroupName": "app", "logStreamName": "web", "startFromHead": true, "endTime": 2000})
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("get status = %d, body = %s", response.StatusCode, response.Body)
+	}
+	var got struct {
+		Events []struct {
+			Message string `json:"message"`
+		} `json:"events"`
+	}
+	decodeLogsBody(t, response, &got)
+	if len(got.Events) != 1 || got.Events[0].Message != "first" {
+		t.Fatalf("unexpected events with endTime: %#v", got.Events)
+	}
+}
+
+func TestHandlerRejectsInvalidStreamFilterCombinations(t *testing.T) {
+	handler := newTestLogsHandler()
+	handler.call("CreateLogGroup", map[string]any{"logGroupName": "app"})
+	handler.call("CreateLogStream", map[string]any{"logGroupName": "app", "logStreamName": "web"})
+
+	response := handler.call("DescribeLogStreams", map[string]any{"logGroupName": "app", "logStreamNamePrefix": "web", "orderBy": "LastEventTime"})
+	if response.StatusCode != http.StatusBadRequest || response.Headers["x-amzn-errortype"] != "InvalidParameterException" {
+		t.Fatalf("describe streams status = %d, headers = %#v, body = %s", response.StatusCode, response.Headers, response.Body)
+	}
+
+	response = handler.call("FilterLogEvents", map[string]any{"logGroupName": "app", "logStreamNames": []string{"web"}, "logStreamNamePrefix": "web"})
+	if response.StatusCode != http.StatusBadRequest || response.Headers["x-amzn-errortype"] != "InvalidParameterException" {
+		t.Fatalf("filter events status = %d, headers = %#v, body = %s", response.StatusCode, response.Headers, response.Body)
+	}
+}
+
 func TestHandlerRejectsOutOfOrderLogEventBatches(t *testing.T) {
 	handler := newTestLogsHandler()
 	handler.call("CreateLogGroup", map[string]any{"logGroupName": "app"})

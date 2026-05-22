@@ -98,10 +98,10 @@ func (h *Handler) deleteLogGroup(ctx gateway.AwsRequestContext, requestID string
 	}
 	groupName := stringField(group, "log_group_name")
 	for _, stream := range h.LogStreams.FindBy("log_group_name", groupName) {
-		if !h.sameScope(ctx, stream) {
+		if !sameRecordScope(group, stream) {
 			continue
 		}
-		h.deleteStreamEvents(ctx, groupName, stringField(stream, "log_stream_name"))
+		h.deleteStreamEvents(group, stringField(stream, "log_stream_name"))
 		h.LogStreams.Delete(intField(stream, "id"))
 	}
 	h.LogGroups.Delete(intField(group, "id"))
@@ -148,7 +148,7 @@ func (h *Handler) createLogStream(ctx gateway.AwsRequestContext, requestID strin
 		return h.validation("logStreamName is required.", requestID)
 	}
 	groupName := stringField(group, "log_group_name")
-	if _, ok := h.findStream(ctx, groupName, streamName); ok {
+	if _, ok := h.findStream(group, streamName); ok {
 		return h.error("ResourceAlreadyExistsException", "The specified log stream already exists.", http.StatusBadRequest, requestID)
 	}
 	h.LogStreams.Insert(corestore.Record{
@@ -172,25 +172,29 @@ func (h *Handler) deleteLogStream(ctx gateway.AwsRequestContext, requestID strin
 	if !ok {
 		return response
 	}
-	stream, response, ok := h.requireStream(ctx, stringField(group, "log_group_name"), stringInput(ctx.Input, "logStreamName", "LogStreamName"), requestID)
+	stream, response, ok := h.requireStream(group, stringInput(ctx.Input, "logStreamName", "LogStreamName"), requestID)
 	if !ok {
 		return response
 	}
-	h.deleteStreamEvents(ctx, stringField(group, "log_group_name"), stringField(stream, "log_stream_name"))
+	h.deleteStreamEvents(group, stringField(stream, "log_stream_name"))
 	h.LogStreams.Delete(intField(stream, "id"))
 	return jsonResponse(http.StatusOK, map[string]any{})
 }
 
 func (h *Handler) describeLogStreams(ctx gateway.AwsRequestContext, requestID string) protocols.ErrorResponse {
-	group, response, ok := h.requireGroup(ctx, stringInput(ctx.Input, "logGroupName", "LogGroupName"), requestID)
+	group, response, ok := h.requireGroupInput(ctx, requestID)
 	if !ok {
 		return response
 	}
 	groupName := stringField(group, "log_group_name")
 	prefix := stringInput(ctx.Input, "logStreamNamePrefix", "LogStreamNamePrefix")
+	orderBy := strings.TrimSpace(stringInput(ctx.Input, "orderBy", "OrderBy"))
+	if orderBy == "LastEventTime" && prefix != "" {
+		return h.validation("logStreamNamePrefix cannot be specified when orderBy is LastEventTime.", requestID)
+	}
 	streams := []corestore.Record{}
 	for _, stream := range h.LogStreams.FindBy("log_group_name", groupName) {
-		if !h.sameScope(ctx, stream) {
+		if !sameRecordScope(group, stream) {
 			continue
 		}
 		if prefix != "" && !strings.HasPrefix(stringField(stream, "log_stream_name"), prefix) {
@@ -198,7 +202,6 @@ func (h *Handler) describeLogStreams(ctx gateway.AwsRequestContext, requestID st
 		}
 		streams = append(streams, stream)
 	}
-	orderBy := strings.TrimSpace(stringInput(ctx.Input, "orderBy", "OrderBy"))
 	descending := boolInput(ctx.Input, "descending", "Descending")
 	sort.Slice(streams, func(i int, j int) bool {
 		var compare int
@@ -242,7 +245,7 @@ func (h *Handler) putLogEvents(ctx gateway.AwsRequestContext, requestID string) 
 		return response
 	}
 	groupName := stringField(group, "log_group_name")
-	stream, response, ok := h.requireStream(ctx, groupName, stringInput(ctx.Input, "logStreamName", "LogStreamName"), requestID)
+	stream, response, ok := h.requireStream(group, stringInput(ctx.Input, "logStreamName", "LogStreamName"), requestID)
 	if !ok {
 		return response
 	}
@@ -296,16 +299,16 @@ func (h *Handler) putLogEvents(ctx gateway.AwsRequestContext, requestID string) 
 }
 
 func (h *Handler) getLogEvents(ctx gateway.AwsRequestContext, requestID string) protocols.ErrorResponse {
-	group, response, ok := h.requireGroup(ctx, stringInput(ctx.Input, "logGroupName", "LogGroupName"), requestID)
+	group, response, ok := h.requireGroupInput(ctx, requestID)
 	if !ok {
 		return response
 	}
-	stream, response, ok := h.requireStream(ctx, stringField(group, "log_group_name"), stringInput(ctx.Input, "logStreamName", "LogStreamName"), requestID)
+	stream, response, ok := h.requireStream(group, stringInput(ctx.Input, "logStreamName", "LogStreamName"), requestID)
 	if !ok {
 		return response
 	}
-	events := h.eventsForStream(ctx, stringField(group, "log_group_name"), stringField(stream, "log_stream_name"))
-	events = h.filterEventsByTime(events, int64Input(ctx.Input, "startTime", "StartTime", 0), int64Input(ctx.Input, "endTime", "EndTime", 0))
+	events := h.eventsForStream(group, stringField(stream, "log_stream_name"))
+	events = h.filterEventsByTime(events, int64Input(ctx.Input, "startTime", "StartTime", 0), int64Input(ctx.Input, "endTime", "EndTime", 0), true)
 	if !boolInput(ctx.Input, "startFromHead", "StartFromHead") {
 		reverseRecords(events)
 	}
@@ -337,18 +340,21 @@ func (h *Handler) getLogEvents(ctx gateway.AwsRequestContext, requestID string) 
 }
 
 func (h *Handler) filterLogEvents(ctx gateway.AwsRequestContext, requestID string) protocols.ErrorResponse {
-	group, response, ok := h.requireGroup(ctx, stringInput(ctx.Input, "logGroupName", "LogGroupName"), requestID)
+	group, response, ok := h.requireGroupInput(ctx, requestID)
 	if !ok {
 		return response
 	}
 	groupName := stringField(group, "log_group_name")
 	streamFilter := stringSet(stringSlice(inputValue(ctx.Input, "logStreamNames", "LogStreamNames")))
 	streamPrefix := stringInput(ctx.Input, "logStreamNamePrefix", "LogStreamNamePrefix")
+	if len(streamFilter) > 0 && streamPrefix != "" {
+		return h.validation("logStreamNames and logStreamNamePrefix cannot both be specified.", requestID)
+	}
 	pattern := strings.Trim(strings.TrimSpace(stringInput(ctx.Input, "filterPattern", "FilterPattern")), "\"")
 	events := []corestore.Record{}
 	searchedStreams := []map[string]any{}
 	for _, stream := range h.LogStreams.FindBy("log_group_name", groupName) {
-		if !h.sameScope(ctx, stream) {
+		if !sameRecordScope(group, stream) {
 			continue
 		}
 		streamName := stringField(stream, "log_stream_name")
@@ -359,14 +365,14 @@ func (h *Handler) filterLogEvents(ctx gateway.AwsRequestContext, requestID strin
 			continue
 		}
 		searchedStreams = append(searchedStreams, map[string]any{"logStreamName": streamName, "searchedCompletely": true})
-		for _, event := range h.eventsForStream(ctx, groupName, streamName) {
+		for _, event := range h.eventsForStream(group, streamName) {
 			if pattern != "" && !strings.Contains(stringField(event, "message"), pattern) {
 				continue
 			}
 			events = append(events, event)
 		}
 	}
-	events = h.filterEventsByTime(events, int64Input(ctx.Input, "startTime", "StartTime", 0), int64Input(ctx.Input, "endTime", "EndTime", 0))
+	events = h.filterEventsByTime(events, int64Input(ctx.Input, "startTime", "StartTime", 0), int64Input(ctx.Input, "endTime", "EndTime", 0), false)
 	sortEvents(events)
 	start, end, nextToken, pageResponse, ok := h.pageBounds(ctx.Input, len(events), 100, requestID)
 	if !ok {
@@ -455,25 +461,49 @@ func (h *Handler) requireGroup(ctx gateway.AwsRequestContext, name string, reque
 	return group, protocols.ErrorResponse{}, true
 }
 
+func (h *Handler) requireGroupInput(ctx gateway.AwsRequestContext, requestID string) (corestore.Record, protocols.ErrorResponse, bool) {
+	name := strings.TrimSpace(stringInput(ctx.Input, "logGroupName", "LogGroupName"))
+	identifier := strings.TrimSpace(stringInput(ctx.Input, "logGroupIdentifier", "LogGroupIdentifier"))
+	if name != "" && identifier != "" {
+		return nil, h.validation("Specify either logGroupName or logGroupIdentifier, not both.", requestID), false
+	}
+	if identifier == "" {
+		return h.requireGroup(ctx, name, requestID)
+	}
+	return h.requireGroupIdentifier(ctx, identifier, requestID)
+}
+
+func (h *Handler) requireGroupIdentifier(ctx gateway.AwsRequestContext, identifier string, requestID string) (corestore.Record, protocols.ErrorResponse, bool) {
+	if strings.HasPrefix(identifier, "arn:") {
+		parsed, ok := parseLogGroupARN(identifier)
+		if !ok {
+			return nil, h.validation("logGroupIdentifier is invalid.", requestID), false
+		}
+		if group, ok := h.findGroupByARNParts(parsed); ok {
+			return group, protocols.ErrorResponse{}, true
+		}
+		return nil, h.notFound("The specified log group does not exist.", requestID), false
+	}
+	return h.requireGroup(ctx, identifier, requestID)
+}
+
 func (h *Handler) requireGroupByARN(ctx gateway.AwsRequestContext, arn string, requestID string) (corestore.Record, protocols.ErrorResponse, bool) {
 	parsed, ok := parseLogGroupARN(arn)
 	if !ok {
 		return nil, h.validation("resourceArn is required.", requestID), false
 	}
-	for _, group := range h.LogGroups.FindBy("log_group_name", parsed.Name) {
-		if stringField(group, "account_id") == parsed.AccountID && stringField(group, "region") == parsed.Region {
-			return group, protocols.ErrorResponse{}, true
-		}
+	if group, ok := h.findGroupByARNParts(parsed); ok {
+		return group, protocols.ErrorResponse{}, true
 	}
 	return nil, h.notFound("The specified log group does not exist.", requestID), false
 }
 
-func (h *Handler) requireStream(ctx gateway.AwsRequestContext, groupName string, streamName string, requestID string) (corestore.Record, protocols.ErrorResponse, bool) {
+func (h *Handler) requireStream(group corestore.Record, streamName string, requestID string) (corestore.Record, protocols.ErrorResponse, bool) {
 	streamName = strings.TrimSpace(streamName)
 	if streamName == "" {
 		return nil, h.validation("logStreamName is required.", requestID), false
 	}
-	stream, ok := h.findStream(ctx, groupName, streamName)
+	stream, ok := h.findStream(group, streamName)
 	if !ok {
 		return nil, h.notFound("The specified log stream does not exist.", requestID), false
 	}
@@ -489,27 +519,36 @@ func (h *Handler) findGroup(ctx gateway.AwsRequestContext, name string) (coresto
 	return nil, false
 }
 
-func (h *Handler) findStream(ctx gateway.AwsRequestContext, groupName string, streamName string) (corestore.Record, bool) {
-	for _, stream := range h.LogStreams.FindBy("log_group_name", groupName) {
-		if h.sameScope(ctx, stream) && stringField(stream, "log_stream_name") == streamName {
+func (h *Handler) findGroupByARNParts(parsed logGroupARNParts) (corestore.Record, bool) {
+	for _, group := range h.LogGroups.FindBy("log_group_name", parsed.Name) {
+		if stringField(group, "account_id") == parsed.AccountID && stringField(group, "region") == parsed.Region {
+			return group, true
+		}
+	}
+	return nil, false
+}
+
+func (h *Handler) findStream(group corestore.Record, streamName string) (corestore.Record, bool) {
+	for _, stream := range h.LogStreams.FindBy("log_group_name", stringField(group, "log_group_name")) {
+		if sameRecordScope(group, stream) && stringField(stream, "log_stream_name") == streamName {
 			return stream, true
 		}
 	}
 	return nil, false
 }
 
-func (h *Handler) deleteStreamEvents(ctx gateway.AwsRequestContext, groupName string, streamName string) {
-	for _, event := range h.LogEvents.FindBy("log_group_name", groupName) {
-		if h.sameScope(ctx, event) && stringField(event, "log_stream_name") == streamName {
+func (h *Handler) deleteStreamEvents(group corestore.Record, streamName string) {
+	for _, event := range h.LogEvents.FindBy("log_group_name", stringField(group, "log_group_name")) {
+		if sameRecordScope(group, event) && stringField(event, "log_stream_name") == streamName {
 			h.LogEvents.Delete(intField(event, "id"))
 		}
 	}
 }
 
-func (h *Handler) eventsForStream(ctx gateway.AwsRequestContext, groupName string, streamName string) []corestore.Record {
+func (h *Handler) eventsForStream(group corestore.Record, streamName string) []corestore.Record {
 	events := []corestore.Record{}
-	for _, event := range h.LogEvents.FindBy("log_group_name", groupName) {
-		if h.sameScope(ctx, event) && stringField(event, "log_stream_name") == streamName {
+	for _, event := range h.LogEvents.FindBy("log_group_name", stringField(group, "log_group_name")) {
+		if sameRecordScope(group, event) && stringField(event, "log_stream_name") == streamName {
 			events = append(events, event)
 		}
 	}
@@ -517,14 +556,14 @@ func (h *Handler) eventsForStream(ctx gateway.AwsRequestContext, groupName strin
 	return events
 }
 
-func (h *Handler) filterEventsByTime(events []corestore.Record, startTime int64, endTime int64) []corestore.Record {
+func (h *Handler) filterEventsByTime(events []corestore.Record, startTime int64, endTime int64, endExclusive bool) []corestore.Record {
 	filtered := events[:0]
 	for _, event := range events {
 		timestamp := int64Field(event, "timestamp")
 		if startTime > 0 && timestamp < startTime {
 			continue
 		}
-		if endTime > 0 && timestamp > endTime {
+		if endTime > 0 && (timestamp > endTime || endExclusive && timestamp == endTime) {
 			continue
 		}
 		filtered = append(filtered, event)
@@ -629,6 +668,10 @@ func (h *Handler) error(code string, message string, status int, requestID strin
 
 func (h *Handler) sameScope(ctx gateway.AwsRequestContext, record corestore.Record) bool {
 	return stringField(record, "account_id") == h.accountID(ctx) && stringField(record, "region") == h.region(ctx)
+}
+
+func sameRecordScope(left corestore.Record, right corestore.Record) bool {
+	return stringField(left, "account_id") == stringField(right, "account_id") && stringField(left, "region") == stringField(right, "region")
 }
 
 func (h *Handler) accountID(ctx gateway.AwsRequestContext) string {

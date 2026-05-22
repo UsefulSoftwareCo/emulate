@@ -881,6 +881,9 @@ describeExternalCloudWatchLogsE2E("AWS native runtime - real @aws-sdk/client-clo
     const group = (groups.logGroups ?? []).find((item) => item.logGroupName === logGroupName);
     expect(group?.arn).toBe(`arn:aws:logs:us-east-1:123456789012:log-group:${logGroupName}:*`);
     expect(group?.logGroupArn).toBe(`arn:aws:logs:us-east-1:123456789012:log-group:${logGroupName}`);
+    if (!group?.logGroupArn) {
+      throw new Error("missing log group arn");
+    }
 
     await logs.send(new PutRetentionPolicyCommand({ logGroupName, retentionInDays: 7 }));
     const retained = await logs.send(new DescribeLogGroupsCommand({ logGroupNamePrefix: logGroupName }));
@@ -889,6 +892,17 @@ describeExternalCloudWatchLogsE2E("AWS native runtime - real @aws-sdk/client-clo
     await logs.send(new CreateLogStreamCommand({ logGroupName, logStreamName }));
     const streams = await logs.send(new DescribeLogStreamsCommand({ logGroupName, logStreamNamePrefix: "web-" }));
     expect((streams.logStreams ?? []).map((item) => item.logStreamName)).toContain(logStreamName);
+    const streamsByIdentifier = await logs.send(new DescribeLogStreamsCommand({ logGroupIdentifier: group.logGroupArn }));
+    expect((streamsByIdentifier.logStreams ?? []).map((item) => item.logStreamName)).toContain(logStreamName);
+    await expect(
+      logs.send(
+        new DescribeLogStreamsCommand({
+          logGroupName,
+          logStreamNamePrefix: "web-",
+          orderBy: "LastEventTime",
+        }),
+      ),
+    ).rejects.toMatchObject({ name: "InvalidParameterException" });
 
     const put = await logs.send(
       new PutLogEventsCommand({
@@ -906,6 +920,24 @@ describeExternalCloudWatchLogsE2E("AWS native runtime - real @aws-sdk/client-clo
     expect((got.events ?? []).map((event) => event.message)).toEqual(["second info", "first error"]);
     const fromHead = await logs.send(new GetLogEventsCommand({ logGroupName, logStreamName, startFromHead: true }));
     expect((fromHead.events ?? []).map((event) => event.message)).toEqual(["first error", "second info"]);
+    const fromIdentifier = await logs.send(
+      new GetLogEventsCommand({
+        logGroupIdentifier: group.logGroupArn,
+        logStreamName,
+        startFromHead: true,
+        endTime: 1700000001000,
+      }),
+    );
+    expect((fromIdentifier.events ?? []).map((event) => event.message)).toEqual(["first error"]);
+    await expect(
+      logs.send(
+        new GetLogEventsCommand({
+          logGroupName,
+          logGroupIdentifier: group.logGroupArn,
+          logStreamName,
+        }),
+      ),
+    ).rejects.toMatchObject({ name: "InvalidParameterException" });
 
     await expect(
       logs.send(
@@ -923,10 +955,20 @@ describeExternalCloudWatchLogsE2E("AWS native runtime - real @aws-sdk/client-clo
     const filtered = await logs.send(new FilterLogEventsCommand({ logGroupName, filterPattern: "error" }));
     expect((filtered.events ?? []).map((event) => event.message)).toEqual(["first error"]);
     expect(filtered.events?.[0]?.eventId).toBeTruthy();
+    const filteredByIdentifier = await logs.send(
+      new FilterLogEventsCommand({ logGroupIdentifier: group.logGroupArn, filterPattern: "error" }),
+    );
+    expect((filteredByIdentifier.events ?? []).map((event) => event.message)).toEqual(["first error"]);
+    await expect(
+      logs.send(
+        new FilterLogEventsCommand({
+          logGroupName,
+          logStreamNames: [logStreamName],
+          logStreamNamePrefix: "web-",
+        }),
+      ),
+    ).rejects.toMatchObject({ name: "InvalidParameterException" });
 
-    if (!group?.logGroupArn) {
-      throw new Error("missing log group arn");
-    }
     await logs.send(new TagLogsResourceCommand({ resourceArn: group.logGroupArn, tags: { team: "platform" } }));
     const tags = await logs.send(new ListLogsTagsForResourceCommand({ resourceArn: group.logGroupArn }));
     expect(tags.tags?.team).toBe("platform");
