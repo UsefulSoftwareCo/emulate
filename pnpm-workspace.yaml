@@ -30,3 +30,4 @@ minimumReleaseAgeExclude:
   - '@aws-sdk/token-providers@3.1052.0'
   - '@aws-sdk/types@3.973.9'
   - '@aws-sdk/xml-builder@3.972.25'
+  - '@aws-sdk/client-secrets-manager@3.1052.0'

@@ -60,6 +60,20 @@ import {
   UntagResourceCommand as UntagLogsResourceCommand,
 } from "@aws-sdk/client-cloudwatch-logs";
 import {
+  SecretsManagerClient,
+  CreateSecretCommand,
+  DeleteSecretCommand,
+  DescribeSecretCommand,
+  GetSecretValueCommand,
+  ListSecretVersionIdsCommand,
+  ListSecretsCommand,
+  PutSecretValueCommand,
+  RestoreSecretCommand,
+  TagResourceCommand as TagSecretResourceCommand,
+  UntagResourceCommand as UntagSecretResourceCommand,
+  UpdateSecretCommand,
+} from "@aws-sdk/client-secrets-manager";
+import {
   S3Client,
   ListBucketsCommand,
   HeadBucketCommand,
@@ -127,6 +141,7 @@ const describeExternalIamStsE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : 
 const describeExternalDynamoDBE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalEventBridgeE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalCloudWatchLogsE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
+const describeExternalSecretsManagerE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 
 describeExternalS3E2E("AWS native runtime - real @aws-sdk/client-s3 E2E", () => {
   let emulator: EmulatorHandle;
@@ -987,6 +1002,138 @@ describeExternalCloudWatchLogsE2E("AWS native runtime - real @aws-sdk/client-clo
     await logs.send(new DeleteRetentionPolicyCommand({ logGroupName }));
     await logs.send(new DeleteLogStreamCommand({ logGroupName, logStreamName }));
     await logs.send(new DeleteLogGroupCommand({ logGroupName }));
+  });
+});
+
+describeExternalSecretsManagerE2E("AWS native runtime - real @aws-sdk/client-secrets-manager E2E", () => {
+  let emulator: EmulatorHandle;
+  let secrets: SecretsManagerClient;
+
+  beforeAll(async () => {
+    emulator = await startEmulator();
+    secrets = new SecretsManagerClient({
+      endpoint: `${emulator.url.replace(/\/$/, "")}/secretsmanager/`,
+      region: "us-east-1",
+      credentials: {
+        accessKeyId: "AKIAIOSFODNN7EXAMPLE",
+        secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+      },
+    });
+  });
+
+  afterAll(async () => {
+    secrets.destroy();
+    await emulator.close();
+  });
+
+  it("CreateSecret, GetSecretValue, version stages, tags, delete, and restore roundtrip", async () => {
+    const suffix = Date.now().toString(36);
+    const secretName = `sdk-e2e-secret-${suffix}`;
+
+    const created = await secrets.send(
+      new CreateSecretCommand({
+        Name: secretName,
+        Description: "SDK secret",
+        KmsKeyId: "alias/local",
+        ClientRequestToken: `${suffix}-one`,
+        SecretString: "initial",
+        Tags: [{ Key: "env", Value: "test" }],
+      }),
+    );
+    expect(created.ARN).toContain(`:secret:${secretName}-`);
+    expect(created.VersionId).toBe(`${suffix}-one`);
+
+    const initial = await secrets.send(new GetSecretValueCommand({ SecretId: secretName }));
+    expect(initial.SecretString).toBe("initial");
+    expect(initial.VersionStages).toEqual(["AWSCURRENT"]);
+
+    const rotated = await secrets.send(
+      new PutSecretValueCommand({
+        SecretId: created.ARN,
+        ClientRequestToken: `${suffix}-two`,
+        SecretString: "rotated",
+      }),
+    );
+    expect(rotated.VersionId).toBe(`${suffix}-two`);
+
+    const current = await secrets.send(new GetSecretValueCommand({ SecretId: secretName }));
+    expect(current.SecretString).toBe("rotated");
+    expect(current.VersionStages).toEqual(["AWSCURRENT"]);
+
+    const previous = await secrets.send(
+      new GetSecretValueCommand({
+        SecretId: secretName,
+        VersionId: created.VersionId,
+      }),
+    );
+    expect(previous.SecretString).toBe("initial");
+    expect(previous.VersionStages).toEqual(["AWSPREVIOUS"]);
+
+    const updated = await secrets.send(
+      new UpdateSecretCommand({
+        SecretId: secretName,
+        Description: "Updated SDK secret",
+        ClientRequestToken: `${suffix}-three`,
+        SecretString: "updated",
+      }),
+    );
+    expect(updated.VersionId).toBe(`${suffix}-three`);
+    const afterUpdate = await secrets.send(new GetSecretValueCommand({ SecretId: secretName }));
+    expect(afterUpdate.SecretString).toBe("updated");
+
+    await secrets.send(
+      new TagSecretResourceCommand({
+        SecretId: secretName,
+        Tags: [{ Key: "team", Value: "platform" }],
+      }),
+    );
+    await secrets.send(new UntagSecretResourceCommand({ SecretId: secretName, TagKeys: ["team"] }));
+    const described = await secrets.send(new DescribeSecretCommand({ SecretId: secretName }));
+    expect(described.Description).toBe("Updated SDK secret");
+    expect(described.KmsKeyId).toBe("alias/local");
+    expect(described.Tags).toEqual(expect.arrayContaining([{ Key: "env", Value: "test" }]));
+    expect(described.Tags ?? []).not.toEqual(expect.arrayContaining([{ Key: "team", Value: "platform" }]));
+    expect(described.VersionIdsToStages?.[`${suffix}-one`] ?? []).toEqual([]);
+    expect(described.VersionIdsToStages?.[`${suffix}-two`]).toEqual(["AWSPREVIOUS"]);
+    expect(described.VersionIdsToStages?.[`${suffix}-three`]).toEqual(["AWSCURRENT"]);
+
+    const versions = await secrets.send(new ListSecretVersionIdsCommand({ SecretId: secretName }));
+    expect((versions.Versions ?? []).map((item) => item.VersionId)).toEqual(
+      expect.arrayContaining([`${suffix}-two`, `${suffix}-three`]),
+    );
+
+    const listed = await secrets.send(new ListSecretsCommand({}));
+    expect((listed.SecretList ?? []).map((item) => item.Name)).toContain(secretName);
+
+    await secrets.send(new DeleteSecretCommand({ SecretId: secretName, RecoveryWindowInDays: 7 }));
+    await expect(secrets.send(new GetSecretValueCommand({ SecretId: secretName }))).rejects.toMatchObject({
+      name: "InvalidRequestException",
+    });
+
+    const plannedDeletion = await secrets.send(new ListSecretsCommand({ IncludePlannedDeletion: true }));
+    expect((plannedDeletion.SecretList ?? []).map((item) => item.Name)).toContain(secretName);
+
+    await secrets.send(new RestoreSecretCommand({ SecretId: secretName }));
+    const restored = await secrets.send(new GetSecretValueCommand({ SecretId: secretName }));
+    expect(restored.SecretString).toBe("updated");
+
+    await secrets.send(new DeleteSecretCommand({ SecretId: secretName, ForceDeleteWithoutRecovery: true }));
+  });
+
+  it("SecretBinary roundtrips as Uint8Array", async () => {
+    const suffix = Date.now().toString(36);
+    const secretName = `sdk-e2e-binary-${suffix}`;
+    await secrets.send(
+      new CreateSecretCommand({
+        Name: secretName,
+        SecretBinary: new Uint8Array([1, 2, 3, 4]),
+      }),
+    );
+
+    const got = await secrets.send(new GetSecretValueCommand({ SecretId: secretName }));
+    expect(Buffer.from(got.SecretBinary ?? [])).toEqual(Buffer.from([1, 2, 3, 4]));
+
+    await secrets.send(new DeleteSecretCommand({ SecretId: secretName, ForceDeleteWithoutRecovery: true }));
   });
 });
 

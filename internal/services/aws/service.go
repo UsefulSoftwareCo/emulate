@@ -15,6 +15,7 @@ import (
 	awslogs "github.com/vercel-labs/emulate/internal/services/aws/logs"
 	"github.com/vercel-labs/emulate/internal/services/aws/protocols"
 	awss3 "github.com/vercel-labs/emulate/internal/services/aws/s3"
+	awssecretsmanager "github.com/vercel-labs/emulate/internal/services/aws/secretsmanager"
 	awssns "github.com/vercel-labs/emulate/internal/services/aws/sns"
 	awssqs "github.com/vercel-labs/emulate/internal/services/aws/sqs"
 	awssts "github.com/vercel-labs/emulate/internal/services/aws/sts"
@@ -48,6 +49,7 @@ type Service struct {
 	dynamodb         awsdynamodb.Handler
 	events           awsevents.Handler
 	logs             awslogs.Handler
+	secretsmanager   awssecretsmanager.Handler
 }
 
 func Register(router *corehttp.Router, options Options) {
@@ -162,6 +164,12 @@ func New(options Options) *Service {
 			AccountID:  defaultAccountID,
 			Region:     defaultRegion,
 		},
+		secretsmanager: awssecretsmanager.Handler{
+			Secrets:   awsStore.Secrets,
+			Versions:  awsStore.SecretVersions,
+			AccountID: defaultAccountID,
+			Region:    defaultRegion,
+		},
 	}
 }
 
@@ -222,6 +230,10 @@ func (s *Service) handleAWS(c *corehttp.Context) {
 	}
 	if ctx.Service == "logs" && ctx.Protocol == protocols.ProtocolJSONRPC {
 		writeErrorResponse(c, s.logs.Handle(c.Request, ctx))
+		return
+	}
+	if ctx.Service == "secretsmanager" && ctx.Protocol == protocols.ProtocolJSONRPC {
+		writeErrorResponse(c, s.secretsmanager.Handle(c.Request, ctx))
 		return
 	}
 

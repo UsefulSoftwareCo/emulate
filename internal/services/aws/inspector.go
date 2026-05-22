@@ -14,11 +14,12 @@ var inspectorTabs = []ui.InspectorTab{
 	{ID: "sqs", Label: "SQS", Href: "/_inspector?tab=sqs"},
 	{ID: "iam", Label: "IAM", Href: "/_inspector?tab=iam"},
 	{ID: "logs", Label: "Logs", Href: "/_inspector?tab=logs"},
+	{ID: "secretsmanager", Label: "Secrets", Href: "/_inspector?tab=secretsmanager"},
 }
 
 func (s *Service) handleInspector(c *corehttp.Context) {
 	tab := c.Query("tab")
-	if tab != "s3" && tab != "sqs" && tab != "iam" && tab != "logs" {
+	if tab != "s3" && tab != "sqs" && tab != "iam" && tab != "logs" && tab != "secretsmanager" {
 		tab = "s3"
 	}
 	tabs := make([]ui.InspectorTab, len(inspectorTabs))
@@ -35,6 +36,8 @@ func (s *Service) handleInspector(c *corehttp.Context) {
 		body = s.renderIAMInspector()
 	case "logs":
 		body = s.renderLogsInspector()
+	case "secretsmanager":
+		body = s.renderSecretsManagerInspector()
 	default:
 		body = s.renderS3Inspector()
 	}
@@ -169,6 +172,37 @@ func (s *Service) renderLogsInspector() string {
   <table class="inspector-table">
     <thead><tr><th>Log Group</th><th>Streams</th><th>Events</th><th>Retention Days</th><th>ARN</th></tr></thead>
     <tbody>` + rowsOrEmpty(groupRows.String(), 5, "No log groups") + `</tbody>
+  </table>
+</div>`
+}
+
+func (s *Service) renderSecretsManagerInspector() string {
+	secrets := s.store.Secrets.All()
+	var rows strings.Builder
+	for _, secret := range secrets {
+		arn := stringField(secret, "arn")
+		versionCount := len(s.store.SecretVersions.FindBy("secret_arn", arn))
+		rows.WriteString(`<tr><td>`)
+		rows.WriteString(ui.EscapeHTML(stringField(secret, "name")))
+		rows.WriteString(`</td><td>`)
+		rows.WriteString(fmt.Sprint(versionCount))
+		rows.WriteString(`</td><td>`)
+		rows.WriteString(ui.EscapeHTML(stringField(secret, "kms_key_id")))
+		rows.WriteString(`</td><td>`)
+		if stringField(secret, "deleted_date") != "" && stringField(secret, "deleted_date") != "0" {
+			rows.WriteString(`Scheduled deletion`)
+		} else {
+			rows.WriteString(`Active`)
+		}
+		rows.WriteString(`</td><td>`)
+		rows.WriteString(ui.EscapeHTML(arn))
+		rows.WriteString(`</td></tr>`)
+	}
+	return `<div class="inspector-section">
+  <h2>Secrets Manager Secrets (` + fmt.Sprint(len(secrets)) + `)</h2>
+  <table class="inspector-table">
+    <thead><tr><th>Secret</th><th>Versions</th><th>KMS Key</th><th>Status</th><th>ARN</th></tr></thead>
+    <tbody>` + rowsOrEmpty(rows.String(), 5, "No secrets") + `</tbody>
   </table>
 </div>`
 }

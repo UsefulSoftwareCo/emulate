@@ -2880,7 +2880,7 @@ func TestNewStoreCreatesAWSCollections(t *testing.T) {
 	awsStore.IAMUsers.Insert(corestore.Record{"user_name": "developer", "user_id": "AIDAEXAMPLE"})
 
 	snapshot := runtimeStore.Snapshot()
-	for _, name := range []string{"aws.s3_buckets", "aws.s3_objects", "aws.sqs_queues", "aws.sqs_messages", "aws.sns_topics", "aws.sns_subscriptions", "aws.sns_deliveries", "aws.event_buses", "aws.event_rules", "aws.event_targets", "aws.event_deliveries", "aws.iam_users", "aws.iam_roles", "aws.dynamodb_tables", "aws.dynamodb_items"} {
+	for _, name := range []string{"aws.s3_buckets", "aws.s3_objects", "aws.sqs_queues", "aws.sqs_messages", "aws.sns_topics", "aws.sns_subscriptions", "aws.sns_deliveries", "aws.event_buses", "aws.event_rules", "aws.event_targets", "aws.event_deliveries", "aws.log_groups", "aws.log_streams", "aws.log_events", "aws.secretsmanager_secrets", "aws.secretsmanager_versions", "aws.iam_users", "aws.iam_roles", "aws.dynamodb_tables", "aws.dynamodb_items"} {
 		if _, ok := snapshot.Collections[name]; !ok {
 			t.Fatalf("missing collection %s", name)
 		}
@@ -2898,6 +2898,7 @@ func TestServiceSeedsAWSConfig(t *testing.T) {
 			AccountID: "999999999999",
 			S3:        S3Seed{Buckets: []S3BucketSeed{{Name: "seeded-bucket", Region: "eu-west-1"}}},
 			SQS:       SQSSeed{Queues: []SQSQueueSeed{{Name: "seeded-queue", VisibilityTimeout: 45}}},
+			Secrets:   SecretsManagerSeed{Secrets: []SecretSeed{{Name: "seeded/secret", SecretString: "seeded-value", KMSKeyID: "alias/seed"}}},
 			IAM: IAMSeed{
 				Users: []IAMUserSeed{{UserName: "developer", CreateAccessKey: true}},
 				Roles: []IAMRoleSeed{{RoleName: "worker", Description: "Worker role", AssumeRolePolicy: `{"Version":"2012-10-17","Statement":[]}`}},
@@ -2923,6 +2924,42 @@ func TestServiceSeedsAWSConfig(t *testing.T) {
 	res = executeAWSQueryRequest(router, "iam", "Action=GetRole&RoleName=worker")
 	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), "Worker role") {
 		t.Fatalf("get seeded role status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSSecretsManagerRequestWithRegion(t, router, "GetSecretValue", map[string]any{"SecretId": "seeded/secret"}, "us-west-2")
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), "seeded-value") {
+		t.Fatalf("get seeded secret status = %d, body = %s", res.Code, res.Body.String())
+	}
+}
+
+func TestServiceHandlesSecretsManagerJSONRPC(t *testing.T) {
+	handler := newTestHandler()
+
+	res := executeAWSSecretsManagerRequest(t, handler, "CreateSecret", map[string]any{
+		"Name":         "app/secret",
+		"SecretString": "initial",
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("create status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var created struct {
+		ARN string `json:"ARN"`
+	}
+	decodeJSONBody(t, res, &created)
+	if !strings.Contains(created.ARN, ":secret:app/secret-") {
+		t.Fatalf("arn = %q", created.ARN)
+	}
+
+	res = executeAWSSecretsManagerRequest(t, handler, "GetSecretValue", map[string]any{"SecretId": "app/secret"})
+	if res.Code != http.StatusOK {
+		t.Fatalf("get status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var got struct {
+		SecretString string `json:"SecretString"`
+	}
+	decodeJSONBody(t, res, &got)
+	if got.SecretString != "initial" {
+		t.Fatalf("secret string = %q", got.SecretString)
 	}
 }
 
@@ -3044,6 +3081,26 @@ func executeAWSLogsRequest(t *testing.T, handler http.Handler, action string, pa
 	return res
 }
 
+func executeAWSSecretsManagerRequest(t *testing.T, handler http.Handler, action string, payload map[string]any) *httptest.ResponseRecorder {
+	t.Helper()
+	return executeAWSSecretsManagerRequestWithRegion(t, handler, action, payload, "us-east-1")
+}
+
+func executeAWSSecretsManagerRequestWithRegion(t *testing.T, handler http.Handler, action string, payload map[string]any, region string) *httptest.ResponseRecorder {
+	t.Helper()
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/secretsmanager/", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	req.Header.Set("X-Amz-Target", "secretsmanager."+action)
+	signAWSRequestWithRegion(req, "secretsmanager", region)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	return res
+}
+
 func decodeJSONBody(t *testing.T, res *httptest.ResponseRecorder, target any) {
 	t.Helper()
 	if err := json.Unmarshal(res.Body.Bytes(), target); err != nil {
@@ -3112,11 +3169,15 @@ func xmlValueForName(body string, name string) string {
 }
 
 func signAWSRequest(req *http.Request, service string) {
+	signAWSRequestWithRegion(req, service, "us-east-1")
+}
+
+func signAWSRequestWithRegion(req *http.Request, service string, region string) {
 	accessKeyID := req.Header.Get("X-Access-Key")
 	if accessKeyID == "" {
 		accessKeyID = "AKIAEXAMPLE"
 	}
 	req.Header.Del("X-Access-Key")
-	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+accessKeyID+"/20260519/us-east-1/"+service+"/aws4_request, SignedHeaders=host;x-amz-date, Signature=abcdef")
+	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+accessKeyID+"/20260519/"+region+"/"+service+"/aws4_request, SignedHeaders=host;x-amz-date, Signature=abcdef")
 	req.Header.Set("X-Amz-Date", "20260519T000000Z")
 }

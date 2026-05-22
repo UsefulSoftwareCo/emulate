@@ -1,6 +1,6 @@
 # AWS
 
-S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, DynamoDB, and CloudWatch Logs, and AWS Query endpoints for SNS/SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, IAM, and STS; SQS, EventBridge, DynamoDB, and CloudWatch Logs use JSON target requests, and SNS/IAM/STS use AWS Query XML.
+S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, DynamoDB, CloudWatch Logs, and Secrets Manager, and AWS Query endpoints for SNS/SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, IAM, and STS; SQS, EventBridge, DynamoDB, CloudWatch Logs, and Secrets Manager use JSON target requests, and SNS/IAM/STS use AWS Query XML.
 
 ## Vercel Preview
 
@@ -82,6 +82,16 @@ In the native Go runtime, `@aws-sdk/client-cloudwatch-logs` v3 can use the `/log
 - `PutRetentionPolicy` / `DeleteRetentionPolicy` - retention settings
 - `TagResource` / `UntagResource` / `ListTagsForResource` - log group tags
 
+## Secrets Manager
+
+In the native Go runtime, `@aws-sdk/client-secrets-manager` v3 can use the `/secretsmanager/` endpoint directly. The SDK sends `X-Amz-Target: secretsmanager.<Action>` JSON requests and receives JSON responses.
+
+- `CreateSecret` / `GetSecretValue` / `PutSecretValue` / `UpdateSecret` - secret value lifecycle
+- `DeleteSecret` / `RestoreSecret` / `ListSecrets` / `DescribeSecret` - discovery and deletion recovery metadata
+- `TagResource` / `UntagResource` - secret tags
+- `ListSecretVersionIds` - version and staging label discovery
+- String and binary secret values, version ids, staging labels, and KMS key id metadata
+
 ## IAM
 
 Manual IAM requests can use `POST /iam/` with an `Action` form parameter. In the native Go runtime, `@aws-sdk/client-iam` v3 can use the `/iam/` endpoint directly.
@@ -99,4 +109,4 @@ Manual STS requests can use `POST /sts/` with an `Action` form parameter. In the
 
 ## Inspector
 
-The emulator serves an HTML dashboard at `GET /_inspector` with `tab` query parameter (`s3`, `sqs`, `iam`, `logs`) for browsing current state.
+The emulator serves an HTML dashboard at `GET /_inspector` with `tab` query parameter (`s3`, `sqs`, `iam`, `logs`, `secretsmanager`) for browsing current state.

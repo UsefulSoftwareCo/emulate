@@ -10,13 +10,14 @@ import (
 )
 
 type SeedConfig struct {
-	Port      int     `json:"port"`
-	BaseURL   string  `json:"baseUrl"`
-	Region    string  `json:"region"`
-	AccountID string  `json:"account_id"`
-	S3        S3Seed  `json:"s3"`
-	SQS       SQSSeed `json:"sqs"`
-	IAM       IAMSeed `json:"iam"`
+	Port      int                `json:"port"`
+	BaseURL   string             `json:"baseUrl"`
+	Region    string             `json:"region"`
+	AccountID string             `json:"account_id"`
+	S3        S3Seed             `json:"s3"`
+	SQS       SQSSeed            `json:"sqs"`
+	IAM       IAMSeed            `json:"iam"`
+	Secrets   SecretsManagerSeed `json:"secretsmanager"`
 }
 
 type S3Seed struct {
@@ -56,6 +57,19 @@ type IAMRoleSeed struct {
 	AssumeRolePolicy string `json:"assume_role_policy"`
 }
 
+type SecretsManagerSeed struct {
+	Secrets []SecretSeed `json:"secrets"`
+}
+
+type SecretSeed struct {
+	Name         string            `json:"name"`
+	Description  string            `json:"description"`
+	KMSKeyID     string            `json:"kms_key_id"`
+	SecretString string            `json:"secret_string"`
+	SecretBinary string            `json:"secret_binary"`
+	Tags         map[string]string `json:"tags"`
+}
+
 func seedFromConfig(store Store, credentialStore *auth.Store, baseURL string, defaultAccountID string, defaultRegion string, config SeedConfig) {
 	accountID := firstNonEmpty(config.AccountID, defaultAccountID, gateway.DefaultAccountID)
 	region := firstNonEmpty(config.Region, defaultRegion, gateway.DefaultRegion)
@@ -65,6 +79,7 @@ func seedFromConfig(store Store, credentialStore *auth.Store, baseURL string, de
 	seedS3FromConfig(store, region, config.S3)
 	seedSQSFromConfig(store, baseURL, accountID, region, config.SQS)
 	seedIAMFromConfig(store, credentialStore, accountID, config.IAM)
+	seedSecretsManagerFromConfig(store, accountID, region, config.Secrets)
 }
 
 func seedS3FromConfig(store Store, defaultRegion string, config S3Seed) {
@@ -164,6 +179,62 @@ func seedIAMFromConfig(store Store, credentialStore *auth.Store, accountID strin
 			"path":                        path,
 			"assume_role_policy_document": firstNonEmpty(role.AssumeRolePolicy, "{}"),
 			"description":                 role.Description,
+		})
+	}
+}
+
+func seedSecretsManagerFromConfig(store Store, accountID string, region string, config SecretsManagerSeed) {
+	if accountID == "" {
+		accountID = gateway.DefaultAccountID
+	}
+	if region == "" {
+		region = gateway.DefaultRegion
+	}
+	for _, secret := range config.Secrets {
+		name := strings.TrimSpace(secret.Name)
+		if name == "" || len(store.Secrets.FindBy("name", name)) > 0 {
+			continue
+		}
+		suffix := strings.ToLower(generateAWSID(""))[:6]
+		arn := "arn:aws:secretsmanager:" + region + ":" + accountID + ":secret:" + name + "-" + suffix
+		now := time.Now().UTC().Unix()
+		tags := corestore.Record{}
+		for key, value := range secret.Tags {
+			tags[key] = value
+		}
+		store.Secrets.Insert(corestore.Record{
+			"account_id":           accountID,
+			"region":               region,
+			"name":                 name,
+			"arn":                  arn,
+			"arn_suffix":           suffix,
+			"description":          secret.Description,
+			"kms_key_id":           secret.KMSKeyID,
+			"created_date":         now,
+			"last_changed_date":    now,
+			"last_accessed_date":   int64(0),
+			"deleted_date":         int64(0),
+			"recovery_window_days": 0,
+			"force_deleted":        false,
+			"tags":                 tags,
+		})
+		if secret.SecretString == "" && secret.SecretBinary == "" {
+			continue
+		}
+		versionID := strings.ToLower(generateAWSID("") + generateAWSID(""))
+		store.SecretVersions.Insert(corestore.Record{
+			"account_id":         accountID,
+			"region":             region,
+			"secret_arn":         arn,
+			"secret_name":        name,
+			"version_id":         versionID,
+			"secret_string":      secret.SecretString,
+			"has_secret_string":  secret.SecretString != "",
+			"secret_binary":      secret.SecretBinary,
+			"has_secret_binary":  secret.SecretString == "" && secret.SecretBinary != "",
+			"version_stages":     []string{"AWSCURRENT"},
+			"created_date":       now,
+			"last_accessed_date": int64(0),
 		})
 	}
 }
