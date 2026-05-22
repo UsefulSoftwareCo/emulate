@@ -19,6 +19,7 @@ type SeedConfig struct {
 	IAM       IAMSeed            `json:"iam"`
 	Secrets   SecretsManagerSeed `json:"secretsmanager"`
 	SSM       SSMSeed            `json:"ssm"`
+	KMS       KMSSeed            `json:"kms"`
 }
 
 type S3Seed struct {
@@ -86,6 +87,21 @@ type SSMParameterSeed struct {
 	Tags        map[string]string `json:"tags"`
 }
 
+type KMSSeed struct {
+	Keys []KMSKeySeed `json:"keys"`
+}
+
+type KMSKeySeed struct {
+	KeyID       string            `json:"key_id"`
+	Description string            `json:"description"`
+	Aliases     []string          `json:"aliases"`
+	Enabled     *bool             `json:"enabled"`
+	KeyUsage    string            `json:"key_usage"`
+	KeySpec     string            `json:"key_spec"`
+	Origin      string            `json:"origin"`
+	Tags        map[string]string `json:"tags"`
+}
+
 func seedFromConfig(store Store, credentialStore *auth.Store, baseURL string, defaultAccountID string, defaultRegion string, config SeedConfig) {
 	accountID := firstNonEmpty(config.AccountID, defaultAccountID, gateway.DefaultAccountID)
 	region := firstNonEmpty(config.Region, defaultRegion, gateway.DefaultRegion)
@@ -97,6 +113,7 @@ func seedFromConfig(store Store, credentialStore *auth.Store, baseURL string, de
 	seedIAMFromConfig(store, credentialStore, accountID, config.IAM)
 	seedSecretsManagerFromConfig(store, accountID, region, config.Secrets)
 	seedSSMFromConfig(store, accountID, region, config.SSM)
+	seedKMSFromConfig(store, accountID, region, config.KMS)
 }
 
 func seedS3FromConfig(store Store, defaultRegion string, config S3Seed) {
@@ -319,6 +336,107 @@ func seedSSMFromConfig(store Store, accountID string, region string, config SSMS
 			"has_secure_material": parameterType == "SecureString",
 		})
 	}
+}
+
+func seedKMSDefaults(store Store, accountID string, region string) {
+	if accountID == "" {
+		accountID = gateway.DefaultAccountID
+	}
+	if region == "" {
+		region = gateway.DefaultRegion
+	}
+	seedKMSKey(store, accountID, region, KMSKeySeed{
+		KeyID:       "00000000-0000-0000-0000-000000000001",
+		Description: "Default local KMS key",
+		Aliases:     []string{"alias/local"},
+	})
+}
+
+func seedKMSFromConfig(store Store, accountID string, region string, config KMSSeed) {
+	if accountID == "" {
+		accountID = gateway.DefaultAccountID
+	}
+	if region == "" {
+		region = gateway.DefaultRegion
+	}
+	for _, key := range config.Keys {
+		seedKMSKey(store, accountID, region, key)
+	}
+}
+
+func seedKMSKey(store Store, accountID string, region string, key KMSKeySeed) {
+	keyID := strings.TrimSpace(key.KeyID)
+	if keyID == "" {
+		keyID = strings.ToLower(generateAWSID("")[:8] + "-" + generateAWSID("")[:4] + "-" + generateAWSID("")[:4] + "-" + generateAWSID("")[:4] + "-" + generateAWSID("")[:12])
+	}
+	if len(store.KMSKeys.FindBy("key_id", keyID)) > 0 {
+		for _, alias := range key.Aliases {
+			seedKMSAlias(store, accountID, region, keyID, alias)
+		}
+		return
+	}
+	enabled := true
+	if key.Enabled != nil {
+		enabled = *key.Enabled
+	}
+	keyState := "Enabled"
+	if !enabled {
+		keyState = "Disabled"
+	}
+	now := time.Now().UTC().Unix()
+	tags := corestore.Record{}
+	for tagKey, value := range key.Tags {
+		tags[tagKey] = value
+	}
+	store.KMSKeys.Insert(corestore.Record{
+		"account_id":               accountID,
+		"region":                   region,
+		"key_id":                   keyID,
+		"arn":                      "arn:aws:kms:" + region + ":" + accountID + ":key/" + keyID,
+		"description":              key.Description,
+		"enabled":                  enabled,
+		"key_state":                keyState,
+		"key_usage":                firstNonEmpty(key.KeyUsage, "ENCRYPT_DECRYPT"),
+		"key_spec":                 firstNonEmpty(key.KeySpec, "SYMMETRIC_DEFAULT"),
+		"customer_master_key_spec": firstNonEmpty(key.KeySpec, "SYMMETRIC_DEFAULT"),
+		"origin":                   firstNonEmpty(key.Origin, "AWS_KMS"),
+		"key_manager":              "CUSTOMER",
+		"creation_date":            now,
+		"deletion_date":            int64(0),
+		"multi_region":             false,
+		"tags":                     tags,
+	})
+	for _, alias := range key.Aliases {
+		seedKMSAlias(store, accountID, region, keyID, alias)
+	}
+}
+
+func seedKMSAlias(store Store, accountID string, region string, keyID string, alias string) {
+	alias = normalizeKMSAlias(alias)
+	if alias == "" || len(store.KMSAliases.FindBy("alias_name", alias)) > 0 {
+		return
+	}
+	now := time.Now().UTC().Unix()
+	store.KMSAliases.Insert(corestore.Record{
+		"account_id":        accountID,
+		"region":            region,
+		"alias_name":        alias,
+		"alias_arn":         "arn:aws:kms:" + region + ":" + accountID + ":" + alias,
+		"target_key_id":     keyID,
+		"creation_date":     now,
+		"last_updated_date": now,
+	})
+}
+
+func normalizeKMSAlias(alias string) string {
+	alias = strings.TrimSpace(alias)
+	if alias == "" {
+		return ""
+	}
+	if !strings.HasPrefix(alias, "alias/") {
+		alias = "alias/" + alias
+	}
+	return alias
 }
 
 func ssmParameterPath(name string) string {

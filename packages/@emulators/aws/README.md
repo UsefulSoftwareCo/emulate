@@ -1,6 +1,6 @@
 # @emulators/aws
 
-Metadata package for the AWS cloud services emulator. The native Go engine distributed by the `emulate` npm package implements S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, IAM, and STS.
+Metadata package for the AWS cloud services emulator. The native Go engine distributed by the `emulate` npm package implements S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, KMS, IAM, and STS.
 
 ```bash
 npm install emulate @emulators/aws

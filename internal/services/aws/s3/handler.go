@@ -31,6 +31,12 @@ type Handler struct {
 	Now     func() time.Time
 }
 
+type objectOptions struct {
+	Metadata             map[string]string
+	ServerSideEncryption string
+	SSEKMSKeyID          string
+}
+
 func (h *Handler) Handle(req *http.Request, ctx gateway.AwsRequestContext) protocols.ErrorResponse {
 	if ctx.S3 == nil {
 		return withRequestID(h.notImplemented(ctx), ctx.RequestID)
@@ -261,16 +267,16 @@ func (h *Handler) putObject(req *http.Request, ctx gateway.AwsRequestContext) pr
 	if _, ok := h.findBucket(ctx.S3.Bucket); !ok {
 		return h.xmlError("NoSuchBucket", "The specified bucket does not exist.", http.StatusNotFound, requestResource(ctx.S3.Bucket, ctx.S3.Key))
 	}
-	metadata := userMetadata(req)
+	options := requestObjectOptions(req)
 	contentType := req.Header.Get("Content-Type")
 	if contentType == "" {
 		contentType = coreassets.DefaultContentType
 	}
-	stored, err := h.storeObject(ctx.S3.Bucket, ctx.S3.Key, ctx.RawBody, contentType, metadata)
+	stored, err := h.storeObject(ctx.S3.Bucket, ctx.S3.Key, ctx.RawBody, contentType, options)
 	if err != nil {
 		return h.xmlError("InternalFailure", err.Error(), http.StatusInternalServerError, requestResource(ctx.S3.Bucket, ctx.S3.Key))
 	}
-	return response(http.StatusOK, "", nil, map[string]string{"ETag": quotedETag(stringField(stored, "etag"))})
+	return response(http.StatusOK, "", nil, objectResponseHeaders(stored, map[string]string{"ETag": quotedETag(stringField(stored, "etag"))}))
 }
 
 func (h *Handler) copyObject(ctx gateway.AwsRequestContext) protocols.ErrorResponse {
@@ -289,7 +295,7 @@ func (h *Handler) copyObject(ctx gateway.AwsRequestContext) protocols.ErrorRespo
 	if !ok {
 		return h.xmlError("NoSuchKey", "The specified source key does not exist.", http.StatusNotFound, requestResource(sourceBucket, sourceKey))
 	}
-	stored, err := h.storeObject(ctx.S3.Bucket, ctx.S3.Key, body, stringField(source, "content_type"), stringMapField(source, "metadata"))
+	stored, err := h.storeObject(ctx.S3.Bucket, ctx.S3.Key, body, stringField(source, "content_type"), recordObjectOptions(source))
 	if err != nil {
 		return h.xmlError("InternalFailure", err.Error(), http.StatusInternalServerError, requestResource(ctx.S3.Bucket, ctx.S3.Key))
 	}
@@ -299,7 +305,7 @@ func (h *Handler) copyObject(ctx gateway.AwsRequestContext) protocols.ErrorRespo
   <ETag>"` + xmlEscape(stringField(stored, "etag")) + `"</ETag>
   <LastModified>` + xmlEscape(lastModified) + `</LastModified>
 </CopyObjectResult>`
-	return xmlResponse(http.StatusOK, bodyXML, map[string]string{"Last-Modified": httpTime(lastModified)})
+	return xmlResponse(http.StatusOK, bodyXML, objectResponseHeaders(stored, map[string]string{"Last-Modified": httpTime(lastModified)}))
 }
 
 func (h *Handler) getObject(bucketName string, key string, head bool) protocols.ErrorResponse {
@@ -335,6 +341,7 @@ func (h *Handler) getObject(bucketName string, key string, head bool) protocols.
 	for key, value := range stringMapField(object, "metadata") {
 		headers["x-amz-meta-"+key] = value
 	}
+	objectResponseHeaders(object, headers)
 	if head {
 		return response(http.StatusOK, "", nil, headers)
 	}
@@ -385,7 +392,7 @@ func (h *Handler) postObject(req *http.Request, ctx gateway.AwsRequestContext) p
 	if contentType == "" {
 		contentType = coreassets.DefaultContentType
 	}
-	stored, err := h.storeObject(ctx.S3.Bucket, key, body, contentType, nil)
+	stored, err := h.storeObject(ctx.S3.Bucket, key, body, contentType, formObjectOptions(form))
 	if err != nil {
 		return h.xmlError("InternalFailure", err.Error(), http.StatusInternalServerError, requestResource(ctx.S3.Bucket, key))
 	}
@@ -402,14 +409,14 @@ func (h *Handler) postObject(req *http.Request, ctx gateway.AwsRequestContext) p
 	return response(http.StatusNoContent, "", nil, nil)
 }
 
-func (h *Handler) storeObject(bucketName string, key string, body []byte, contentType string, metadata map[string]string) (corestore.Record, error) {
+func (h *Handler) storeObject(bucketName string, key string, body []byte, contentType string, options objectOptions) (corestore.Record, error) {
 	now := h.now()
 	assetID := awsassets.S3ObjectID(bucketName, key)
 	assetMetadata, err := h.assets().PutBytes(assetID, body, coreassets.PutOptions{
 		Purpose:      awsassets.PurposeS3Object,
 		ContentType:  contentType,
 		LastModified: now,
-		UserMetadata: metadata,
+		UserMetadata: options.Metadata,
 	})
 	if err != nil {
 		return nil, err
@@ -422,7 +429,9 @@ func (h *Handler) storeObject(bucketName string, key string, body []byte, conten
 		"content_length": assetMetadata.ContentLength,
 		"etag":           strings.Trim(assetMetadata.ETag, `"`),
 		"last_modified":  assetMetadata.LastModified.Format(time.RFC3339Nano),
-		"metadata":       stringMapRecord(metadata),
+		"metadata":       stringMapRecord(options.Metadata),
+		"sse_algorithm":  options.ServerSideEncryption,
+		"sse_kms_key_id": options.SSEKMSKeyID,
 	}
 	if existing, ok := h.findObject(bucketName, key); ok {
 		updated, _ := h.Objects.Update(intField(existing, "id"), record)
@@ -569,6 +578,42 @@ func userMetadata(req *http.Request) map[string]string {
 		return nil
 	}
 	return metadata
+}
+
+func requestObjectOptions(req *http.Request) objectOptions {
+	return objectOptions{
+		Metadata:             userMetadata(req),
+		ServerSideEncryption: strings.TrimSpace(req.Header.Get("x-amz-server-side-encryption")),
+		SSEKMSKeyID:          strings.TrimSpace(req.Header.Get("x-amz-server-side-encryption-aws-kms-key-id")),
+	}
+}
+
+func formObjectOptions(form *multipart.Form) objectOptions {
+	return objectOptions{
+		ServerSideEncryption: strings.TrimSpace(firstFormValueAnyCase(form, "x-amz-server-side-encryption")),
+		SSEKMSKeyID:          strings.TrimSpace(firstFormValueAnyCase(form, "x-amz-server-side-encryption-aws-kms-key-id")),
+	}
+}
+
+func recordObjectOptions(object corestore.Record) objectOptions {
+	return objectOptions{
+		Metadata:             stringMapField(object, "metadata"),
+		ServerSideEncryption: stringField(object, "sse_algorithm"),
+		SSEKMSKeyID:          stringField(object, "sse_kms_key_id"),
+	}
+}
+
+func objectResponseHeaders(object corestore.Record, headers map[string]string) map[string]string {
+	if headers == nil {
+		headers = map[string]string{}
+	}
+	if algorithm := stringField(object, "sse_algorithm"); algorithm != "" {
+		headers["x-amz-server-side-encryption"] = algorithm
+	}
+	if keyID := stringField(object, "sse_kms_key_id"); keyID != "" {
+		headers["x-amz-server-side-encryption-aws-kms-key-id"] = keyID
+	}
+	return headers
 }
 
 func (h *Handler) assets() *coreassets.Store {

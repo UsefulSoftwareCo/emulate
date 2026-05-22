@@ -21,6 +21,8 @@ type Store struct {
 	SecretVersions   *corestore.Collection
 	SSMParameters    *corestore.Collection
 	SSMParamVersions *corestore.Collection
+	KMSKeys          *corestore.Collection
+	KMSAliases       *corestore.Collection
 	IAMUsers         *corestore.Collection
 	IAMRoles         *corestore.Collection
 	DynamoDBTables   *corestore.Collection
@@ -47,6 +49,8 @@ func NewStore(runtimeStore *corestore.Store) Store {
 		SecretVersions:   runtimeStore.MustCollection("aws.secretsmanager_versions", "account_id", "region", "secret_arn", "secret_name", "version_id"),
 		SSMParameters:    runtimeStore.MustCollection("aws.ssm_parameters", "account_id", "region", "name", "arn", "path"),
 		SSMParamVersions: runtimeStore.MustCollection("aws.ssm_parameter_versions", "account_id", "region", "name", "version"),
+		KMSKeys:          runtimeStore.MustCollection("aws.kms_keys", "account_id", "region", "key_id", "arn"),
+		KMSAliases:       runtimeStore.MustCollection("aws.kms_aliases", "account_id", "region", "alias_name", "alias_arn", "target_key_id"),
 		IAMUsers:         runtimeStore.MustCollection("aws.iam_users", "user_name", "user_id"),
 		IAMRoles:         runtimeStore.MustCollection("aws.iam_roles", "role_name", "role_id"),
 		DynamoDBTables:   runtimeStore.MustCollection("aws.dynamodb_tables", "table_name", "arn"),

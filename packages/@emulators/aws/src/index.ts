@@ -80,6 +80,12 @@ export interface SSMParameter extends CompatEntity {
 export interface SSMParameterVersion extends CompatEntity {
   [key: string]: unknown;
 }
+export interface KMSKey extends CompatEntity {
+  [key: string]: unknown;
+}
+export interface KMSAlias extends CompatEntity {
+  [key: string]: unknown;
+}
 export interface IamUser extends CompatEntity {
   [key: string]: unknown;
 }
@@ -103,6 +109,8 @@ export interface AwsStore {
   secretVersions: CompatCollection<SecretVersion>;
   ssmParameters: CompatCollection<SSMParameter>;
   ssmParameterVersions: CompatCollection<SSMParameterVersion>;
+  kmsKeys: CompatCollection<KMSKey>;
+  kmsAliases: CompatCollection<KMSAlias>;
   iamUsers: CompatCollection<IamUser>;
   iamRoles: CompatCollection<IamRole>;
 }
@@ -157,6 +165,14 @@ export function getAwsStore(store: CompatStoreSource): AwsStore {
       "name",
       "version",
     ]),
+    kmsKeys: compatCollection<KMSKey>(store, "aws.kms_keys", ["account_id", "region", "key_id", "arn"]),
+    kmsAliases: compatCollection<KMSAlias>(store, "aws.kms_aliases", [
+      "account_id",
+      "region",
+      "alias_name",
+      "alias_arn",
+      "target_key_id",
+    ]),
     iamUsers: compatCollection<IamUser>(store, "aws.iam_users", ["user_name", "user_id"]),
     iamRoles: compatCollection<IamRole>(store, "aws.iam_roles", ["role_name", "role_id"]),
   };
@@ -180,6 +196,8 @@ export interface S3Object extends CompatEntity {
   etag: string;
   last_modified: string;
   metadata: Record<string, string>;
+  sse_algorithm: string;
+  sse_kms_key_id: string;
   version_id?: string;
 }
 
@@ -315,6 +333,35 @@ export interface SSMParameterVersion extends CompatEntity {
   has_secure_material: boolean;
 }
 
+export interface KMSKey extends CompatEntity {
+  account_id: string;
+  region: string;
+  key_id: string;
+  arn: string;
+  description: string;
+  enabled: boolean;
+  key_state: string;
+  key_usage: string;
+  key_spec: string;
+  customer_master_key_spec: string;
+  origin: string;
+  key_manager: string;
+  creation_date: number;
+  deletion_date: number;
+  multi_region: boolean;
+  tags: Record<string, string>;
+}
+
+export interface KMSAlias extends CompatEntity {
+  account_id: string;
+  region: string;
+  alias_name: string;
+  alias_arn: string;
+  target_key_id: string;
+  creation_date: number;
+  last_updated_date: number;
+}
+
 export interface IamUser extends CompatEntity {
   user_name: string;
   user_id: string;
@@ -369,6 +416,18 @@ export interface AwsSeedConfig {
       key_id?: string;
       tier?: string;
       data_type?: string;
+      tags?: Record<string, string>;
+    }>;
+  };
+  kms?: {
+    keys?: Array<{
+      key_id?: string;
+      description?: string;
+      aliases?: string[];
+      enabled?: boolean;
+      key_usage?: string;
+      key_spec?: string;
+      origin?: string;
       tags?: Record<string, string>;
     }>;
   };

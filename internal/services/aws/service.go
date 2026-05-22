@@ -12,6 +12,7 @@ import (
 	awsevents "github.com/vercel-labs/emulate/internal/services/aws/eventbridge"
 	"github.com/vercel-labs/emulate/internal/services/aws/gateway"
 	awsiam "github.com/vercel-labs/emulate/internal/services/aws/iam"
+	awskms "github.com/vercel-labs/emulate/internal/services/aws/kms"
 	awslogs "github.com/vercel-labs/emulate/internal/services/aws/logs"
 	"github.com/vercel-labs/emulate/internal/services/aws/protocols"
 	awss3 "github.com/vercel-labs/emulate/internal/services/aws/s3"
@@ -52,6 +53,7 @@ type Service struct {
 	logs             awslogs.Handler
 	secretsmanager   awssecretsmanager.Handler
 	ssm              awsssm.Handler
+	kms              awskms.Handler
 }
 
 func Register(router *corehttp.Router, options Options) {
@@ -94,6 +96,7 @@ func New(options Options) *Service {
 	seedSQSDefaults(awsStore, options.BaseURL, defaultAccountID, defaultRegion)
 	seedEventBridgeDefaults(awsStore, defaultAccountID, defaultRegion)
 	seedIAMDefaults(awsStore, credentialStore, defaultAccountID)
+	seedKMSDefaults(awsStore, defaultAccountID, defaultRegion)
 	if options.Seed != nil {
 		seedFromConfig(awsStore, credentialStore, options.BaseURL, defaultAccountID, defaultRegion, *options.Seed)
 	}
@@ -178,6 +181,12 @@ func New(options Options) *Service {
 			AccountID:  defaultAccountID,
 			Region:     defaultRegion,
 		},
+		kms: awskms.Handler{
+			Keys:      awsStore.KMSKeys,
+			Aliases:   awsStore.KMSAliases,
+			AccountID: defaultAccountID,
+			Region:    defaultRegion,
+		},
 	}
 }
 
@@ -246,6 +255,10 @@ func (s *Service) handleAWS(c *corehttp.Context) {
 	}
 	if ctx.Service == "ssm" && ctx.Protocol == protocols.ProtocolJSONRPC {
 		writeErrorResponse(c, s.ssm.Handle(c.Request, ctx))
+		return
+	}
+	if ctx.Service == "kms" && ctx.Protocol == protocols.ProtocolJSONRPC {
+		writeErrorResponse(c, s.kms.Handle(c.Request, ctx))
 		return
 	}
 

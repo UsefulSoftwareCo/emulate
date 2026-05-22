@@ -1,6 +1,6 @@
 # AWS
 
-S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, and SSM, and AWS Query endpoints for SNS/SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, IAM, and STS; SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, and SSM use JSON target requests, and SNS/IAM/STS use AWS Query XML.
+S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, KMS, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS, and AWS Query endpoints for SNS/SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, KMS, IAM, and STS; SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS use JSON target requests, and SNS/IAM/STS use AWS Query XML.
 
 ## Vercel Preview
 
@@ -101,6 +101,15 @@ In the native Go runtime, `@aws-sdk/client-ssm` v3 can use the `/ssm/` endpoint 
 - `AddTagsToResource` / `RemoveTagsFromResource` / `ListTagsForResource` - parameter tags
 - `String`, `StringList`, and `SecureString` values with local plaintext storage, version history, hierarchical paths, and KMS key id metadata
 
+## KMS
+
+In the native Go runtime, `@aws-sdk/client-kms` v3 can use the `/kms/` endpoint directly. The SDK sends `X-Amz-Target: TrentService.<Action>` JSON requests and receives JSON responses.
+
+- `CreateKey` / `DescribeKey` / `ListKeys` - key metadata lifecycle and discovery
+- `CreateAlias` / `ListAliases` - alias metadata
+- `Encrypt` / `Decrypt` / `GenerateDataKey` - reversible local ciphertext blobs for tests, not real cryptography
+- S3 `PutObject` and `HeadObject` preserve SSE-KMS metadata headers for local reference tests.
+
 ## IAM
 
 Manual IAM requests can use `POST /iam/` with an `Action` form parameter. In the native Go runtime, `@aws-sdk/client-iam` v3 can use the `/iam/` endpoint directly.
@@ -118,4 +127,4 @@ Manual STS requests can use `POST /sts/` with an `Action` form parameter. In the
 
 ## Inspector
 
-The emulator serves an HTML dashboard at `GET /_inspector` with `tab` query parameter (`s3`, `sqs`, `iam`, `logs`, `secretsmanager`, `ssm`) for browsing current state.
+The emulator serves an HTML dashboard at `GET /_inspector` with `tab` query parameter (`s3`, `sqs`, `iam`, `logs`, `secretsmanager`, `ssm`, `kms`) for browsing current state.

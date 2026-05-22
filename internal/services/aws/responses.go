@@ -105,6 +105,8 @@ func jsonErrorService(service string) string {
 		return "com.amazonaws.events"
 	case "lambda":
 		return "com.amazonaws.lambda"
+	case "kms":
+		return "com.amazonaws.kms"
 	case "logs":
 		return "com.amazonaws.logs"
 	case "secretsmanager":

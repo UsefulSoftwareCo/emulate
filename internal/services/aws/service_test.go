@@ -110,14 +110,19 @@ func TestServiceHandlesS3ObjectLifecycleWithBinaryBodyAndMetadata(t *testing.T) 
 	body := []byte{0, 1, 2, 3, 255, 'o', 'k'}
 
 	res := executeAWSRequest(handler, http.MethodPut, "http://127.0.0.1/emulate-default/docs/data.bin", body, "s3", map[string]string{
-		"Content-Type":      "application/octet-stream",
-		"x-amz-meta-origin": "native-test",
+		"Content-Type":                                "application/octet-stream",
+		"x-amz-meta-origin":                           "native-test",
+		"x-amz-server-side-encryption":                "aws:kms",
+		"x-amz-server-side-encryption-aws-kms-key-id": "alias/local",
 	})
 	if res.Code != http.StatusOK {
 		t.Fatalf("put status = %d, body = %s", res.Code, res.Body.String())
 	}
 	if got := res.Header().Get("ETag"); got == "" || !strings.HasPrefix(got, `"`) {
 		t.Fatalf("etag = %q", got)
+	}
+	if got := res.Header().Get("x-amz-server-side-encryption"); got != "aws:kms" {
+		t.Fatalf("put sse algorithm = %q", got)
 	}
 
 	res = executeAWSRequest(handler, http.MethodGet, "http://127.0.0.1/emulate-default/docs/data.bin", nil, "s3", nil)
@@ -143,6 +148,12 @@ func TestServiceHandlesS3ObjectLifecycleWithBinaryBodyAndMetadata(t *testing.T) 
 	}
 	if got := res.Header().Get("Content-Length"); got != "7" {
 		t.Fatalf("content length = %q", got)
+	}
+	if got := res.Header().Get("x-amz-server-side-encryption"); got != "aws:kms" {
+		t.Fatalf("head sse algorithm = %q", got)
+	}
+	if got := res.Header().Get("x-amz-server-side-encryption-aws-kms-key-id"); got != "alias/local" {
+		t.Fatalf("head sse kms key id = %q", got)
 	}
 
 	res = executeAWSRequest(handler, http.MethodDelete, "http://127.0.0.1/emulate-default/docs/data.bin", nil, "s3", nil)
@@ -2226,6 +2237,64 @@ func TestServiceHandlesSSMParameterStoreJSONRPC(t *testing.T) {
 	}
 }
 
+func TestServiceHandlesKMSJSONRPC(t *testing.T) {
+	handler := newTestHandler()
+
+	res := executeAWSKMSRequest(t, handler, "CreateKey", map[string]any{"Description": "app key"})
+	if res.Code != http.StatusOK {
+		t.Fatalf("create key status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if got := res.Header().Get("Content-Type"); got != "application/x-amz-json-1.1" {
+		t.Fatalf("content type = %q", got)
+	}
+	var created struct {
+		KeyMetadata struct {
+			KeyID string `json:"KeyId"`
+			Arn   string `json:"Arn"`
+		} `json:"KeyMetadata"`
+	}
+	decodeJSONBody(t, res, &created)
+	if created.KeyMetadata.KeyID == "" || !strings.Contains(created.KeyMetadata.Arn, ":key/") {
+		t.Fatalf("unexpected key metadata: %#v", created.KeyMetadata)
+	}
+
+	res = executeAWSKMSRequest(t, handler, "CreateAlias", map[string]any{"AliasName": "alias/app", "TargetKeyId": created.KeyMetadata.KeyID})
+	if res.Code != http.StatusOK {
+		t.Fatalf("create alias status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSKMSRequest(t, handler, "Encrypt", map[string]any{
+		"KeyId":     "alias/app",
+		"Plaintext": base64.StdEncoding.EncodeToString([]byte("hello kms")),
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("encrypt status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var encrypted struct {
+		CiphertextBlob string `json:"CiphertextBlob"`
+	}
+	decodeJSONBody(t, res, &encrypted)
+	if encrypted.CiphertextBlob == "" {
+		t.Fatalf("missing ciphertext: %#v", encrypted)
+	}
+
+	res = executeAWSKMSRequest(t, handler, "Decrypt", map[string]any{"CiphertextBlob": encrypted.CiphertextBlob, "KeyId": created.KeyMetadata.Arn})
+	if res.Code != http.StatusOK {
+		t.Fatalf("decrypt status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var decrypted struct {
+		Plaintext string `json:"Plaintext"`
+	}
+	decodeJSONBody(t, res, &decrypted)
+	raw, err := base64.StdEncoding.DecodeString(decrypted.Plaintext)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != "hello kms" {
+		t.Fatalf("plaintext = %q", raw)
+	}
+}
+
 func TestServiceHandlesDynamoDBTableAndItemLifecycle(t *testing.T) {
 	handler := newTestHandler()
 
@@ -2913,7 +2982,7 @@ func TestServiceRendersInspectorWithDefaultIAMUser(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
 	}
 	body := res.Body.String()
-	for _, expected := range []string{"AWS Emulator", "S3", "SQS", "IAM", "SSM", "IAM Users (1)", "IAM Roles (0)", "admin", "Access Keys", "No roles"} {
+	for _, expected := range []string{"AWS Emulator", "S3", "SQS", "IAM", "SSM", "KMS", "IAM Users (1)", "IAM Roles (0)", "admin", "Access Keys", "No roles"} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("inspector missing %q in %s", expected, body)
 		}
@@ -2929,9 +2998,10 @@ func TestNewStoreCreatesAWSCollections(t *testing.T) {
 	awsStore.SNSTopics.Insert(corestore.Record{"topic_name": "events", "arn": "arn:aws:sns:us-east-1:123456789012:events"})
 	awsStore.IAMUsers.Insert(corestore.Record{"user_name": "developer", "user_id": "AIDAEXAMPLE"})
 	awsStore.SSMParameters.Insert(corestore.Record{"account_id": "123456789012", "region": "us-east-1", "name": "/app/value", "arn": "arn:aws:ssm:us-east-1:123456789012:parameter/app/value"})
+	awsStore.KMSKeys.Insert(corestore.Record{"account_id": "123456789012", "region": "us-east-1", "key_id": "key-1", "arn": "arn:aws:kms:us-east-1:123456789012:key/key-1"})
 
 	snapshot := runtimeStore.Snapshot()
-	for _, name := range []string{"aws.s3_buckets", "aws.s3_objects", "aws.sqs_queues", "aws.sqs_messages", "aws.sns_topics", "aws.sns_subscriptions", "aws.sns_deliveries", "aws.event_buses", "aws.event_rules", "aws.event_targets", "aws.event_deliveries", "aws.log_groups", "aws.log_streams", "aws.log_events", "aws.secretsmanager_secrets", "aws.secretsmanager_versions", "aws.ssm_parameters", "aws.ssm_parameter_versions", "aws.iam_users", "aws.iam_roles", "aws.dynamodb_tables", "aws.dynamodb_items"} {
+	for _, name := range []string{"aws.s3_buckets", "aws.s3_objects", "aws.sqs_queues", "aws.sqs_messages", "aws.sns_topics", "aws.sns_subscriptions", "aws.sns_deliveries", "aws.event_buses", "aws.event_rules", "aws.event_targets", "aws.event_deliveries", "aws.log_groups", "aws.log_streams", "aws.log_events", "aws.secretsmanager_secrets", "aws.secretsmanager_versions", "aws.ssm_parameters", "aws.ssm_parameter_versions", "aws.kms_keys", "aws.kms_aliases", "aws.iam_users", "aws.iam_roles", "aws.dynamodb_tables", "aws.dynamodb_items"} {
 		if _, ok := snapshot.Collections[name]; !ok {
 			t.Fatalf("missing collection %s", name)
 		}
@@ -2951,6 +3021,7 @@ func TestServiceSeedsAWSConfig(t *testing.T) {
 			SQS:       SQSSeed{Queues: []SQSQueueSeed{{Name: "seeded-queue", VisibilityTimeout: 45}}},
 			Secrets:   SecretsManagerSeed{Secrets: []SecretSeed{{Name: "seeded/secret", SecretString: "seeded-value", KMSKeyID: "alias/seed"}}},
 			SSM:       SSMSeed{Parameters: []SSMParameterSeed{{Name: "/seeded/config", Type: "SecureString", Value: "seeded-parameter", KeyID: "alias/seed"}}},
+			KMS:       KMSSeed{Keys: []KMSKeySeed{{KeyID: "11111111-1111-1111-1111-111111111111", Description: "Seeded key", Aliases: []string{"alias/seed"}}}},
 			IAM: IAMSeed{
 				Users: []IAMUserSeed{{UserName: "developer", CreateAccessKey: true}},
 				Roles: []IAMRoleSeed{{RoleName: "worker", Description: "Worker role", AssumeRolePolicy: `{"Version":"2012-10-17","Statement":[]}`}},
@@ -2986,6 +3057,11 @@ func TestServiceSeedsAWSConfig(t *testing.T) {
 	res = executeAWSSSMRequestWithRegion(t, router, "GetParameter", map[string]any{"Name": "/seeded/config", "WithDecryption": true}, "us-west-2")
 	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), "seeded-parameter") {
 		t.Fatalf("get seeded parameter status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSKMSRequestWithRegion(t, router, "DescribeKey", map[string]any{"KeyId": "alias/seed"}, "us-west-2")
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), "Seeded key") {
+		t.Fatalf("describe seeded key status = %d, body = %s", res.Code, res.Body.String())
 	}
 }
 
@@ -3173,6 +3249,26 @@ func executeAWSSSMRequestWithRegion(t *testing.T, handler http.Handler, action s
 	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
 	req.Header.Set("X-Amz-Target", "AmazonSSM."+action)
 	signAWSRequestWithRegion(req, "ssm", region)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	return res
+}
+
+func executeAWSKMSRequest(t *testing.T, handler http.Handler, action string, payload map[string]any) *httptest.ResponseRecorder {
+	t.Helper()
+	return executeAWSKMSRequestWithRegion(t, handler, action, payload, "us-east-1")
+}
+
+func executeAWSKMSRequestWithRegion(t *testing.T, handler http.Handler, action string, payload map[string]any, region string) *httptest.ResponseRecorder {
+	t.Helper()
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/kms/", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	req.Header.Set("X-Amz-Target", "TrentService."+action)
+	signAWSRequestWithRegion(req, "kms", region)
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 	return res

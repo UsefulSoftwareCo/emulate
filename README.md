@@ -307,6 +307,11 @@ aws:
         key_id: alias/local
         tags:
           env: local
+  kms:
+    keys:
+      - description: Local app key
+        aliases:
+          - alias/local
   iam:
     users:
       - user_name: developer
@@ -720,7 +725,7 @@ The native Go runtime implements the Clerk OIDC and management API routes below 
 
 ## AWS
 
-S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, and SSM, and AWS Query endpoints for SNS/SQS/IAM/STS. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, IAM, and STS; SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, and SSM use JSON target requests, and SNS/IAM/STS use AWS Query XML.
+S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, KMS, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS, and AWS Query endpoints for SNS/SQS/IAM/STS. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, KMS, IAM, and STS; SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS use JSON target requests, and SNS/IAM/STS use AWS Query XML.
 
 To expose the native AWS emulator in a Vercel preview without separate infrastructure, run `npx emulate vercel init --service aws`. The generated route serves AWS at `/emulate/aws/*`.
 
@@ -796,6 +801,15 @@ In the native Go runtime, `@aws-sdk/client-ssm` v3 can use the `/ssm/` endpoint 
 - `DeleteParameter`, `DeleteParameters`, `DescribeParameters`
 - `AddTagsToResource`, `RemoveTagsFromResource`, `ListTagsForResource`
 - `String`, `StringList`, and `SecureString` values with local plaintext storage, version history, hierarchical paths, and KMS key id metadata
+
+### KMS
+In the native Go runtime, `@aws-sdk/client-kms` v3 can use the `/kms/` endpoint directly. The SDK sends `X-Amz-Target: TrentService.<Action>` JSON requests and receives JSON responses.
+
+- `CreateKey`, `DescribeKey`, `ListKeys`
+- `CreateAlias`, `ListAliases`
+- `Encrypt`, `Decrypt`, `GenerateDataKey`
+- Key and alias metadata plus reversible local ciphertext blobs for tests. This is not real cryptography.
+- S3 `PutObject` and `HeadObject` preserve SSE-KMS metadata headers for local reference tests.
 
 ### IAM
 Manual IAM requests can use `POST /iam/` with an `Action` form parameter. In the native Go runtime, `@aws-sdk/client-iam` v3 can use the `/iam/` endpoint directly.
@@ -979,4 +993,4 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 
 **Microsoft**: OIDC authorization code flow with PKCE support. Also supports client credentials grants. Microsoft Graph `/v1.0/me` available.
 
-**AWS**: Bearer tokens or IAM access key credentials. Scoped permissions use `s3:*`, `sqs:*`, `sns:*`, `events:*`, `dynamodb:*`, `logs:*`, `secretsmanager:*`, `ssm:*`, `iam:*`, `sts:*` patterns. Default key pair always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.
+**AWS**: Bearer tokens or IAM access key credentials. Scoped permissions use `s3:*`, `sqs:*`, `sns:*`, `events:*`, `dynamodb:*`, `logs:*`, `secretsmanager:*`, `ssm:*`, `kms:*`, `iam:*`, `sts:*` patterns. Default key pair always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.

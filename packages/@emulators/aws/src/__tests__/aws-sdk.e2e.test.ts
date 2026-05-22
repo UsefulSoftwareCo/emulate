@@ -60,6 +60,17 @@ import {
   UntagResourceCommand as UntagLogsResourceCommand,
 } from "@aws-sdk/client-cloudwatch-logs";
 import {
+  KMSClient,
+  CreateAliasCommand,
+  CreateKeyCommand,
+  DecryptCommand,
+  DescribeKeyCommand,
+  EncryptCommand,
+  GenerateDataKeyCommand,
+  ListAliasesCommand,
+  ListKeysCommand,
+} from "@aws-sdk/client-kms";
+import {
   SecretsManagerClient,
   CreateSecretCommand,
   DeleteSecretCommand,
@@ -154,6 +165,7 @@ const describeExternalIamStsE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : 
 const describeExternalDynamoDBE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalEventBridgeE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalCloudWatchLogsE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
+const describeExternalKMSE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalSecretsManagerE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalSSME2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 
@@ -202,6 +214,8 @@ describeExternalS3E2E("AWS native runtime - real @aws-sdk/client-s3 E2E", () => 
         Key: "e2e/put-get.txt",
         Body: "hello via sdk",
         ContentType: "text/plain",
+        ServerSideEncryption: "aws:kms",
+        SSEKMSKeyId: "alias/local",
       }),
     );
 
@@ -213,6 +227,8 @@ describeExternalS3E2E("AWS native runtime - real @aws-sdk/client-s3 E2E", () => 
     const head = await s3.send(new HeadObjectCommand({ Bucket: "emulate-default", Key: "e2e/put-get.txt" }));
     expect(head.ContentType).toBe("text/plain");
     expect(head.LastModified).toBeInstanceOf(Date);
+    expect(head.ServerSideEncryption).toBe("aws:kms");
+    expect(head.SSEKMSKeyId).toBe("alias/local");
   });
 
   it("CopyObject preserves body and returns a parseable response", async () => {
@@ -1016,6 +1032,77 @@ describeExternalCloudWatchLogsE2E("AWS native runtime - real @aws-sdk/client-clo
     await logs.send(new DeleteRetentionPolicyCommand({ logGroupName }));
     await logs.send(new DeleteLogStreamCommand({ logGroupName, logStreamName }));
     await logs.send(new DeleteLogGroupCommand({ logGroupName }));
+  });
+});
+
+describeExternalKMSE2E("AWS native runtime - real @aws-sdk/client-kms E2E", () => {
+  let emulator: EmulatorHandle;
+  let kms: KMSClient;
+
+  beforeAll(async () => {
+    emulator = await startEmulator();
+    kms = new KMSClient({
+      endpoint: `${emulator.url.replace(/\/$/, "")}/kms/`,
+      region: "us-east-1",
+      credentials: {
+        accessKeyId: "AKIAIOSFODNN7EXAMPLE",
+        secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+      },
+    });
+  });
+
+  afterAll(async () => {
+    kms.destroy();
+    await emulator.close();
+  });
+
+  it("CreateKey, aliases, Encrypt, Decrypt, and GenerateDataKey roundtrip", async () => {
+    const suffix = Date.now().toString(36);
+    const aliasName = `alias/sdk-e2e-${suffix}`;
+
+    const created = await kms.send(
+      new CreateKeyCommand({
+        Description: "SDK KMS key",
+        Tags: [{ TagKey: "env", TagValue: "test" }],
+      }),
+    );
+    expect(created.KeyMetadata?.KeyId).toBeTruthy();
+    expect(created.KeyMetadata?.Arn).toContain(":key/");
+    expect(created.KeyMetadata?.KeyState).toBe("Enabled");
+
+    await kms.send(new CreateAliasCommand({ AliasName: aliasName, TargetKeyId: created.KeyMetadata?.KeyId }));
+
+    const described = await kms.send(new DescribeKeyCommand({ KeyId: aliasName }));
+    expect(described.KeyMetadata?.KeyId).toBe(created.KeyMetadata?.KeyId);
+    expect(described.KeyMetadata?.Description).toBe("SDK KMS key");
+
+    const keys = await kms.send(new ListKeysCommand({}));
+    expect((keys.Keys ?? []).map((key) => key.KeyId)).toContain(created.KeyMetadata?.KeyId);
+
+    const aliases = await kms.send(new ListAliasesCommand({ KeyId: created.KeyMetadata?.KeyId }));
+    expect((aliases.Aliases ?? []).map((alias) => alias.AliasName)).toContain(aliasName);
+
+    const encrypted = await kms.send(
+      new EncryptCommand({
+        KeyId: aliasName,
+        Plaintext: Buffer.from("hello kms"),
+      }),
+    );
+    expect(encrypted.CiphertextBlob?.byteLength).toBeGreaterThan(0);
+    expect(encrypted.KeyId).toBe(created.KeyMetadata?.Arn);
+
+    const decrypted = await kms.send(
+      new DecryptCommand({
+        CiphertextBlob: encrypted.CiphertextBlob,
+        KeyId: created.KeyMetadata?.Arn,
+      }),
+    );
+    expect(Buffer.from(decrypted.Plaintext ?? []).toString()).toBe("hello kms");
+
+    const dataKey = await kms.send(new GenerateDataKeyCommand({ KeyId: created.KeyMetadata?.KeyId, KeySpec: "AES_128" }));
+    expect(dataKey.CiphertextBlob?.byteLength).toBeGreaterThan(0);
+    expect(Buffer.from(dataKey.Plaintext ?? [])).toHaveLength(16);
+    expect(dataKey.KeyId).toBe(created.KeyMetadata?.Arn);
   });
 });
 

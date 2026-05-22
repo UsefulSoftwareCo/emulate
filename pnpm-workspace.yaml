@@ -32,3 +32,4 @@ minimumReleaseAgeExclude:
   - '@aws-sdk/xml-builder@3.972.25'
   - '@aws-sdk/client-secrets-manager@3.1052.0'
   - '@aws-sdk/client-ssm@3.1052.0'
+  - '@aws-sdk/client-kms@3.1052.0'

@@ -16,11 +16,12 @@ var inspectorTabs = []ui.InspectorTab{
 	{ID: "logs", Label: "Logs", Href: "/_inspector?tab=logs"},
 	{ID: "secretsmanager", Label: "Secrets", Href: "/_inspector?tab=secretsmanager"},
 	{ID: "ssm", Label: "SSM", Href: "/_inspector?tab=ssm"},
+	{ID: "kms", Label: "KMS", Href: "/_inspector?tab=kms"},
 }
 
 func (s *Service) handleInspector(c *corehttp.Context) {
 	tab := c.Query("tab")
-	if tab != "s3" && tab != "sqs" && tab != "iam" && tab != "logs" && tab != "secretsmanager" && tab != "ssm" {
+	if tab != "s3" && tab != "sqs" && tab != "iam" && tab != "logs" && tab != "secretsmanager" && tab != "ssm" && tab != "kms" {
 		tab = "s3"
 	}
 	tabs := make([]ui.InspectorTab, len(inspectorTabs))
@@ -41,6 +42,8 @@ func (s *Service) handleInspector(c *corehttp.Context) {
 		body = s.renderSecretsManagerInspector()
 	case "ssm":
 		body = s.renderSSMInspector()
+	case "kms":
+		body = s.renderKMSInspector()
 	default:
 		body = s.renderS3Inspector()
 	}
@@ -231,6 +234,33 @@ func (s *Service) renderSSMInspector() string {
   <table class="inspector-table">
     <thead><tr><th>Parameter</th><th>Type</th><th>Version</th><th>Tier</th><th>ARN</th></tr></thead>
     <tbody>` + rowsOrEmpty(rows.String(), 5, "No parameters") + `</tbody>
+  </table>
+</div>`
+}
+
+func (s *Service) renderKMSInspector() string {
+	keys := s.store.KMSKeys.All()
+	var rows strings.Builder
+	for _, key := range keys {
+		keyID := stringField(key, "key_id")
+		aliasCount := len(s.store.KMSAliases.FindBy("target_key_id", keyID))
+		rows.WriteString(`<tr><td>`)
+		rows.WriteString(ui.EscapeHTML(keyID))
+		rows.WriteString(`</td><td>`)
+		rows.WriteString(fmt.Sprint(aliasCount))
+		rows.WriteString(`</td><td>`)
+		rows.WriteString(ui.EscapeHTML(stringField(key, "key_state")))
+		rows.WriteString(`</td><td>`)
+		rows.WriteString(ui.EscapeHTML(stringField(key, "key_usage")))
+		rows.WriteString(`</td><td>`)
+		rows.WriteString(ui.EscapeHTML(stringField(key, "arn")))
+		rows.WriteString(`</td></tr>`)
+	}
+	return `<div class="inspector-section">
+  <h2>KMS Keys (` + fmt.Sprint(len(keys)) + `)</h2>
+  <table class="inspector-table">
+    <thead><tr><th>Key ID</th><th>Aliases</th><th>State</th><th>Usage</th><th>ARN</th></tr></thead>
+    <tbody>` + rowsOrEmpty(rows.String(), 5, "No KMS keys") + `</tbody>
   </table>
 </div>`
 }
