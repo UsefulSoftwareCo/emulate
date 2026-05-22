@@ -108,6 +108,7 @@ In the native Go runtime, `@aws-sdk/client-kms` v3 can use the `/kms/` endpoint 
 - `CreateKey` / `DescribeKey` / `ListKeys` - key metadata lifecycle and discovery
 - `CreateAlias` / `ListAliases` - alias metadata
 - `Encrypt` / `Decrypt` / `GenerateDataKey` - reversible local ciphertext blobs for tests, not real cryptography
+- `GenerateDataKey` accepts `NumberOfBytes` from 1 to 1024.
 - S3 `PutObject` and `HeadObject` preserve SSE-KMS metadata headers for local reference tests.
 
 ## IAM

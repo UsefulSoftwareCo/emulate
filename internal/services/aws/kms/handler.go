@@ -18,7 +18,10 @@ import (
 	"github.com/vercel-labs/emulate/internal/services/aws/protocols"
 )
 
-const jsonContentType = "application/x-amz-json-1.1"
+const (
+	jsonContentType = "application/x-amz-json-1.1"
+	maxDataKeyBytes = 1024
+)
 
 type Handler struct {
 	Keys        *corestore.Collection
@@ -448,7 +451,10 @@ func requiredBlobInput(input map[string]any, first string, second string, reques
 }
 
 func dataKeySize(input map[string]any, requestID string, h *Handler) (int, protocols.ErrorResponse, bool) {
-	if size := intInput(input, 0, "NumberOfBytes", "numberOfBytes"); size > 0 {
+	if size, present := intInputPresent(input, "NumberOfBytes", "numberOfBytes"); present {
+		if size <= 0 || size > maxDataKeyBytes {
+			return 0, h.validation("NumberOfBytes must be between 1 and 1024.", requestID), false
+		}
 		return size, protocols.ErrorResponse{}, true
 	}
 	switch firstNonEmpty(stringInput(input, "KeySpec", "keySpec"), "AES_256") {
@@ -716,6 +722,35 @@ func intInput(input map[string]any, fallback int, names ...string) int {
 		}
 	}
 	return fallback
+}
+
+func intInputPresent(input map[string]any, names ...string) (int, bool) {
+	for _, name := range names {
+		value, ok := input[name]
+		if !ok {
+			continue
+		}
+		switch v := value.(type) {
+		case int:
+			return v, true
+		case int64:
+			return int(v), true
+		case float64:
+			return int(v), true
+		case json.Number:
+			parsed, err := v.Int64()
+			if err == nil {
+				return int(parsed), true
+			}
+		case string:
+			parsed, err := strconv.Atoi(v)
+			if err == nil {
+				return parsed, true
+			}
+		}
+		return 0, true
+	}
+	return 0, false
 }
 
 func intField(record corestore.Record, name string) int {

@@ -151,6 +151,30 @@ func TestHandlerEncryptsDecryptsAndGeneratesDataKeys(t *testing.T) {
 	}
 }
 
+func TestHandlerRejectsInvalidDataKeySizes(t *testing.T) {
+	handler := newTestKMSHandler()
+	response := handler.call("CreateKey", map[string]any{"Description": "data key limits"})
+	if response.StatusCode != http.StatusOK {
+		t.Fatalf("create status = %d, body = %s", response.StatusCode, response.Body)
+	}
+	var created struct {
+		KeyMetadata struct {
+			KeyID string `json:"KeyId"`
+		} `json:"KeyMetadata"`
+	}
+	decodeKMSBody(t, response, &created)
+
+	for _, value := range []any{0, -1, maxDataKeyBytes + 1, "not-a-number"} {
+		response = handler.call("GenerateDataKey", map[string]any{
+			"KeyId":         created.KeyMetadata.KeyID,
+			"NumberOfBytes": value,
+		})
+		if response.StatusCode != http.StatusBadRequest {
+			t.Fatalf("NumberOfBytes=%v status = %d, body = %s", value, response.StatusCode, response.Body)
+		}
+	}
+}
+
 type testKMSHandler struct {
 	handler Handler
 	mu      sync.Mutex

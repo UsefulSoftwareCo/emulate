@@ -1200,6 +1200,12 @@ func TestRunInitWritesStarterConfig(t *testing.T) {
 	if strings.Contains(content, "\ngithub:\n") {
 		t.Fatal("service-specific starter config included github")
 	}
+	if !strings.Contains(content, "alias/my-app") {
+		t.Fatalf("starter config missing app KMS alias:\n%s", content)
+	}
+	if strings.Contains(content, "alias/local") {
+		t.Fatalf("starter config should not reseed default KMS alias:\n%s", content)
+	}
 }
 
 func TestRunInitRejectsExistingAutoDetectedConfig(t *testing.T) {

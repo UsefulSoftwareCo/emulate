@@ -304,14 +304,14 @@ aws:
       - name: /my-app/database-url
         type: SecureString
         value: postgres://localhost:5432/app
-        key_id: alias/local
+        key_id: alias/my-app
         tags:
           env: local
   kms:
     keys:
-      - description: Local app key
+      - description: My app KMS key
         aliases:
-          - alias/local
+          - alias/my-app
   iam:
     users:
       - user_name: developer
@@ -808,6 +808,7 @@ In the native Go runtime, `@aws-sdk/client-kms` v3 can use the `/kms/` endpoint 
 - `CreateKey`, `DescribeKey`, `ListKeys`
 - `CreateAlias`, `ListAliases`
 - `Encrypt`, `Decrypt`, `GenerateDataKey`
+- `GenerateDataKey` accepts `NumberOfBytes` from 1 to 1024.
 - Key and alias metadata plus reversible local ciphertext blobs for tests. This is not real cryptography.
 - S3 `PutObject` and `HeadObject` preserve SSE-KMS metadata headers for local reference tests.
 
