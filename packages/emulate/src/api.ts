@@ -31,6 +31,7 @@ export interface EmulatorOptions {
   port?: number;
   seed?: SeedConfig;
   baseUrl?: string;
+  allowLocalLambda?: boolean;
   startupTimeoutMs?: number;
 }
 
@@ -76,6 +77,7 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
       port,
       seedPath: seed.path,
       baseUrl: options.baseUrl,
+      allowLocalLambda: options.allowLocalLambda,
       startupTimeoutMs,
     });
 
@@ -125,6 +127,7 @@ async function startRuntime(options: {
   port: number;
   seedPath?: string;
   baseUrl?: string;
+  allowLocalLambda?: boolean;
   startupTimeoutMs: number;
 }): Promise<NativeRuntime> {
   const args = ["start", "--service", options.service, "--port", String(options.port)];
@@ -133,6 +136,9 @@ async function startRuntime(options: {
   }
   if (options.baseUrl) {
     args.push("--base-url", options.baseUrl);
+  }
+  if (options.allowLocalLambda) {
+    args.push("--allow-local-lambda");
   }
 
   const child = spawn(options.binary, args, { stdio: ["ignore", "pipe", "pipe"] });

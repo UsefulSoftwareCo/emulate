@@ -409,6 +409,7 @@ export interface LambdaFunction extends CompatEntity {
   architectures: string[];
   code_size: number;
   code_sha256: string;
+  code_zip_base64: string;
   version: string;
   revision_id: string;
   last_modified: string;
@@ -526,6 +527,7 @@ export interface AwsSeedConfig {
       environment?: Record<string, string>;
       tags?: Record<string, string>;
       invoke_payload?: string;
+      code_zip_base64?: string;
     }>;
   };
   iam?: {

@@ -1,6 +1,6 @@
 ---
 name: aws
-description: Emulated AWS cloud services (S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, KMS, Lambda, IAM, STS) for local development, testing, and native Vercel preview functions. Use when the user needs to interact with AWS API endpoints locally, test S3 bucket and object operations, emulate SQS queues and messages, test SNS topics and subscriptions, test EventBridge buses/rules/events, test DynamoDB tables and items, test CloudWatch log groups and log events, test Secrets Manager values and rotations, test SSM Parameter Store values and paths, test KMS keys/aliases/encrypt/decrypt/data keys, test Lambda function control-plane APIs and invoke stubs, manage IAM users/roles/access keys, test STS assume role, scaffold AWS through npx emulate vercel init, or work without hitting real AWS APIs. Triggers include "AWS emulator", "emulate AWS", "mock S3", "local SQS", "local SNS", "local EventBridge", "local DynamoDB", "local CloudWatch Logs", "local Secrets Manager", "local SSM", "local Parameter Store", "local KMS", "test KMS", "local Lambda", "test Lambda", "test IAM", "emulate S3", "AWS locally", "STS assume role", or any task requiring local AWS service emulation.
+description: Emulated AWS cloud services (S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, KMS, Lambda, IAM, STS) for local development, testing, and native Vercel preview functions. Use when the user needs to interact with AWS API endpoints locally, test S3 bucket and object operations, emulate SQS queues and messages, test SNS topics and subscriptions, test EventBridge buses/rules/events, test DynamoDB tables and items, test CloudWatch log groups and log events, test Secrets Manager values and rotations, test SSM Parameter Store values and paths, test KMS keys/aliases/encrypt/decrypt/data keys, test Lambda function control-plane APIs, invoke stubs, and local Node.js handlers, manage IAM users/roles/access keys, test STS assume role, scaffold AWS through npx emulate vercel init, or work without hitting real AWS APIs. Triggers include "AWS emulator", "emulate AWS", "mock S3", "local SQS", "local SNS", "local EventBridge", "local DynamoDB", "local CloudWatch Logs", "local Secrets Manager", "local SSM", "local Parameter Store", "local KMS", "test KMS", "local Lambda", "test Lambda", "test IAM", "emulate S3", "AWS locally", "STS assume role", or any task requiring local AWS service emulation.
 allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
@@ -23,6 +23,9 @@ The generated route serves AWS at `/emulate/aws/*`. State uses warm memory by de
 ```bash
 # AWS only
 npx emulate --service aws
+
+# Enable local Node.js Lambda ZipFile execution
+npx emulate --service aws --allow-local-lambda
 
 # Default port (when run alone)
 # http://localhost:4000
@@ -261,6 +264,8 @@ aws:
         role: arn:aws:iam::123456789012:role/lambda-execution-role
         handler: index.handler
         invoke_payload: '{"ok":true}'
+        # Optional base64 Lambda zip for local Node.js handler execution.
+        code_zip_base64: ""
         environment:
           NODE_ENV: local
   iam:
@@ -511,9 +516,9 @@ In the native Go runtime, `@aws-sdk/client-kms` can use endpoint `${AWS_EMULATOR
 
 ### Lambda
 
-In the native Go runtime, `@aws-sdk/client-lambda` v3 can use endpoint `${AWS_EMULATOR_URL}` directly. Lambda uses AWS REST JSON paths such as `/2015-03-31/functions` and returns JSON responses. This is an API-only control plane for local tests; it does not execute user code yet.
+In the native Go runtime, `@aws-sdk/client-lambda` v3 can use endpoint `${AWS_EMULATOR_URL}` directly. Lambda uses AWS REST JSON paths such as `/2015-03-31/functions` and returns JSON responses. The control plane works without Docker. Valid inline `ZipFile` packages for `nodejs*` runtimes run locally with the installed `node` executable when `npx emulate` is started with `--allow-local-lambda` and the invoke request uses a direct localhost endpoint (`localhost`, `127.0.0.1`, or `::1`) signed by a known AWS access key. Custom proxy, tunnel, and portless hosts keep the deterministic stub response path.
 
-Supported Lambda operations include function create/get/config/list/delete, configuration and code updates, API-only `Invoke`, versions, aliases, tags, and stored resource policy statements. Creating or invoking a function creates local CloudWatch Logs metadata under `/aws/lambda/<function-name>`. Seed functions with `lambda.functions[].invoke_payload` when tests need deterministic invoke payloads; otherwise invoke returns `{}`.
+Supported Lambda operations include function create/get/config/list/delete, configuration and code updates, request-response `Invoke` for zipped Node.js handlers when local Lambda execution is enabled, stub `Invoke` through `invoke_payload`, versions, aliases, tags, and stored resource policy statements. Creating or invoking a function creates local CloudWatch Logs metadata under `/aws/lambda/<function-name>`, and local Node.js console output is written there. Seed functions with `lambda.functions[].invoke_payload` for deterministic stubs or `lambda.functions[].code_zip_base64` for a base64 Lambda zip used by the local Node.js runner.
 
 ```bash
 # List Lambda functions

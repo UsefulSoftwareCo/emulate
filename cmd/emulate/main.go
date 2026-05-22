@@ -37,19 +37,20 @@ import (
 var version = "dev"
 
 type nativeSeedOptions struct {
-	Apple      *apple.SeedConfig
-	AWS        *aws.SeedConfig
-	Clerk      *clerk.SeedConfig
-	GitHub     *github.SeedConfig
-	Google     *google.SeedConfig
-	Microsoft  *microsoft.SeedConfig
-	MongoAtlas *mongoatlas.SeedConfig
-	Okta       *okta.SeedConfig
-	Resend     *resend.SeedConfig
-	Slack      *slack.SeedConfig
-	Stripe     *stripe.SeedConfig
-	Vercel     *vercel.SeedConfig
-	BaseURLs   map[string]string
+	Apple          *apple.SeedConfig
+	AWS            *aws.SeedConfig
+	AWSLocalLambda bool
+	Clerk          *clerk.SeedConfig
+	GitHub         *github.SeedConfig
+	Google         *google.SeedConfig
+	Microsoft      *microsoft.SeedConfig
+	MongoAtlas     *mongoatlas.SeedConfig
+	Okta           *okta.SeedConfig
+	Resend         *resend.SeedConfig
+	Slack          *slack.SeedConfig
+	Stripe         *stripe.SeedConfig
+	Vercel         *vercel.SeedConfig
+	BaseURLs       map[string]string
 }
 
 func main() {
@@ -107,6 +108,7 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 	seedValue := fs.String("seed", "", "Path to seed config file")
 	baseURLValue := fs.String("base-url", "", "Override advertised base URL")
 	portlessValue := fs.Bool("portless", false, "Serve over HTTPS via portless")
+	allowLocalLambdaValue := fs.Bool("allow-local-lambda", false, "Allow direct localhost AWS Lambda Node.js ZipFile code execution")
 
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
@@ -295,19 +297,20 @@ func runStart(ctx context.Context, args []string, stdout io.Writer, stderr io.Wr
 	}
 
 	seeds := nativeSeedOptions{
-		Apple:      appleSeed,
-		AWS:        awsSeed,
-		Clerk:      clerkSeed,
-		GitHub:     githubSeed,
-		Google:     googleSeed,
-		Microsoft:  microsoftSeed,
-		MongoAtlas: mongoAtlasSeed,
-		Okta:       oktaSeed,
-		Resend:     resendSeed,
-		Slack:      slackSeed,
-		Stripe:     stripeSeed,
-		Vercel:     vercelSeed,
-		BaseURLs:   seedBaseURLs,
+		Apple:          appleSeed,
+		AWS:            awsSeed,
+		AWSLocalLambda: *allowLocalLambdaValue,
+		Clerk:          clerkSeed,
+		GitHub:         githubSeed,
+		Google:         googleSeed,
+		Microsoft:      microsoftSeed,
+		MongoAtlas:     mongoAtlasSeed,
+		Okta:           oktaSeed,
+		Resend:         resendSeed,
+		Slack:          slackSeed,
+		Stripe:         stripeSeed,
+		Vercel:         vercelSeed,
+		BaseURLs:       seedBaseURLs,
 	}
 	if *portlessValue {
 		return runPortlessStart(ctx, stdout, stderr, port, services, seeds)
@@ -468,21 +471,22 @@ func seedBaseURLForService(service string, seedBaseURLs map[string]string) strin
 
 func serverOptions(baseURL string, services []string, seeds nativeSeedOptions) emuruntime.ServerOptions {
 	return emuruntime.ServerOptions{
-		Version:        version,
-		BaseURL:        baseURL,
-		Services:       services,
-		AppleSeed:      seeds.Apple,
-		AWSSeed:        seeds.AWS,
-		ClerkSeed:      seeds.Clerk,
-		GitHubSeed:     seeds.GitHub,
-		GoogleSeed:     seeds.Google,
-		MicrosoftSeed:  seeds.Microsoft,
-		MongoAtlasSeed: seeds.MongoAtlas,
-		OktaSeed:       seeds.Okta,
-		ResendSeed:     seeds.Resend,
-		SlackSeed:      seeds.Slack,
-		StripeSeed:     seeds.Stripe,
-		VercelSeed:     seeds.Vercel,
+		Version:            version,
+		BaseURL:            baseURL,
+		Services:           services,
+		AppleSeed:          seeds.Apple,
+		AWSSeed:            seeds.AWS,
+		AWSLambdaLocalCode: seeds.AWSLocalLambda,
+		ClerkSeed:          seeds.Clerk,
+		GitHubSeed:         seeds.GitHub,
+		GoogleSeed:         seeds.Google,
+		MicrosoftSeed:      seeds.Microsoft,
+		MongoAtlasSeed:     seeds.MongoAtlas,
+		OktaSeed:           seeds.Okta,
+		ResendSeed:         seeds.Resend,
+		SlackSeed:          seeds.Slack,
+		StripeSeed:         seeds.Stripe,
+		VercelSeed:         seeds.Vercel,
 	}
 }
 
@@ -582,6 +586,7 @@ func printHelp(w io.Writer) {
 	fmt.Fprintln(w, "      --seed <file>          Path to YAML or JSON seed config file")
 	fmt.Fprintln(w, "      --base-url <url>       Override advertised base URL")
 	fmt.Fprintln(w, "      --portless             Serve over HTTPS via portless")
+	fmt.Fprintln(w, "      --allow-local-lambda   Allow direct localhost AWS Lambda Node.js ZipFile code execution")
 }
 
 func printStartHelp(w io.Writer) {
@@ -593,6 +598,7 @@ func printStartHelp(w io.Writer) {
 	fmt.Fprintln(w, "      --seed <file>          Path to YAML or JSON seed config file")
 	fmt.Fprintln(w, "      --base-url <url>       Override advertised base URL")
 	fmt.Fprintln(w, "      --portless             Serve over HTTPS via portless")
+	fmt.Fprintln(w, "      --allow-local-lambda   Allow direct localhost AWS Lambda Node.js ZipFile code execution")
 }
 
 func printInitHelp(w io.Writer) {

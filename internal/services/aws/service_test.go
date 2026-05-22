@@ -1,13 +1,21 @@
 package aws
 
 import (
+	"archive/zip"
 	"bytes"
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -4152,6 +4160,545 @@ func TestServiceHandlesLambdaControlPlaneAndInvoke(t *testing.T) {
 	}
 }
 
+func TestServiceRunsLocalNodeLambdaHandler(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required for local Lambda Node.js runner coverage")
+	}
+	t.Setenv("EMULATE_HOST_SECRET_FOR_TEST", "hidden")
+	handler := newTestHandlerWithOptions(Options{LambdaLocalCodeExecution: true})
+	const accessKeyID = "AKIAIOSFODNN7EXAMPLE"
+	zipFile := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = async (event, context) => {
+  console.log("node runner", event.name, process.env.MODE, context.functionName);
+  return {
+    message: "hello " + event.name,
+    mode: process.env.MODE,
+    requestId: context.awsRequestId,
+    remaining: context.getRemainingTimeInMillis() > 0,
+    logStreamName: context.logStreamName,
+    envLogStreamName: process.env.AWS_LAMBDA_LOG_STREAM_NAME,
+    hostSecret: process.env.EMULATE_HOST_SECRET_FOR_TEST || "",
+  };
+};
+`})
+
+	create := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions", map[string]any{
+		"FunctionName": "node-runner",
+		"Runtime":      "nodejs22.x",
+		"Role":         "arn:aws:iam::123456789012:role/lambda-execution-role",
+		"Handler":      "index.handler",
+		"Code":         map[string]any{"ZipFile": zipFile},
+		"Environment":  map[string]any{"Variables": map[string]any{"MODE": "test"}},
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", create.Code, create.Body.String())
+	}
+
+	invoke := executeAWSLambdaRawRequestWithAccessKey(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner/invocations?LogType=Tail", []byte(`{"name":"Ada"}`), accessKeyID)
+	if invoke.Code != http.StatusOK {
+		t.Fatalf("invoke status = %d, body = %s", invoke.Code, invoke.Body.String())
+	}
+	var body struct {
+		Message          string `json:"message"`
+		Mode             string `json:"mode"`
+		RequestID        string `json:"requestId"`
+		Remaining        bool   `json:"remaining"`
+		LogStreamName    string `json:"logStreamName"`
+		EnvLogStreamName string `json:"envLogStreamName"`
+		HostSecret       string `json:"hostSecret"`
+	}
+	decodeJSONBody(t, invoke, &body)
+	if body.Message != "hello Ada" || body.Mode != "test" || body.RequestID == "" || !body.Remaining || body.HostSecret != "" {
+		t.Fatalf("unexpected invoke body: %#v", body)
+	}
+	if body.LogStreamName == "" || body.EnvLogStreamName != body.LogStreamName {
+		t.Fatalf("unexpected log stream names: %#v", body)
+	}
+	logTail, err := base64.StdEncoding.DecodeString(invoke.Header().Get("x-amz-log-result"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(logTail), "node runner Ada test node-runner") {
+		t.Fatalf("tail log missing runner output: %s", string(logTail))
+	}
+	streams := executeAWSLogsRequest(t, handler, "DescribeLogStreams", map[string]any{"logGroupName": "/aws/lambda/node-runner"})
+	if streams.Code != http.StatusOK {
+		t.Fatalf("describe log streams status = %d, body = %s", streams.Code, streams.Body.String())
+	}
+	var streamBody struct {
+		LogStreams []struct {
+			LogStreamName string `json:"logStreamName"`
+		} `json:"logStreams"`
+	}
+	decodeJSONBody(t, streams, &streamBody)
+	if len(streamBody.LogStreams) != 1 || streamBody.LogStreams[0].LogStreamName != body.LogStreamName {
+		t.Fatalf("unexpected log streams: %#v, invoke body: %#v", streamBody.LogStreams, body)
+	}
+
+	contextSucceedZip := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = (event, context) => {
+  setTimeout(() => context.succeed({ message: "context " + event.name }), 10);
+};
+`})
+	contextSucceedUpdate := executeAWSLambdaRequest(t, handler, http.MethodPut, "/2015-03-31/functions/node-runner/code", map[string]any{"ZipFile": contextSucceedZip})
+	if contextSucceedUpdate.Code != http.StatusOK {
+		t.Fatalf("update context succeed code status = %d, body = %s", contextSucceedUpdate.Code, contextSucceedUpdate.Body.String())
+	}
+	contextSucceedInvoke := executeAWSLambdaRawRequestWithAccessKey(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner/invocations", []byte(`{"name":"Ada"}`), accessKeyID)
+	if contextSucceedInvoke.Code != http.StatusOK {
+		t.Fatalf("context succeed invoke status = %d, body = %s", contextSucceedInvoke.Code, contextSucceedInvoke.Body.String())
+	}
+	var contextSucceedBody struct {
+		Message string `json:"message"`
+	}
+	decodeJSONBody(t, contextSucceedInvoke, &contextSucceedBody)
+	if contextSucceedBody.Message != "context Ada" {
+		t.Fatalf("unexpected context succeed body: %#v", contextSucceedBody)
+	}
+
+	callbackReturnZip := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = (event, context, callback) => {
+  setTimeout(() => callback(null, { message: "callback " + event.name }), 10);
+  return { message: "returned " + event.name };
+};
+`})
+	callbackReturnUpdate := executeAWSLambdaRequest(t, handler, http.MethodPut, "/2015-03-31/functions/node-runner/code", map[string]any{"ZipFile": callbackReturnZip})
+	if callbackReturnUpdate.Code != http.StatusOK {
+		t.Fatalf("update callback return code status = %d, body = %s", callbackReturnUpdate.Code, callbackReturnUpdate.Body.String())
+	}
+	callbackReturnInvoke := executeAWSLambdaRawRequestWithAccessKey(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner/invocations", []byte(`{"name":"Ada"}`), accessKeyID)
+	if callbackReturnInvoke.Code != http.StatusOK {
+		t.Fatalf("callback return invoke status = %d, body = %s", callbackReturnInvoke.Code, callbackReturnInvoke.Body.String())
+	}
+	var callbackReturnBody struct {
+		Message string `json:"message"`
+	}
+	decodeJSONBody(t, callbackReturnInvoke, &callbackReturnBody)
+	if callbackReturnBody.Message != "callback Ada" {
+		t.Fatalf("unexpected callback return body: %#v", callbackReturnBody)
+	}
+
+	logs := executeAWSLogsRequest(t, handler, "FilterLogEvents", map[string]any{"logGroupName": "/aws/lambda/node-runner", "filterPattern": "node runner"})
+	if logs.Code != http.StatusOK {
+		t.Fatalf("filter logs status = %d, body = %s", logs.Code, logs.Body.String())
+	}
+	var logBody struct {
+		Events []struct {
+			Message string `json:"message"`
+		} `json:"events"`
+	}
+	decodeJSONBody(t, logs, &logBody)
+	if len(logBody.Events) != 1 || !strings.Contains(logBody.Events[0].Message, "node runner Ada test node-runner") {
+		t.Fatalf("unexpected log events: %#v", logBody.Events)
+	}
+
+	openHandleZip := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = async () => {
+  setInterval(() => {}, 1000);
+  return { ok: true };
+};
+`})
+	openHandleUpdate := executeAWSLambdaRequest(t, handler, http.MethodPut, "/2015-03-31/functions/node-runner/code", map[string]any{"ZipFile": openHandleZip})
+	if openHandleUpdate.Code != http.StatusOK {
+		t.Fatalf("update open handle code status = %d, body = %s", openHandleUpdate.Code, openHandleUpdate.Body.String())
+	}
+	openHandleInvoke := executeAWSLambdaRawRequestWithAccessKey(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner/invocations", []byte(`{}`), accessKeyID)
+	if openHandleInvoke.Code != http.StatusOK {
+		t.Fatalf("open handle invoke status = %d, body = %s", openHandleInvoke.Code, openHandleInvoke.Body.String())
+	}
+	var openHandleBody struct {
+		OK bool `json:"ok"`
+	}
+	decodeJSONBody(t, openHandleInvoke, &openHandleBody)
+	if !openHandleBody.OK {
+		t.Fatalf("unexpected open handle body: %#v", openHandleBody)
+	}
+
+	successChildMarkerPath := filepath.Join(t.TempDir(), "success-child-marker")
+	successChildConfig := executeAWSLambdaRequest(t, handler, http.MethodPut, "/2015-03-31/functions/node-runner/configuration", map[string]any{
+		"Environment": map[string]any{"Variables": map[string]any{"SUCCESS_CHILD_MARKER": successChildMarkerPath}},
+	})
+	if successChildConfig.Code != http.StatusOK {
+		t.Fatalf("update success child config status = %d, body = %s", successChildConfig.Code, successChildConfig.Body.String())
+	}
+	successChildZip := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = async () => {
+  const { spawn } = require("node:child_process");
+  const child = spawn(process.execPath, ["-e", "setTimeout(() => require('node:fs').writeFileSync(process.env.SUCCESS_CHILD_MARKER, 'alive'), 1200); setInterval(() => {}, 1000);"], { stdio: "ignore" });
+  child.unref();
+  return { ok: true };
+};
+`})
+	successChildUpdate := executeAWSLambdaRequest(t, handler, http.MethodPut, "/2015-03-31/functions/node-runner/code", map[string]any{"ZipFile": successChildZip})
+	if successChildUpdate.Code != http.StatusOK {
+		t.Fatalf("update success child code status = %d, body = %s", successChildUpdate.Code, successChildUpdate.Body.String())
+	}
+	successChildInvoke := executeAWSLambdaRawRequestWithAccessKey(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner/invocations", []byte(`{}`), accessKeyID)
+	if successChildInvoke.Code != http.StatusOK {
+		t.Fatalf("success child invoke status = %d, body = %s", successChildInvoke.Code, successChildInvoke.Body.String())
+	}
+	time.Sleep(1600 * time.Millisecond)
+	if _, err := os.Stat(successChildMarkerPath); err == nil {
+		t.Fatalf("completed Lambda child process wrote marker file: %s", successChildMarkerPath)
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("failed to check success child marker file: %v", err)
+	}
+
+	largePayloadZip := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = async (event) => ({ size: event.data.length });`})
+	largePayloadUpdate := executeAWSLambdaRequest(t, handler, http.MethodPut, "/2015-03-31/functions/node-runner/code", map[string]any{"ZipFile": largePayloadZip})
+	if largePayloadUpdate.Code != http.StatusOK {
+		t.Fatalf("update large payload code status = %d, body = %s", largePayloadUpdate.Code, largePayloadUpdate.Body.String())
+	}
+	largePayloadSize := 2 * 1024 * 1024
+	largePayloadInvoke := executeAWSLambdaRawRequestWithAccessKey(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner/invocations", []byte(`{"data":"`+strings.Repeat("x", largePayloadSize)+`"}`), accessKeyID)
+	if largePayloadInvoke.Code != http.StatusOK {
+		t.Fatalf("large payload invoke status = %d, body = %s", largePayloadInvoke.Code, largePayloadInvoke.Body.String())
+	}
+	var largePayloadBody struct {
+		Size int `json:"size"`
+	}
+	decodeJSONBody(t, largePayloadInvoke, &largePayloadBody)
+	if largePayloadBody.Size != largePayloadSize {
+		t.Fatalf("large payload size = %d, want %d, body = %s", largePayloadBody.Size, largePayloadSize, largePayloadInvoke.Body.String())
+	}
+
+	initErrorZip := zipLambdaSource(t, map[string]string{"index.js": `throw new Error("init boom");
+exports.handler = async () => ({ ok: true });
+`})
+	initErrorUpdate := executeAWSLambdaRequest(t, handler, http.MethodPut, "/2015-03-31/functions/node-runner/code", map[string]any{"ZipFile": initErrorZip})
+	if initErrorUpdate.Code != http.StatusOK {
+		t.Fatalf("update init error code status = %d, body = %s", initErrorUpdate.Code, initErrorUpdate.Body.String())
+	}
+	initFailed := executeAWSLambdaRawRequestWithAccessKey(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner/invocations", []byte(`{}`), accessKeyID)
+	if initFailed.Code != http.StatusOK {
+		t.Fatalf("init error invoke status = %d, body = %s", initFailed.Code, initFailed.Body.String())
+	}
+	if got := initFailed.Header().Get("x-amz-function-error"); got != "Unhandled" {
+		t.Fatalf("init error function error = %q, want Unhandled", got)
+	}
+	var initFailedBody struct {
+		ErrorMessage string `json:"errorMessage"`
+	}
+	decodeJSONBody(t, initFailed, &initFailedBody)
+	if initFailedBody.ErrorMessage != "init boom" {
+		t.Fatalf("unexpected init error body: %#v", initFailedBody)
+	}
+
+	errorZip := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = async () => {
+  console.error("before boom");
+  throw new Error("boom");
+};
+`})
+	updated := executeAWSLambdaRequest(t, handler, http.MethodPut, "/2015-03-31/functions/node-runner/code", map[string]any{"ZipFile": errorZip})
+	if updated.Code != http.StatusOK {
+		t.Fatalf("update code status = %d, body = %s", updated.Code, updated.Body.String())
+	}
+	failed := executeAWSLambdaRawRequestWithAccessKey(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner/invocations?LogType=Tail", []byte(`{}`), accessKeyID)
+	if failed.Code != http.StatusOK {
+		t.Fatalf("failed invoke status = %d, body = %s", failed.Code, failed.Body.String())
+	}
+	if got := failed.Header().Get("x-amz-function-error"); got != "Unhandled" {
+		t.Fatalf("function error = %q, want Unhandled", got)
+	}
+	var failedBody struct {
+		ErrorMessage string `json:"errorMessage"`
+	}
+	decodeJSONBody(t, failed, &failedBody)
+	if failedBody.ErrorMessage != "boom" {
+		t.Fatalf("unexpected error body: %#v", failedBody)
+	}
+	failedTail, err := base64.StdEncoding.DecodeString(failed.Header().Get("x-amz-log-result"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(failedTail), "before boom") {
+		t.Fatalf("tail log missing error output: %s", string(failedTail))
+	}
+
+	childMarkerPath := filepath.Join(t.TempDir(), "child-marker")
+	timeoutConfig := executeAWSLambdaRequest(t, handler, http.MethodPut, "/2015-03-31/functions/node-runner/configuration", map[string]any{
+		"Timeout":     1,
+		"Environment": map[string]any{"Variables": map[string]any{"CHILD_MARKER": childMarkerPath}},
+	})
+	if timeoutConfig.Code != http.StatusOK {
+		t.Fatalf("update timeout config status = %d, body = %s", timeoutConfig.Code, timeoutConfig.Body.String())
+	}
+	timeoutZip := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = async () => {
+  const { spawn } = require("node:child_process");
+  const child = spawn(process.execPath, ["-e", "setTimeout(() => require('node:fs').writeFileSync(process.env.CHILD_MARKER, 'alive'), 1800); setTimeout(() => {}, 3000);"], { stdio: "ignore" });
+  child.unref();
+  console.log("before timeout");
+  setInterval(() => {}, 1000);
+  await new Promise(() => {});
+};
+`})
+	timeoutUpdate := executeAWSLambdaRequest(t, handler, http.MethodPut, "/2015-03-31/functions/node-runner/code", map[string]any{"ZipFile": timeoutZip})
+	if timeoutUpdate.Code != http.StatusOK {
+		t.Fatalf("update timeout code status = %d, body = %s", timeoutUpdate.Code, timeoutUpdate.Body.String())
+	}
+	timedOut := executeAWSLambdaRawRequestWithAccessKey(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner/invocations?LogType=Tail", []byte(`{}`), accessKeyID)
+	if timedOut.Code != http.StatusOK {
+		t.Fatalf("timeout invoke status = %d, body = %s", timedOut.Code, timedOut.Body.String())
+	}
+	if got := timedOut.Header().Get("x-amz-function-error"); got != "Unhandled" {
+		t.Fatalf("timeout function error = %q, want Unhandled", got)
+	}
+	var timedOutBody struct {
+		ErrorMessage string `json:"errorMessage"`
+	}
+	decodeJSONBody(t, timedOut, &timedOutBody)
+	if timedOutBody.ErrorMessage != "Task timed out after 1 seconds" {
+		t.Fatalf("unexpected timeout body: %#v", timedOutBody)
+	}
+	timedOutTail, err := base64.StdEncoding.DecodeString(timedOut.Header().Get("x-amz-log-result"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(timedOutTail), "before timeout") {
+		t.Fatalf("tail log missing timeout output: %s", string(timedOutTail))
+	}
+	time.Sleep(2200 * time.Millisecond)
+	if _, err := os.Stat(childMarkerPath); err == nil {
+		t.Fatalf("timed out Lambda child process wrote marker file: %s", childMarkerPath)
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("failed to check child marker file: %v", err)
+	}
+}
+
+func TestServiceRunsLocalNodeLambdaAliasWithAliasContextARN(t *testing.T) {
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is required for local Lambda Node.js runner coverage")
+	}
+	handler := newTestHandlerWithOptions(Options{LambdaLocalCodeExecution: true})
+	const accessKeyID = "AKIAIOSFODNN7EXAMPLE"
+	zipFile := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = async (event, context) => ({
+  functionVersion: context.functionVersion,
+  invokedFunctionArn: context.invokedFunctionArn,
+});
+`})
+
+	create := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions", map[string]any{
+		"FunctionName": "node-runner-alias",
+		"Runtime":      "nodejs22.x",
+		"Role":         "arn:aws:iam::123456789012:role/lambda-execution-role",
+		"Handler":      "index.handler",
+		"Code":         map[string]any{"ZipFile": zipFile},
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", create.Code, create.Body.String())
+	}
+	var created struct {
+		FunctionArn string `json:"FunctionArn"`
+	}
+	decodeJSONBody(t, create, &created)
+
+	version := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner-alias/versions", map[string]any{"Description": "alias target"})
+	if version.Code != http.StatusCreated {
+		t.Fatalf("publish version status = %d, body = %s", version.Code, version.Body.String())
+	}
+	var versionBody struct {
+		Version string `json:"Version"`
+	}
+	decodeJSONBody(t, version, &versionBody)
+	if versionBody.Version != "1" {
+		t.Fatalf("version = %q, want 1", versionBody.Version)
+	}
+
+	alias := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner-alias/aliases", map[string]any{"Name": "live", "FunctionVersion": "1"})
+	if alias.Code != http.StatusCreated {
+		t.Fatalf("create alias status = %d, body = %s", alias.Code, alias.Body.String())
+	}
+
+	invoke := executeAWSLambdaRawRequestWithAccessKey(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner-alias/invocations?Qualifier=live", []byte(`{}`), accessKeyID)
+	if invoke.Code != http.StatusOK {
+		t.Fatalf("alias invoke status = %d, body = %s", invoke.Code, invoke.Body.String())
+	}
+	if got := invoke.Header().Get("x-amz-executed-version"); got != "1" {
+		t.Fatalf("executed version = %q, want 1", got)
+	}
+	var body struct {
+		FunctionVersion    string `json:"functionVersion"`
+		InvokedFunctionArn string `json:"invokedFunctionArn"`
+	}
+	decodeJSONBody(t, invoke, &body)
+	if body.FunctionVersion != "1" {
+		t.Fatalf("context function version = %q, want 1", body.FunctionVersion)
+	}
+	if body.InvokedFunctionArn != created.FunctionArn+":live" {
+		t.Fatalf("context invoked arn = %q, want %q", body.InvokedFunctionArn, created.FunctionArn+":live")
+	}
+}
+
+func TestServiceReturnsLocalLambdaErrorForInvalidZip(t *testing.T) {
+	handler := newTestHandlerWithOptions(Options{LambdaLocalCodeExecution: true})
+	create := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions", map[string]any{
+		"FunctionName": "node-runner-invalid-zip",
+		"Runtime":      "nodejs22.x",
+		"Role":         "arn:aws:iam::123456789012:role/lambda-execution-role",
+		"Handler":      "index.handler",
+		"Code":         map[string]any{"ZipFile": base64.StdEncoding.EncodeToString([]byte("not a zip"))},
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", create.Code, create.Body.String())
+	}
+
+	invoke := executeAWSLambdaRawRequestWithAccessKey(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner-invalid-zip/invocations", []byte(`{}`), "AKIAIOSFODNN7EXAMPLE")
+	if invoke.Code != http.StatusOK {
+		t.Fatalf("invoke status = %d, body = %s", invoke.Code, invoke.Body.String())
+	}
+	if got := invoke.Header().Get("x-amz-function-error"); got != "Unhandled" {
+		t.Fatalf("function error = %q, want Unhandled", got)
+	}
+	var body struct {
+		ErrorType string `json:"errorType"`
+	}
+	decodeJSONBody(t, invoke, &body)
+	if body.ErrorType != "Runtime.InvalidZipFileException" {
+		t.Fatalf("unexpected error body: %#v", body)
+	}
+}
+
+func TestServiceDoesNotRunLocalNodeLambdaHandlerWithoutOptIn(t *testing.T) {
+	handler := newTestHandler()
+	zipFile := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = async () => ({ executed: true });`})
+
+	create := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions", map[string]any{
+		"FunctionName": "node-runner-disabled",
+		"Runtime":      "nodejs22.x",
+		"Role":         "arn:aws:iam::123456789012:role/lambda-execution-role",
+		"Handler":      "index.handler",
+		"Code":         map[string]any{"ZipFile": zipFile},
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", create.Code, create.Body.String())
+	}
+
+	invoke := executeAWSLambdaRawRequest(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner-disabled/invocations", []byte(`{}`))
+	if invoke.Code != http.StatusOK {
+		t.Fatalf("invoke status = %d, body = %s", invoke.Code, invoke.Body.String())
+	}
+	if invoke.Body.String() != "{}" {
+		t.Fatalf("invoke body = %s", invoke.Body.String())
+	}
+	if got := invoke.Header().Get("x-amz-function-error"); got != "" {
+		t.Fatalf("function error = %q", got)
+	}
+}
+
+func TestServiceDoesNotRunLocalNodeLambdaHandlerWithoutKnownCredential(t *testing.T) {
+	handler := newTestHandlerWithOptions(Options{LambdaLocalCodeExecution: true})
+	zipFile := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = async () => ({ executed: true });`})
+
+	create := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions", map[string]any{
+		"FunctionName": "node-runner-unknown-key",
+		"Runtime":      "nodejs22.x",
+		"Role":         "arn:aws:iam::123456789012:role/lambda-execution-role",
+		"Handler":      "index.handler",
+		"Code":         map[string]any{"ZipFile": zipFile},
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", create.Code, create.Body.String())
+	}
+
+	invoke := executeAWSLambdaRawRequest(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner-unknown-key/invocations", []byte(`{}`))
+	if invoke.Code != http.StatusOK {
+		t.Fatalf("invoke status = %d, body = %s", invoke.Code, invoke.Body.String())
+	}
+	if invoke.Body.String() != "{}" {
+		t.Fatalf("invoke body = %s", invoke.Body.String())
+	}
+}
+
+func TestServiceDoesNotRunLocalNodeLambdaHandlerWithInvalidSignature(t *testing.T) {
+	handler := newTestHandlerWithOptions(Options{LambdaLocalCodeExecution: true})
+	zipFile := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = async () => ({ executed: true });`})
+
+	create := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions", map[string]any{
+		"FunctionName": "node-runner-invalid-signature",
+		"Runtime":      "nodejs22.x",
+		"Role":         "arn:aws:iam::123456789012:role/lambda-execution-role",
+		"Handler":      "index.handler",
+		"Code":         map[string]any{"ZipFile": zipFile},
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", create.Code, create.Body.String())
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/2015-03-31/functions/node-runner-invalid-signature/invocations", strings.NewReader(`{}`))
+	req.RemoteAddr = "127.0.0.1:1234"
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Amz-Date", "20260519T000000Z")
+	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential=AKIAIOSFODNN7EXAMPLE/20260519/us-east-1/lambda/aws4_request, SignedHeaders=host;x-amz-date, Signature=abcdef")
+	invoke := httptest.NewRecorder()
+	handler.ServeHTTP(invoke, req)
+	if invoke.Code != http.StatusOK {
+		t.Fatalf("invoke status = %d, body = %s", invoke.Code, invoke.Body.String())
+	}
+	if invoke.Body.String() != "{}" {
+		t.Fatalf("invoke body = %s", invoke.Body.String())
+	}
+	if got := invoke.Header().Get("x-amz-function-error"); got != "" {
+		t.Fatalf("function error = %q", got)
+	}
+}
+
+func TestServiceDoesNotRunLocalNodeLambdaHandlerFromNonLoopback(t *testing.T) {
+	handler := newTestHandlerWithOptions(Options{LambdaLocalCodeExecution: true})
+	zipFile := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = async () => ({ executed: true });`})
+
+	create := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions", map[string]any{
+		"FunctionName": "node-runner-remote",
+		"Runtime":      "nodejs22.x",
+		"Role":         "arn:aws:iam::123456789012:role/lambda-execution-role",
+		"Handler":      "index.handler",
+		"Code":         map[string]any{"ZipFile": zipFile},
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", create.Code, create.Body.String())
+	}
+
+	invoke := executeAWSLambdaRawRequestWithAccessKeyAndRemoteAddr(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner-remote/invocations", []byte(`{}`), "AKIAIOSFODNN7EXAMPLE", "203.0.113.10:1234")
+	if invoke.Code != http.StatusOK {
+		t.Fatalf("invoke status = %d, body = %s", invoke.Code, invoke.Body.String())
+	}
+	if invoke.Body.String() != "{}" {
+		t.Fatalf("invoke body = %s", invoke.Body.String())
+	}
+	if got := invoke.Header().Get("x-amz-function-error"); got != "" {
+		t.Fatalf("function error = %q", got)
+	}
+}
+
+func TestServiceDoesNotRunLocalNodeLambdaHandlerThroughProxyHost(t *testing.T) {
+	handler := newTestHandlerWithOptions(Options{LambdaLocalCodeExecution: true})
+	zipFile := zipLambdaSource(t, map[string]string{"index.js": `exports.handler = async () => ({ executed: true });`})
+
+	create := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions", map[string]any{
+		"FunctionName": "node-runner-proxy",
+		"Runtime":      "nodejs22.x",
+		"Role":         "arn:aws:iam::123456789012:role/lambda-execution-role",
+		"Handler":      "index.handler",
+		"Code":         map[string]any{"ZipFile": zipFile},
+	})
+	if create.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, body = %s", create.Code, create.Body.String())
+	}
+
+	proxyHostInvoke := executeAWSLambdaRawRequestWithAccessKeyRemoteAddrHostAndHeaders(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner-proxy/invocations", []byte(`{}`), "AKIAIOSFODNN7EXAMPLE", "127.0.0.1:1234", "lambda.example.test", nil)
+	if proxyHostInvoke.Code != http.StatusOK {
+		t.Fatalf("proxy host invoke status = %d, body = %s", proxyHostInvoke.Code, proxyHostInvoke.Body.String())
+	}
+	if proxyHostInvoke.Body.String() != "{}" {
+		t.Fatalf("proxy host invoke body = %s", proxyHostInvoke.Body.String())
+	}
+
+	forwardedInvoke := executeAWSLambdaRawRequestWithAccessKeyRemoteAddrHostAndHeaders(t, handler, http.MethodPost, "/2015-03-31/functions/node-runner-proxy/invocations", []byte(`{}`), "AKIAIOSFODNN7EXAMPLE", "127.0.0.1:1234", "127.0.0.1", map[string]string{"X-Forwarded-For": "203.0.113.10"})
+	if forwardedInvoke.Code != http.StatusOK {
+		t.Fatalf("forwarded invoke status = %d, body = %s", forwardedInvoke.Code, forwardedInvoke.Body.String())
+	}
+	if forwardedInvoke.Body.String() != "{}" {
+		t.Fatalf("forwarded invoke body = %s", forwardedInvoke.Body.String())
+	}
+	if got := forwardedInvoke.Header().Get("x-amz-function-error"); got != "" {
+		t.Fatalf("function error = %q", got)
+	}
+}
+
 func TestServiceHandlesLambdaVersionsAliasesTagsAndPolicy(t *testing.T) {
 	handler := newTestHandler()
 	create := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions", map[string]any{
@@ -4660,9 +5207,14 @@ func newTestHandler() http.Handler {
 }
 
 func newTestHandlerWithCredentialStore(credentialStore *auth.Store) http.Handler {
+	return newTestHandlerWithOptions(Options{CredentialStore: credentialStore})
+}
+
+func newTestHandlerWithOptions(options Options) http.Handler {
 	router := corehttp.NewRouter()
 	ui.RegisterAssetRoutes(router)
-	Register(router, Options{Store: corestore.New(), CredentialStore: credentialStore})
+	options.Store = corestore.New()
+	Register(router, options)
 	router.NotFound(func(c *corehttp.Context) {
 		c.JSON(http.StatusNotFound, map[string]any{"message": "Not Found"})
 	})
@@ -4833,6 +5385,25 @@ func executeAWSKMSRequestWithRegion(t *testing.T, handler http.Handler, action s
 	return res
 }
 
+func zipLambdaSource(t *testing.T, files map[string]string) string {
+	t.Helper()
+	var buf bytes.Buffer
+	archive := zip.NewWriter(&buf)
+	for name, source := range files {
+		file, err := archive.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := file.Write([]byte(source)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := archive.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return base64.StdEncoding.EncodeToString(buf.Bytes())
+}
+
 func executeAWSLambdaRequest(t *testing.T, handler http.Handler, method string, path string, payload map[string]any) *httptest.ResponseRecorder {
 	t.Helper()
 	return executeAWSLambdaRequestWithAccessKey(t, handler, method, path, payload, "")
@@ -4858,11 +5429,28 @@ func executeAWSLambdaRawRequest(t *testing.T, handler http.Handler, method strin
 
 func executeAWSLambdaRawRequestWithAccessKey(t *testing.T, handler http.Handler, method string, path string, raw []byte, accessKeyID string) *httptest.ResponseRecorder {
 	t.Helper()
+	return executeAWSLambdaRawRequestWithAccessKeyAndRemoteAddr(t, handler, method, path, raw, accessKeyID, "127.0.0.1:1234")
+}
+
+func executeAWSLambdaRawRequestWithAccessKeyAndRemoteAddr(t *testing.T, handler http.Handler, method string, path string, raw []byte, accessKeyID string, remoteAddr string) *httptest.ResponseRecorder {
+	t.Helper()
+	return executeAWSLambdaRawRequestWithAccessKeyRemoteAddrHostAndHeaders(t, handler, method, path, raw, accessKeyID, remoteAddr, "127.0.0.1", nil)
+}
+
+func executeAWSLambdaRawRequestWithAccessKeyRemoteAddrHostAndHeaders(t *testing.T, handler http.Handler, method string, path string, raw []byte, accessKeyID string, remoteAddr string, host string, headers map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
 	if raw == nil {
 		raw = []byte{}
 	}
-	req := httptest.NewRequest(method, "http://127.0.0.1"+path, bytes.NewReader(raw))
+	if host == "" {
+		host = "127.0.0.1"
+	}
+	req := httptest.NewRequest(method, "http://"+host+path, bytes.NewReader(raw))
+	req.RemoteAddr = remoteAddr
 	req.Header.Set("Content-Type", "application/json")
+	for key, value := range headers {
+		req.Header.Set(key, value)
+	}
 	if accessKeyID != "" {
 		req.Header.Set("X-Access-Key", accessKeyID)
 	}
@@ -5017,6 +5605,76 @@ func signAWSRequestWithRegion(req *http.Request, service string, region string) 
 		accessKeyID = "AKIAEXAMPLE"
 	}
 	req.Header.Del("X-Access-Key")
-	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+accessKeyID+"/20260519/"+region+"/"+service+"/aws4_request, SignedHeaders=host;x-amz-date, Signature=abcdef")
-	req.Header.Set("X-Amz-Date", "20260519T000000Z")
+	date := "20260519"
+	timestamp := date + "T000000Z"
+	payloadHash := "UNSIGNED-PAYLOAD"
+	signedHeaders := "host;x-amz-content-sha256;x-amz-date"
+	req.Header.Set("X-Amz-Date", timestamp)
+	req.Header.Set("X-Amz-Content-Sha256", payloadHash)
+	scope := date + "/" + region + "/" + service + "/aws4_request"
+	canonicalRequest := strings.Join([]string{
+		req.Method,
+		testSigV4CanonicalURI(req.URL),
+		testSigV4CanonicalQuery(req.URL.Query()),
+		"host:" + req.Host + "\n" +
+			"x-amz-content-sha256:" + payloadHash + "\n" +
+			"x-amz-date:" + timestamp + "\n",
+		signedHeaders,
+		payloadHash,
+	}, "\n")
+	canonicalHash := sha256.Sum256([]byte(canonicalRequest))
+	stringToSign := strings.Join([]string{"AWS4-HMAC-SHA256", timestamp, scope, hex.EncodeToString(canonicalHash[:])}, "\n")
+	signature := hex.EncodeToString(testSigV4HMAC(testSigV4SigningKey(testSecretAccessKey(accessKeyID), date, region, service), []byte(stringToSign)))
+	req.Header.Set("Authorization", "AWS4-HMAC-SHA256 Credential="+accessKeyID+"/"+scope+", SignedHeaders="+signedHeaders+", Signature="+signature)
+}
+
+func testSecretAccessKey(accessKeyID string) string {
+	if accessKeyID == "AKIAIOSFODNN7EXAMPLE" {
+		return "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"
+	}
+	return "secret"
+}
+
+func testSigV4CanonicalURI(urlValue *url.URL) string {
+	if urlValue == nil {
+		return "/"
+	}
+	path := urlValue.EscapedPath()
+	if path == "" {
+		return "/"
+	}
+	return path
+}
+
+func testSigV4CanonicalQuery(values url.Values) string {
+	pairs := make([]string, 0)
+	for key, items := range values {
+		sortedItems := append([]string(nil), items...)
+		sort.Strings(sortedItems)
+		for _, value := range sortedItems {
+			pairs = append(pairs, testSigV4Escape(key)+"="+testSigV4Escape(value))
+		}
+	}
+	sort.Strings(pairs)
+	return strings.Join(pairs, "&")
+}
+
+func testSigV4SigningKey(secretAccessKey string, date string, region string, service string) []byte {
+	dateKey := testSigV4HMAC([]byte("AWS4"+secretAccessKey), []byte(date))
+	regionKey := testSigV4HMAC(dateKey, []byte(region))
+	serviceKey := testSigV4HMAC(regionKey, []byte(service))
+	return testSigV4HMAC(serviceKey, []byte("aws4_request"))
+}
+
+func testSigV4HMAC(key []byte, data []byte) []byte {
+	hash := hmac.New(sha256.New, key)
+	hash.Write(data)
+	return hash.Sum(nil)
+}
+
+func testSigV4Escape(value string) string {
+	escaped := url.QueryEscape(value)
+	escaped = strings.ReplaceAll(escaped, "+", "%20")
+	escaped = strings.ReplaceAll(escaped, "%7E", "~")
+	return escaped
 }

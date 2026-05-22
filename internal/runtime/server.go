@@ -25,23 +25,24 @@ import (
 const HealthPath = "/_emulate/health"
 
 type ServerOptions struct {
-	Version        string
-	BaseURL        string
-	Services       []string
-	Store          *store.Store
-	AssetStore     *coreassets.Store
-	AppleSeed      *apple.SeedConfig
-	AWSSeed        *aws.SeedConfig
-	ClerkSeed      *clerk.SeedConfig
-	GitHubSeed     *github.SeedConfig
-	GoogleSeed     *google.SeedConfig
-	MicrosoftSeed  *microsoft.SeedConfig
-	MongoAtlasSeed *mongoatlas.SeedConfig
-	OktaSeed       *okta.SeedConfig
-	ResendSeed     *resend.SeedConfig
-	SlackSeed      *slack.SeedConfig
-	StripeSeed     *stripe.SeedConfig
-	VercelSeed     *vercel.SeedConfig
+	Version            string
+	BaseURL            string
+	Services           []string
+	Store              *store.Store
+	AssetStore         *coreassets.Store
+	AppleSeed          *apple.SeedConfig
+	AWSSeed            *aws.SeedConfig
+	AWSLambdaLocalCode bool
+	ClerkSeed          *clerk.SeedConfig
+	GitHubSeed         *github.SeedConfig
+	GoogleSeed         *google.SeedConfig
+	MicrosoftSeed      *microsoft.SeedConfig
+	MongoAtlasSeed     *mongoatlas.SeedConfig
+	OktaSeed           *okta.SeedConfig
+	ResendSeed         *resend.SeedConfig
+	SlackSeed          *slack.SeedConfig
+	StripeSeed         *stripe.SeedConfig
+	VercelSeed         *vercel.SeedConfig
 }
 
 type Server struct {
@@ -110,11 +111,12 @@ func NewServer(options ServerOptions) *Server {
 	}
 	if serviceEnabled(services, "aws") {
 		aws.Register(router, aws.Options{
-			Store:          runtimeStore,
-			S3PathFallback: len(services) == 1,
-			AssetStore:     assetStore,
-			BaseURL:        options.BaseURL,
-			Seed:           options.AWSSeed,
+			Store:                    runtimeStore,
+			S3PathFallback:           len(services) == 1,
+			AssetStore:               assetStore,
+			BaseURL:                  options.BaseURL,
+			Seed:                     options.AWSSeed,
+			LambdaLocalCodeExecution: options.AWSLambdaLocalCode,
 		})
 	}
 	if serviceEnabled(services, "resend") {

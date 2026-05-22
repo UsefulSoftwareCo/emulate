@@ -110,6 +110,7 @@ func TestRunStartHelpExitsSuccessfully(t *testing.T) {
 		"npx emulate [start] [options]",
 		"--base-url <url>",
 		"--portless",
+		"--allow-local-lambda",
 	} {
 		if !strings.Contains(help, want) {
 			t.Fatalf("start help missing %q:\n%s", want, help)

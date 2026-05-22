@@ -106,6 +106,7 @@ type LambdaFunctionSeed struct {
 	Environment   map[string]string `json:"environment"`
 	Tags          map[string]string `json:"tags"`
 	InvokePayload string            `json:"invoke_payload"`
+	CodeZipBase64 string            `json:"code_zip_base64"`
 }
 
 type KMSSeed struct {
@@ -417,7 +418,18 @@ func seedLambdaFromConfig(store Store, accountID string, region string, config L
 		for key, value := range function.Tags {
 			tags[key] = value
 		}
-		sha := sha256.Sum256([]byte(function.InvokePayload))
+		codeZip := strings.TrimSpace(function.CodeZipBase64)
+		codeRaw := []byte(function.InvokePayload)
+		if codeZip != "" {
+			if decoded, err := base64.StdEncoding.DecodeString(codeZip); err == nil {
+				codeRaw = decoded
+				codeZip = base64.StdEncoding.EncodeToString(decoded)
+			} else {
+				codeRaw = []byte(codeZip)
+				codeZip = base64.StdEncoding.EncodeToString(codeRaw)
+			}
+		}
+		sha := sha256.Sum256(codeRaw)
 		store.LambdaFunctions.Insert(corestore.Record{
 			"account_id":          accountID,
 			"region":              region,
@@ -431,8 +443,9 @@ func seedLambdaFromConfig(store Store, accountID string, region string, config L
 			"memory_size":         memorySize,
 			"package_type":        "Zip",
 			"architectures":       []string{"x86_64"},
-			"code_size":           len(function.InvokePayload),
+			"code_size":           len(codeRaw),
 			"code_sha256":         base64.StdEncoding.EncodeToString(sha[:]),
+			"code_zip_base64":     codeZip,
 			"version":             "$LATEST",
 			"revision_id":         "rev-" + generateAWSID(""),
 			"last_modified":       now.Format("2006-01-02T15:04:05.000-0700"),

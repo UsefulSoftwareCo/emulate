@@ -51,6 +51,7 @@ npx emulate list
 | `--seed` | auto-detect | Path to seed config (YAML or JSON) |
 | `--base-url` | none | Override advertised base URL |
 | `--portless` | off | Serve over HTTPS via portless (auto-registers aliases) |
+| `--allow-local-lambda` | off | Allow direct localhost AWS Lambda Node.js ZipFile code execution |
 
 The port can also be set via `EMULATE_PORT` or `PORT` environment variables.
 
@@ -146,6 +147,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
+| `allowLocalLambda` | `false` | Allow AWS Lambda Node.js ZipFile code execution for direct localhost invokes signed by a known AWS access key |
 
 ### Instance methods
 
@@ -319,6 +321,8 @@ aws:
         role: arn:aws:iam::123456789012:role/lambda-execution-role
         handler: index.handler
         invoke_payload: '{"ok":true}'
+        # Optional base64 Lambda zip for local Node.js handler execution.
+        code_zip_base64: ""
         environment:
           NODE_ENV: local
   iam:
@@ -827,16 +831,17 @@ In the native Go runtime, `@aws-sdk/client-kms` v3 can use the `/kms/` endpoint 
 
 ### Lambda
 
-In the native Go runtime, `@aws-sdk/client-lambda` v3 can use the AWS emulator root endpoint directly. Lambda uses AWS REST JSON paths such as `/2015-03-31/functions` and returns JSON responses. This is an API-only control plane for local tests; it does not execute user code yet.
+In the native Go runtime, `@aws-sdk/client-lambda` v3 can use the AWS emulator root endpoint directly. Lambda uses AWS REST JSON paths such as `/2015-03-31/functions` and returns JSON responses. The control plane works without Docker. Valid inline `ZipFile` packages for `nodejs*` runtimes run locally with the installed `node` executable when `npx emulate` is started with `--allow-local-lambda` and the invoke request uses a direct localhost endpoint (`localhost`, `127.0.0.1`, or `::1`) signed by a known AWS access key. Custom proxy, tunnel, and portless hosts keep the deterministic stub response path.
 
 - `CreateFunction` / `GetFunction` / `GetFunctionConfiguration` / `ListFunctions` / `DeleteFunction` - function lifecycle and discovery
-- `UpdateFunctionConfiguration` / `UpdateFunctionCode` - local metadata and code-hash updates
-- `Invoke` - deterministic API-only invoke responses. Seeded `invoke_payload` is returned when configured, otherwise `{}` is returned. `InvocationType: Event` and `DryRun` return accepted/no-content responses.
-- `PublishVersion` / `ListVersionsByFunction` - local version metadata
+- `UpdateFunctionConfiguration` / `UpdateFunctionCode` - local metadata, code-hash updates, and inline zip storage for local invocation
+- `Invoke` - runs valid zipped Node.js handlers for request-response invokes when local Lambda execution is enabled. Seeded `invoke_payload` is returned when no local runner applies, otherwise `{}` is returned. `InvocationType: Event` and `DryRun` return accepted/no-content responses.
+- `PublishVersion` / `ListVersionsByFunction` - local version metadata, including stored inline code for published versions
 - `CreateAlias` / `GetAlias` / `ListAliases` / `UpdateAlias` / `DeleteAlias` - alias metadata
 - `TagResource` / `UntagResource` / `ListTags` - function tags
 - `AddPermission` / `GetPolicy` / `RemovePermission` - stored resource policy statements
-- Creating or invoking a function creates local CloudWatch Logs metadata under `/aws/lambda/<function-name>`.
+- Creating or invoking a function creates local CloudWatch Logs metadata under `/aws/lambda/<function-name>`. Local Node.js handler console output is written to those logs and returned through `LogType: Tail`.
+- Seed functions with `lambda.functions[].invoke_payload` for deterministic stubs or `lambda.functions[].code_zip_base64` for a base64 Lambda zip used by the local Node.js runner.
 
 ### IAM
 Manual IAM requests can use `POST /iam/` with an `Action` form parameter. In the native Go runtime, `@aws-sdk/client-iam` v3 can use the `/iam/` endpoint directly.

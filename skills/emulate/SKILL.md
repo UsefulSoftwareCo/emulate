@@ -57,6 +57,7 @@ npx emulate list
 | `--seed` | auto-detect | Path to seed config (YAML or JSON) |
 | `--base-url` | none | Override advertised base URL (supports `{service}` template) |
 | `--portless` | off | Serve over HTTPS via portless (auto-registers aliases) |
+| `--allow-local-lambda` | off | Allow direct localhost AWS Lambda Node.js ZipFile code execution |
 
 The port can also be set via `EMULATE_PORT` or `PORT` environment variables.
 
@@ -91,6 +92,7 @@ await vercel.close()
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
+| `allowLocalLambda` | `false` | Allow AWS Lambda Node.js ZipFile code execution for direct localhost invokes signed by a known AWS access key |
 
 ### Instance Methods
 
@@ -246,6 +248,8 @@ aws:
         role: arn:aws:iam::123456789012:role/lambda-execution-role
         handler: index.handler
         invoke_payload: '{"ok":true}'
+        # Optional base64 Lambda zip for local Node.js handler execution.
+        code_zip_base64: ""
         environment:
           NODE_ENV: local
   iam:
