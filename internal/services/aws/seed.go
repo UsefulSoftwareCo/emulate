@@ -18,6 +18,7 @@ type SeedConfig struct {
 	SQS       SQSSeed            `json:"sqs"`
 	IAM       IAMSeed            `json:"iam"`
 	Secrets   SecretsManagerSeed `json:"secretsmanager"`
+	SSM       SSMSeed            `json:"ssm"`
 }
 
 type S3Seed struct {
@@ -70,6 +71,21 @@ type SecretSeed struct {
 	Tags         map[string]string `json:"tags"`
 }
 
+type SSMSeed struct {
+	Parameters []SSMParameterSeed `json:"parameters"`
+}
+
+type SSMParameterSeed struct {
+	Name        string            `json:"name"`
+	Type        string            `json:"type"`
+	Value       string            `json:"value"`
+	Description string            `json:"description"`
+	KeyID       string            `json:"key_id"`
+	Tier        string            `json:"tier"`
+	DataType    string            `json:"data_type"`
+	Tags        map[string]string `json:"tags"`
+}
+
 func seedFromConfig(store Store, credentialStore *auth.Store, baseURL string, defaultAccountID string, defaultRegion string, config SeedConfig) {
 	accountID := firstNonEmpty(config.AccountID, defaultAccountID, gateway.DefaultAccountID)
 	region := firstNonEmpty(config.Region, defaultRegion, gateway.DefaultRegion)
@@ -80,6 +96,7 @@ func seedFromConfig(store Store, credentialStore *auth.Store, baseURL string, de
 	seedSQSFromConfig(store, baseURL, accountID, region, config.SQS)
 	seedIAMFromConfig(store, credentialStore, accountID, config.IAM)
 	seedSecretsManagerFromConfig(store, accountID, region, config.Secrets)
+	seedSSMFromConfig(store, accountID, region, config.SSM)
 }
 
 func seedS3FromConfig(store Store, defaultRegion string, config S3Seed) {
@@ -237,6 +254,84 @@ func seedSecretsManagerFromConfig(store Store, accountID string, region string, 
 			"last_accessed_date": int64(0),
 		})
 	}
+}
+
+func seedSSMFromConfig(store Store, accountID string, region string, config SSMSeed) {
+	if accountID == "" {
+		accountID = gateway.DefaultAccountID
+	}
+	if region == "" {
+		region = gateway.DefaultRegion
+	}
+	for _, parameter := range config.Parameters {
+		name := strings.TrimSpace(parameter.Name)
+		if name == "" || len(store.SSMParameters.FindBy("name", name)) > 0 {
+			continue
+		}
+		parameterType := firstNonEmpty(parameter.Type, "String")
+		if parameterType != "String" && parameterType != "StringList" && parameterType != "SecureString" {
+			parameterType = "String"
+		}
+		tier := firstNonEmpty(parameter.Tier, "Standard")
+		dataType := firstNonEmpty(parameter.DataType, "text")
+		now := time.Now().UTC().Unix()
+		tags := corestore.Record{}
+		for key, value := range parameter.Tags {
+			tags[key] = value
+		}
+		arn := "arn:aws:ssm:" + region + ":" + accountID + ":parameter/" + strings.TrimPrefix(name, "/")
+		record := corestore.Record{
+			"account_id":          accountID,
+			"region":              region,
+			"name":                name,
+			"arn":                 arn,
+			"path":                ssmParameterPath(name),
+			"type":                parameterType,
+			"value":               parameter.Value,
+			"version":             int64(1),
+			"description":         parameter.Description,
+			"key_id":              parameter.KeyID,
+			"tier":                tier,
+			"data_type":           dataType,
+			"last_modified_date":  now,
+			"last_accessed_date":  int64(0),
+			"tags":                tags,
+			"allowed_pattern":     "",
+			"policies":            []string{},
+			"selector_labels":     []string{},
+			"source_result":       "",
+			"has_secure_material": parameterType == "SecureString",
+		}
+		store.SSMParameters.Insert(record)
+		store.SSMParamVersions.Insert(corestore.Record{
+			"account_id":          accountID,
+			"region":              region,
+			"name":                name,
+			"arn":                 arn,
+			"version":             int64(1),
+			"type":                parameterType,
+			"value":               parameter.Value,
+			"description":         parameter.Description,
+			"key_id":              parameter.KeyID,
+			"tier":                tier,
+			"data_type":           dataType,
+			"last_modified_date":  now,
+			"has_secure_material": parameterType == "SecureString",
+		})
+	}
+}
+
+func ssmParameterPath(name string) string {
+	name = strings.TrimSpace(name)
+	if name == "" || !strings.HasPrefix(name, "/") {
+		return "/"
+	}
+	trimmed := strings.TrimSuffix(name, "/")
+	index := strings.LastIndex(trimmed, "/")
+	if index <= 0 {
+		return "/"
+	}
+	return trimmed[:index]
 }
 
 func firstNonEmpty(values ...string) string {

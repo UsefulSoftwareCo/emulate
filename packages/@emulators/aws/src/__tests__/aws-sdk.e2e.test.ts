@@ -74,6 +74,19 @@ import {
   UpdateSecretCommand,
 } from "@aws-sdk/client-secrets-manager";
 import {
+  SSMClient,
+  AddTagsToResourceCommand as AddSSMTagsToResourceCommand,
+  DeleteParameterCommand,
+  DeleteParametersCommand,
+  DescribeParametersCommand,
+  GetParameterCommand,
+  GetParametersByPathCommand,
+  GetParametersCommand,
+  ListTagsForResourceCommand as ListSSMTagsForResourceCommand,
+  PutParameterCommand,
+  RemoveTagsFromResourceCommand,
+} from "@aws-sdk/client-ssm";
+import {
   S3Client,
   ListBucketsCommand,
   HeadBucketCommand,
@@ -142,6 +155,7 @@ const describeExternalDynamoDBE2E = process.env.AWS_EMULATOR_E2E_URL ? describe 
 const describeExternalEventBridgeE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalCloudWatchLogsE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalSecretsManagerE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
+const describeExternalSSME2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 
 describeExternalS3E2E("AWS native runtime - real @aws-sdk/client-s3 E2E", () => {
   let emulator: EmulatorHandle;
@@ -1159,6 +1173,130 @@ describeExternalSecretsManagerE2E("AWS native runtime - real @aws-sdk/client-sec
     expect(Buffer.from(got.SecretBinary ?? [])).toEqual(Buffer.from([1, 2, 3, 4]));
 
     await secrets.send(new DeleteSecretCommand({ SecretId: secretName, ForceDeleteWithoutRecovery: true }));
+  });
+});
+
+describeExternalSSME2E("AWS native runtime - real @aws-sdk/client-ssm E2E", () => {
+  let emulator: EmulatorHandle;
+  let ssm: SSMClient;
+
+  beforeAll(async () => {
+    emulator = await startEmulator();
+    ssm = new SSMClient({
+      endpoint: `${emulator.url.replace(/\/$/, "")}/ssm/`,
+      region: "us-east-1",
+      credentials: {
+        accessKeyId: "AKIAIOSFODNN7EXAMPLE",
+        secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+      },
+    });
+  });
+
+  afterAll(async () => {
+    ssm.destroy();
+    await emulator.close();
+  });
+
+  it("PutParameter, GetParameter, path queries, tags, describe, and deletes roundtrip", async () => {
+    const suffix = Date.now().toString(36);
+    const root = `/sdk/ssm/${suffix}`;
+    const dbName = `${root}/database-url`;
+    const listName = `${root}/list`;
+    const nestedName = `${root}/nested/value`;
+
+    const created = await ssm.send(
+      new PutParameterCommand({
+        Name: dbName,
+        Type: "SecureString",
+        Value: "postgres://initial",
+        KeyId: "alias/local",
+        Description: "SDK database URL",
+        Tags: [{ Key: "env", Value: "test" }],
+      }),
+    );
+    expect(created.Version).toBe(1);
+    expect(created.Tier).toBe("Standard");
+
+    await expect(ssm.send(new PutParameterCommand({ Name: dbName, Value: "duplicate" }))).rejects.toMatchObject({
+      name: "ParameterAlreadyExists",
+    });
+
+    const overwritten = await ssm.send(
+      new PutParameterCommand({
+        Name: dbName,
+        Type: "SecureString",
+        Value: "postgres://rotated",
+        Overwrite: true,
+      }),
+    );
+    expect(overwritten.Version).toBe(2);
+
+    await ssm.send(new PutParameterCommand({ Name: listName, Type: "StringList", Value: "one,two" }));
+    await ssm.send(new PutParameterCommand({ Name: nestedName, Type: "String", Value: "nested" }));
+
+    const current = await ssm.send(new GetParameterCommand({ Name: dbName, WithDecryption: true }));
+    expect(current.Parameter?.Name).toBe(dbName);
+    expect(current.Parameter?.Type).toBe("SecureString");
+    expect(current.Parameter?.Value).toBe("postgres://rotated");
+    expect(current.Parameter?.Version).toBe(2);
+    expect(current.Parameter?.ARN).toBe(`arn:aws:ssm:us-east-1:123456789012:parameter${dbName}`);
+
+    const previous = await ssm.send(new GetParameterCommand({ Name: `${dbName}:1`, WithDecryption: true }));
+    expect(previous.Parameter?.Value).toBe("postgres://initial");
+    expect(previous.Parameter?.Version).toBe(1);
+
+    const batch = await ssm.send(
+      new GetParametersCommand({ Names: [dbName, listName, `${root}/missing`], WithDecryption: true }),
+    );
+    expect((batch.Parameters ?? []).map((item) => item.Name)).toEqual([dbName, listName]);
+    expect(batch.InvalidParameters).toEqual([`${root}/missing`]);
+
+    const oneLevel = await ssm.send(new GetParametersByPathCommand({ Path: root, Recursive: false }));
+    expect((oneLevel.Parameters ?? []).map((item) => item.Name)).toEqual([dbName, listName]);
+
+    const pageOne = await ssm.send(new GetParametersByPathCommand({ Path: root, Recursive: true, MaxResults: 2 }));
+    expect((pageOne.Parameters ?? []).map((item) => item.Name)).toEqual([dbName, listName]);
+    expect(pageOne.NextToken).toBeTruthy();
+    const pageTwo = await ssm.send(
+      new GetParametersByPathCommand({ Path: root, Recursive: true, NextToken: pageOne.NextToken }),
+    );
+    expect((pageTwo.Parameters ?? []).map((item) => item.Name)).toEqual([nestedName]);
+
+    await ssm.send(
+      new AddSSMTagsToResourceCommand({
+        ResourceType: "Parameter",
+        ResourceId: dbName,
+        Tags: [{ Key: "team", Value: "platform" }],
+      }),
+    );
+    const tags = await ssm.send(new ListSSMTagsForResourceCommand({ ResourceType: "Parameter", ResourceId: dbName }));
+    expect(tags.TagList).toEqual(
+      expect.arrayContaining([
+        { Key: "env", Value: "test" },
+        { Key: "team", Value: "platform" },
+      ]),
+    );
+    await ssm.send(
+      new RemoveTagsFromResourceCommand({ ResourceType: "Parameter", ResourceId: dbName, TagKeys: ["team"] }),
+    );
+    const afterRemove = await ssm.send(
+      new ListSSMTagsForResourceCommand({ ResourceType: "Parameter", ResourceId: dbName }),
+    );
+    expect(afterRemove.TagList ?? []).not.toEqual(expect.arrayContaining([{ Key: "team", Value: "platform" }]));
+
+    const described = await ssm.send(
+      new DescribeParametersCommand({
+        ParameterFilters: [{ Key: "Path", Option: "Recursive", Values: [root] }],
+      }),
+    );
+    expect((described.Parameters ?? []).map((item) => item.Name)).toEqual([dbName, listName, nestedName]);
+    expect(described.Parameters?.find((item) => item.Name === dbName)?.KeyId).toBe("alias/local");
+
+    await ssm.send(new DeleteParameterCommand({ Name: listName }));
+    await ssm.send(new DeleteParametersCommand({ Names: [dbName, nestedName, `${root}/missing`] }));
+    await expect(ssm.send(new GetParameterCommand({ Name: dbName }))).rejects.toMatchObject({
+      name: "ParameterNotFound",
+    });
   });
 });
 

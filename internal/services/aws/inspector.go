@@ -15,11 +15,12 @@ var inspectorTabs = []ui.InspectorTab{
 	{ID: "iam", Label: "IAM", Href: "/_inspector?tab=iam"},
 	{ID: "logs", Label: "Logs", Href: "/_inspector?tab=logs"},
 	{ID: "secretsmanager", Label: "Secrets", Href: "/_inspector?tab=secretsmanager"},
+	{ID: "ssm", Label: "SSM", Href: "/_inspector?tab=ssm"},
 }
 
 func (s *Service) handleInspector(c *corehttp.Context) {
 	tab := c.Query("tab")
-	if tab != "s3" && tab != "sqs" && tab != "iam" && tab != "logs" && tab != "secretsmanager" {
+	if tab != "s3" && tab != "sqs" && tab != "iam" && tab != "logs" && tab != "secretsmanager" && tab != "ssm" {
 		tab = "s3"
 	}
 	tabs := make([]ui.InspectorTab, len(inspectorTabs))
@@ -38,6 +39,8 @@ func (s *Service) handleInspector(c *corehttp.Context) {
 		body = s.renderLogsInspector()
 	case "secretsmanager":
 		body = s.renderSecretsManagerInspector()
+	case "ssm":
+		body = s.renderSSMInspector()
 	default:
 		body = s.renderS3Inspector()
 	}
@@ -203,6 +206,31 @@ func (s *Service) renderSecretsManagerInspector() string {
   <table class="inspector-table">
     <thead><tr><th>Secret</th><th>Versions</th><th>KMS Key</th><th>Status</th><th>ARN</th></tr></thead>
     <tbody>` + rowsOrEmpty(rows.String(), 5, "No secrets") + `</tbody>
+  </table>
+</div>`
+}
+
+func (s *Service) renderSSMInspector() string {
+	parameters := s.store.SSMParameters.All()
+	var rows strings.Builder
+	for _, parameter := range parameters {
+		rows.WriteString(`<tr><td>`)
+		rows.WriteString(ui.EscapeHTML(stringField(parameter, "name")))
+		rows.WriteString(`</td><td>`)
+		rows.WriteString(ui.EscapeHTML(stringField(parameter, "type")))
+		rows.WriteString(`</td><td>`)
+		rows.WriteString(ui.EscapeHTML(stringField(parameter, "version")))
+		rows.WriteString(`</td><td>`)
+		rows.WriteString(ui.EscapeHTML(stringField(parameter, "tier")))
+		rows.WriteString(`</td><td>`)
+		rows.WriteString(ui.EscapeHTML(stringField(parameter, "arn")))
+		rows.WriteString(`</td></tr>`)
+	}
+	return `<div class="inspector-section">
+  <h2>SSM Parameters (` + fmt.Sprint(len(parameters)) + `)</h2>
+  <table class="inspector-table">
+    <thead><tr><th>Parameter</th><th>Type</th><th>Version</th><th>Tier</th><th>ARN</th></tr></thead>
+    <tbody>` + rowsOrEmpty(rows.String(), 5, "No parameters") + `</tbody>
   </table>
 </div>`
 }

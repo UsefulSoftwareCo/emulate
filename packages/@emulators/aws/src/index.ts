@@ -74,6 +74,12 @@ export interface Secret extends CompatEntity {
 export interface SecretVersion extends CompatEntity {
   [key: string]: unknown;
 }
+export interface SSMParameter extends CompatEntity {
+  [key: string]: unknown;
+}
+export interface SSMParameterVersion extends CompatEntity {
+  [key: string]: unknown;
+}
 export interface IamUser extends CompatEntity {
   [key: string]: unknown;
 }
@@ -95,6 +101,8 @@ export interface AwsStore {
   logEvents: CompatCollection<LogEvent>;
   secrets: CompatCollection<Secret>;
   secretVersions: CompatCollection<SecretVersion>;
+  ssmParameters: CompatCollection<SSMParameter>;
+  ssmParameterVersions: CompatCollection<SSMParameterVersion>;
   iamUsers: CompatCollection<IamUser>;
   iamRoles: CompatCollection<IamRole>;
 }
@@ -135,6 +143,19 @@ export function getAwsStore(store: CompatStoreSource): AwsStore {
       "secret_arn",
       "secret_name",
       "version_id",
+    ]),
+    ssmParameters: compatCollection<SSMParameter>(store, "aws.ssm_parameters", [
+      "account_id",
+      "region",
+      "name",
+      "arn",
+      "path",
+    ]),
+    ssmParameterVersions: compatCollection<SSMParameterVersion>(store, "aws.ssm_parameter_versions", [
+      "account_id",
+      "region",
+      "name",
+      "version",
     ]),
     iamUsers: compatCollection<IamUser>(store, "aws.iam_users", ["user_name", "user_id"]),
     iamRoles: compatCollection<IamRole>(store, "aws.iam_roles", ["role_name", "role_id"]),
@@ -255,6 +276,45 @@ export interface SecretVersion extends CompatEntity {
   last_accessed_date: number;
 }
 
+export interface SSMParameter extends CompatEntity {
+  account_id: string;
+  region: string;
+  name: string;
+  arn: string;
+  path: string;
+  type: "String" | "StringList" | "SecureString";
+  value: string;
+  version: number;
+  description: string;
+  key_id: string;
+  tier: string;
+  data_type: string;
+  last_modified_date: number;
+  last_accessed_date: number;
+  tags: Record<string, string>;
+  allowed_pattern: string;
+  policies: string[];
+  selector_labels: string[];
+  source_result: string;
+  has_secure_material: boolean;
+}
+
+export interface SSMParameterVersion extends CompatEntity {
+  account_id: string;
+  region: string;
+  name: string;
+  arn: string;
+  version: number;
+  type: "String" | "StringList" | "SecureString";
+  value: string;
+  description: string;
+  key_id: string;
+  tier: string;
+  data_type: string;
+  last_modified_date: number;
+  has_secure_material: boolean;
+}
+
 export interface IamUser extends CompatEntity {
   user_name: string;
   user_id: string;
@@ -297,6 +357,18 @@ export interface AwsSeedConfig {
       kms_key_id?: string;
       secret_string?: string;
       secret_binary?: string;
+      tags?: Record<string, string>;
+    }>;
+  };
+  ssm?: {
+    parameters?: Array<{
+      name: string;
+      type?: "String" | "StringList" | "SecureString";
+      value?: string;
+      description?: string;
+      key_id?: string;
+      tier?: string;
+      data_type?: string;
       tags?: Record<string, string>;
     }>;
   };

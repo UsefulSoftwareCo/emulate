@@ -18,6 +18,7 @@ import (
 	awssecretsmanager "github.com/vercel-labs/emulate/internal/services/aws/secretsmanager"
 	awssns "github.com/vercel-labs/emulate/internal/services/aws/sns"
 	awssqs "github.com/vercel-labs/emulate/internal/services/aws/sqs"
+	awsssm "github.com/vercel-labs/emulate/internal/services/aws/ssm"
 	awssts "github.com/vercel-labs/emulate/internal/services/aws/sts"
 )
 
@@ -50,6 +51,7 @@ type Service struct {
 	events           awsevents.Handler
 	logs             awslogs.Handler
 	secretsmanager   awssecretsmanager.Handler
+	ssm              awsssm.Handler
 }
 
 func Register(router *corehttp.Router, options Options) {
@@ -170,6 +172,12 @@ func New(options Options) *Service {
 			AccountID: defaultAccountID,
 			Region:    defaultRegion,
 		},
+		ssm: awsssm.Handler{
+			Parameters: awsStore.SSMParameters,
+			Versions:   awsStore.SSMParamVersions,
+			AccountID:  defaultAccountID,
+			Region:     defaultRegion,
+		},
 	}
 }
 
@@ -234,6 +242,10 @@ func (s *Service) handleAWS(c *corehttp.Context) {
 	}
 	if ctx.Service == "secretsmanager" && ctx.Protocol == protocols.ProtocolJSONRPC {
 		writeErrorResponse(c, s.secretsmanager.Handle(c.Request, ctx))
+		return
+	}
+	if ctx.Service == "ssm" && ctx.Protocol == protocols.ProtocolJSONRPC {
+		writeErrorResponse(c, s.ssm.Handle(c.Request, ctx))
 		return
 	}
 

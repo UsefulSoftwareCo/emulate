@@ -2176,6 +2176,56 @@ func TestServiceHandlesCloudWatchLogsLifecycle(t *testing.T) {
 	}
 }
 
+func TestServiceHandlesSSMParameterStoreJSONRPC(t *testing.T) {
+	handler := newTestHandler()
+
+	res := executeAWSSSMRequest(t, handler, "PutParameter", map[string]any{
+		"Name":        "/app/database/url",
+		"Description": "database URL",
+		"Type":        "SecureString",
+		"Value":       "postgres://local",
+		"KeyId":       "alias/local",
+		"Tags":        []map[string]any{{"Key": "env", "Value": "test"}},
+	})
+	if res.Code != http.StatusOK {
+		t.Fatalf("put status = %d, body = %s", res.Code, res.Body.String())
+	}
+	if got := res.Header().Get("Content-Type"); got != "application/x-amz-json-1.1" {
+		t.Fatalf("content type = %q", got)
+	}
+
+	res = executeAWSSSMRequest(t, handler, "GetParameter", map[string]any{"Name": "/app/database/url", "WithDecryption": true})
+	if res.Code != http.StatusOK {
+		t.Fatalf("get status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var got struct {
+		Parameter struct {
+			Name    string `json:"Name"`
+			Type    string `json:"Type"`
+			Value   string `json:"Value"`
+			Version int64  `json:"Version"`
+		} `json:"Parameter"`
+	}
+	decodeJSONBody(t, res, &got)
+	if got.Parameter.Name != "/app/database/url" || got.Parameter.Type != "SecureString" || got.Parameter.Value != "postgres://local" || got.Parameter.Version != 1 {
+		t.Fatalf("unexpected parameter: %#v", got.Parameter)
+	}
+
+	res = executeAWSSSMRequest(t, handler, "GetParametersByPath", map[string]any{"Path": "/app", "Recursive": true})
+	if res.Code != http.StatusOK {
+		t.Fatalf("path status = %d, body = %s", res.Code, res.Body.String())
+	}
+	var byPath struct {
+		Parameters []struct {
+			Name string `json:"Name"`
+		} `json:"Parameters"`
+	}
+	decodeJSONBody(t, res, &byPath)
+	if len(byPath.Parameters) != 1 || byPath.Parameters[0].Name != "/app/database/url" {
+		t.Fatalf("unexpected path body: %#v", byPath.Parameters)
+	}
+}
+
 func TestServiceHandlesDynamoDBTableAndItemLifecycle(t *testing.T) {
 	handler := newTestHandler()
 
@@ -2863,7 +2913,7 @@ func TestServiceRendersInspectorWithDefaultIAMUser(t *testing.T) {
 		t.Fatalf("status = %d, body = %s", res.Code, res.Body.String())
 	}
 	body := res.Body.String()
-	for _, expected := range []string{"AWS Emulator", "S3", "SQS", "IAM", "IAM Users (1)", "IAM Roles (0)", "admin", "Access Keys", "No roles"} {
+	for _, expected := range []string{"AWS Emulator", "S3", "SQS", "IAM", "SSM", "IAM Users (1)", "IAM Roles (0)", "admin", "Access Keys", "No roles"} {
 		if !strings.Contains(body, expected) {
 			t.Fatalf("inspector missing %q in %s", expected, body)
 		}
@@ -2878,9 +2928,10 @@ func TestNewStoreCreatesAWSCollections(t *testing.T) {
 	awsStore.SQSQueues.Insert(corestore.Record{"queue_name": "jobs", "queue_url": "http://localhost/sqs/jobs"})
 	awsStore.SNSTopics.Insert(corestore.Record{"topic_name": "events", "arn": "arn:aws:sns:us-east-1:123456789012:events"})
 	awsStore.IAMUsers.Insert(corestore.Record{"user_name": "developer", "user_id": "AIDAEXAMPLE"})
+	awsStore.SSMParameters.Insert(corestore.Record{"account_id": "123456789012", "region": "us-east-1", "name": "/app/value", "arn": "arn:aws:ssm:us-east-1:123456789012:parameter/app/value"})
 
 	snapshot := runtimeStore.Snapshot()
-	for _, name := range []string{"aws.s3_buckets", "aws.s3_objects", "aws.sqs_queues", "aws.sqs_messages", "aws.sns_topics", "aws.sns_subscriptions", "aws.sns_deliveries", "aws.event_buses", "aws.event_rules", "aws.event_targets", "aws.event_deliveries", "aws.log_groups", "aws.log_streams", "aws.log_events", "aws.secretsmanager_secrets", "aws.secretsmanager_versions", "aws.iam_users", "aws.iam_roles", "aws.dynamodb_tables", "aws.dynamodb_items"} {
+	for _, name := range []string{"aws.s3_buckets", "aws.s3_objects", "aws.sqs_queues", "aws.sqs_messages", "aws.sns_topics", "aws.sns_subscriptions", "aws.sns_deliveries", "aws.event_buses", "aws.event_rules", "aws.event_targets", "aws.event_deliveries", "aws.log_groups", "aws.log_streams", "aws.log_events", "aws.secretsmanager_secrets", "aws.secretsmanager_versions", "aws.ssm_parameters", "aws.ssm_parameter_versions", "aws.iam_users", "aws.iam_roles", "aws.dynamodb_tables", "aws.dynamodb_items"} {
 		if _, ok := snapshot.Collections[name]; !ok {
 			t.Fatalf("missing collection %s", name)
 		}
@@ -2899,6 +2950,7 @@ func TestServiceSeedsAWSConfig(t *testing.T) {
 			S3:        S3Seed{Buckets: []S3BucketSeed{{Name: "seeded-bucket", Region: "eu-west-1"}}},
 			SQS:       SQSSeed{Queues: []SQSQueueSeed{{Name: "seeded-queue", VisibilityTimeout: 45}}},
 			Secrets:   SecretsManagerSeed{Secrets: []SecretSeed{{Name: "seeded/secret", SecretString: "seeded-value", KMSKeyID: "alias/seed"}}},
+			SSM:       SSMSeed{Parameters: []SSMParameterSeed{{Name: "/seeded/config", Type: "SecureString", Value: "seeded-parameter", KeyID: "alias/seed"}}},
 			IAM: IAMSeed{
 				Users: []IAMUserSeed{{UserName: "developer", CreateAccessKey: true}},
 				Roles: []IAMRoleSeed{{RoleName: "worker", Description: "Worker role", AssumeRolePolicy: `{"Version":"2012-10-17","Statement":[]}`}},
@@ -2929,6 +2981,11 @@ func TestServiceSeedsAWSConfig(t *testing.T) {
 	res = executeAWSSecretsManagerRequestWithRegion(t, router, "GetSecretValue", map[string]any{"SecretId": "seeded/secret"}, "us-west-2")
 	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), "seeded-value") {
 		t.Fatalf("get seeded secret status = %d, body = %s", res.Code, res.Body.String())
+	}
+
+	res = executeAWSSSMRequestWithRegion(t, router, "GetParameter", map[string]any{"Name": "/seeded/config", "WithDecryption": true}, "us-west-2")
+	if res.Code != http.StatusOK || !strings.Contains(res.Body.String(), "seeded-parameter") {
+		t.Fatalf("get seeded parameter status = %d, body = %s", res.Code, res.Body.String())
 	}
 }
 
@@ -3096,6 +3153,26 @@ func executeAWSSecretsManagerRequestWithRegion(t *testing.T, handler http.Handle
 	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
 	req.Header.Set("X-Amz-Target", "secretsmanager."+action)
 	signAWSRequestWithRegion(req, "secretsmanager", region)
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	return res
+}
+
+func executeAWSSSMRequest(t *testing.T, handler http.Handler, action string, payload map[string]any) *httptest.ResponseRecorder {
+	t.Helper()
+	return executeAWSSSMRequestWithRegion(t, handler, action, payload, "us-east-1")
+}
+
+func executeAWSSSMRequestWithRegion(t *testing.T, handler http.Handler, action string, payload map[string]any, region string) *httptest.ResponseRecorder {
+	t.Helper()
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "http://127.0.0.1/ssm/", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/x-amz-json-1.1")
+	req.Header.Set("X-Amz-Target", "AmazonSSM."+action)
+	signAWSRequestWithRegion(req, "ssm", region)
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, req)
 	return res

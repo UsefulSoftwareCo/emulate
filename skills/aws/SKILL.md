@@ -1,12 +1,12 @@
 ---
 name: aws
-description: Emulated AWS cloud services (S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, IAM, STS) for local development, testing, and native Vercel preview functions. Use when the user needs to interact with AWS API endpoints locally, test S3 bucket and object operations, emulate SQS queues and messages, test SNS topics and subscriptions, test EventBridge buses/rules/events, test DynamoDB tables and items, test CloudWatch log groups and log events, test Secrets Manager values and rotations, manage IAM users/roles/access keys, test STS assume role, scaffold AWS through npx emulate vercel init, or work without hitting real AWS APIs. Triggers include "AWS emulator", "emulate AWS", "mock S3", "local SQS", "local SNS", "local EventBridge", "local DynamoDB", "local CloudWatch Logs", "local Secrets Manager", "test IAM", "emulate S3", "AWS locally", "STS assume role", or any task requiring local AWS service emulation.
+description: Emulated AWS cloud services (S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, IAM, STS) for local development, testing, and native Vercel preview functions. Use when the user needs to interact with AWS API endpoints locally, test S3 bucket and object operations, emulate SQS queues and messages, test SNS topics and subscriptions, test EventBridge buses/rules/events, test DynamoDB tables and items, test CloudWatch log groups and log events, test Secrets Manager values and rotations, test SSM Parameter Store values and paths, manage IAM users/roles/access keys, test STS assume role, scaffold AWS through npx emulate vercel init, or work without hitting real AWS APIs. Triggers include "AWS emulator", "emulate AWS", "mock S3", "local SQS", "local SNS", "local EventBridge", "local DynamoDB", "local CloudWatch Logs", "local Secrets Manager", "local SSM", "local Parameter Store", "test IAM", "emulate S3", "AWS locally", "STS assume role", or any task requiring local AWS service emulation.
 allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # AWS Emulator
 
-S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, DynamoDB, CloudWatch Logs, and Secrets Manager, and AWS Query endpoints for SNS/SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, IAM, and STS; SQS, EventBridge, DynamoDB, CloudWatch Logs, and Secrets Manager use JSON target requests, and SNS/IAM/STS use AWS Query XML.
+S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, and SSM, and AWS Query endpoints for SNS/SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, IAM, and STS; SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, and SSM use JSON target requests, and SNS/IAM/STS use AWS Query XML.
 
 ## Vercel Preview
 
@@ -39,7 +39,7 @@ const aws = await createEmulator({ service: 'aws', port: 4006 })
 
 ## Auth
 
-Pass tokens as `Authorization: Bearer <token>`. Scoped permissions use `s3:*`, `sqs:*`, `sns:*`, `events:*`, `dynamodb:*`, `logs:*`, `secretsmanager:*`, `iam:*`, `sts:*` patterns.
+Pass tokens as `Authorization: Bearer <token>`. Scoped permissions use `s3:*`, `sqs:*`, `sns:*`, `events:*`, `dynamodb:*`, `logs:*`, `secretsmanager:*`, `ssm:*`, `iam:*`, `sts:*` patterns.
 
 ```bash
 curl http://localhost:4000/ \
@@ -161,6 +161,21 @@ const secretsManager = new SecretsManagerClient({
 The native Go runtime accepts the Secrets Manager SDK client's `X-Amz-Target: secretsmanager.<Action>` JSON requests to `/secretsmanager` and returns JSON responses.
 
 ```typescript
+import { SSMClient } from '@aws-sdk/client-ssm'
+
+const ssm = new SSMClient({
+  endpoint: `${process.env.AWS_EMULATOR_URL}/ssm`,
+  region: 'us-east-1',
+  credentials: {
+    accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+    secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+  },
+})
+```
+
+The native Go runtime accepts the SSM SDK client's `X-Amz-Target: AmazonSSM.<Action>` JSON requests to `/ssm` and returns JSON responses.
+
+```typescript
 import { IAMClient } from '@aws-sdk/client-iam'
 
 const iam = new IAMClient({
@@ -209,6 +224,14 @@ aws:
         description: Local database URL
         secret_string: postgres://localhost:5432/app
         kms_key_id: alias/local
+        tags:
+          env: local
+  ssm:
+    parameters:
+      - name: /my-app/database-url
+        type: SecureString
+        value: postgres://localhost:5432/app
+        key_id: alias/local
         tags:
           env: local
   iam:
@@ -392,6 +415,15 @@ In the native Go runtime, `@aws-sdk/client-secrets-manager` can use endpoint `${
 - `TagResource`, `UntagResource`, `ListSecretVersionIds`
 - String and binary values, version ids, staging labels, deletion recovery metadata, and KMS key id metadata
 
+### SSM Parameter Store
+
+In the native Go runtime, `@aws-sdk/client-ssm` can use endpoint `${AWS_EMULATOR_URL}/ssm`. SDK responses are JSON.
+
+- `PutParameter`, `GetParameter`, `GetParameters`, `GetParametersByPath`
+- `DeleteParameter`, `DeleteParameters`, `DescribeParameters`
+- `AddTagsToResource`, `RemoveTagsFromResource`, `ListTagsForResource`
+- `String`, `StringList`, and `SecureString` values with local plaintext storage, version history, hierarchical paths, and KMS key id metadata
+
 ### IAM
 
 Manual IAM calls can use AWS Query over `POST /iam/` with `Action` as a form-urlencoded parameter. In the native Go runtime, the same operations also work through `@aws-sdk/client-iam` with endpoint `${AWS_EMULATOR_URL}/iam`.
@@ -472,12 +504,13 @@ curl -X POST http://localhost:4000/sts/ \
 ### Inspector
 
 ```bash
-# HTML dashboard (shows S3, SQS, IAM, Logs, and Secrets state)
+# HTML dashboard (shows S3, SQS, IAM, Logs, Secrets, and SSM state)
 curl http://localhost:4000/_inspector?tab=s3
 curl http://localhost:4000/_inspector?tab=sqs
 curl http://localhost:4000/_inspector?tab=iam
 curl http://localhost:4000/_inspector?tab=logs
 curl http://localhost:4000/_inspector?tab=secretsmanager
+curl http://localhost:4000/_inspector?tab=ssm
 ```
 
 ## Common Patterns
