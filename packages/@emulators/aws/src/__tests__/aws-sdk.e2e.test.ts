@@ -1667,11 +1667,15 @@ describeExternalIamStsE2E("AWS native runtime - real @aws-sdk/client-iam and @aw
     const awsManagedUserPolicies = await iam.send(
       new ListAttachedUserPoliciesCommand({ UserName: "sdk-policy-user", PathPrefix: "/service-role/" }),
     );
-    expect((awsManagedUserPolicies.AttachedPolicies ?? []).map((item) => item.PolicyArn)).toContain(awsManagedPolicyArn);
+    expect((awsManagedUserPolicies.AttachedPolicies ?? []).map((item) => item.PolicyArn)).toContain(
+      awsManagedPolicyArn,
+    );
     const awsManagedRolePolicies = await iam.send(
       new ListAttachedRolePoliciesCommand({ RoleName: "sdk-policy-role", PathPrefix: "/service-role/" }),
     );
-    expect((awsManagedRolePolicies.AttachedPolicies ?? []).map((item) => item.PolicyArn)).toContain(awsManagedPolicyArn);
+    expect((awsManagedRolePolicies.AttachedPolicies ?? []).map((item) => item.PolicyArn)).toContain(
+      awsManagedPolicyArn,
+    );
 
     await iam.send(new DetachUserPolicyCommand({ UserName: "sdk-policy-user", PolicyArn: awsManagedPolicyArn }));
     await iam.send(new DetachRolePolicyCommand({ RoleName: "sdk-policy-role", PolicyArn: awsManagedPolicyArn }));
