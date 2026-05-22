@@ -466,12 +466,12 @@ In the native Go runtime, `@aws-sdk/client-sns` can use endpoint `${AWS_EMULATOR
 
 ### EventBridge
 
-In the native Go runtime, `@aws-sdk/client-eventbridge` can use endpoint `${AWS_EMULATOR_URL}/events`. SDK responses are JSON.
+In the native Go runtime, `@aws-sdk/client-eventbridge` can use endpoint `${AWS_EMULATOR_URL}/events`. SDK responses are JSON. Matching events can deliver to SQS, SNS, and Lambda targets. Lambda targets create CloudWatch Logs entries; zipped Node.js handlers run only when `npx emulate` is started with `--allow-local-lambda` and the EventBridge request uses a signed direct localhost endpoint.
 
 - `CreateEventBus`, `DeleteEventBus`, `ListEventBuses`
 - `PutRule`, `DescribeRule`, `ListRules`, `DeleteRule`, `EnableRule`, `DisableRule`
 - `PutTargets`, `ListTargetsByRule`, `RemoveTargets`
-- `PutEvents` with SQS and SNS target delivery
+- `PutEvents` with SQS, SNS, and Lambda target delivery
 - `TagResource`, `UntagResource`, `ListTagsForResource`
 
 ### CloudWatch Logs
