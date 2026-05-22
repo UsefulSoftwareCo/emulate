@@ -4181,6 +4181,35 @@ func TestServiceHandlesLambdaVersionsAliasesTagsAndPolicy(t *testing.T) {
 		t.Fatalf("version = %q", versionBody.Version)
 	}
 
+	listAll := executeAWSLambdaRequest(t, handler, http.MethodGet, "/2015-03-31/functions?FunctionVersion=ALL", nil)
+	if listAll.Code != http.StatusOK {
+		t.Fatalf("list all versions status = %d, body = %s", listAll.Code, listAll.Body.String())
+	}
+	var listAllBody struct {
+		Functions []struct {
+			FunctionName string `json:"FunctionName"`
+			FunctionArn  string `json:"FunctionArn"`
+			Version      string `json:"Version"`
+		} `json:"Functions"`
+	}
+	decodeJSONBody(t, listAll, &listAllBody)
+	seenLatest := false
+	seenPublished := false
+	for _, fn := range listAllBody.Functions {
+		if fn.FunctionName != "sdk-lambda-release" {
+			continue
+		}
+		if fn.Version == "$LATEST" && fn.FunctionArn == created.FunctionArn {
+			seenLatest = true
+		}
+		if fn.Version == "1" && fn.FunctionArn == created.FunctionArn+":1" {
+			seenPublished = true
+		}
+	}
+	if !seenLatest || !seenPublished {
+		t.Fatalf("list all versions missing expected entries: %#v", listAllBody.Functions)
+	}
+
 	alias := executeAWSLambdaRequest(t, handler, http.MethodPost, "/2015-03-31/functions/sdk-lambda-release/aliases", map[string]any{"Name": "live", "FunctionVersion": "1"})
 	if alias.Code != http.StatusCreated {
 		t.Fatalf("create alias status = %d, body = %s", alias.Code, alias.Body.String())
@@ -4200,6 +4229,33 @@ func TestServiceHandlesLambdaVersionsAliasesTagsAndPolicy(t *testing.T) {
 	}
 	if got := aliasInvoke.Header().Get("x-amz-executed-version"); got != "1" {
 		t.Fatalf("executed version = %q, want 1", got)
+	}
+
+	qualifiedPath := "/2015-03-31/functions/" + url.PathEscape(created.FunctionArn+":live")
+	qualifiedInvoke := executeAWSLambdaRawRequest(t, handler, http.MethodPost, qualifiedPath+"/invocations", []byte(`"payload"`))
+	if qualifiedInvoke.Code != http.StatusOK {
+		t.Fatalf("qualified arn invoke status = %d, body = %s", qualifiedInvoke.Code, qualifiedInvoke.Body.String())
+	}
+	if got := qualifiedInvoke.Header().Get("x-amz-executed-version"); got != "1" {
+		t.Fatalf("qualified arn executed version = %q, want 1", got)
+	}
+
+	qualifiedConfig := executeAWSLambdaRequest(t, handler, http.MethodGet, qualifiedPath+"/configuration", nil)
+	if qualifiedConfig.Code != http.StatusOK {
+		t.Fatalf("qualified arn config status = %d, body = %s", qualifiedConfig.Code, qualifiedConfig.Body.String())
+	}
+	var qualifiedConfigBody struct {
+		Version string `json:"Version"`
+	}
+	decodeJSONBody(t, qualifiedConfig, &qualifiedConfigBody)
+	if qualifiedConfigBody.Version != "1" {
+		t.Fatalf("qualified arn version = %q, want 1", qualifiedConfigBody.Version)
+	}
+
+	wrongAccountARN := strings.Replace(created.FunctionArn, ":123456789012:", ":999999999999:", 1)
+	wrongAccount := executeAWSLambdaRequest(t, handler, http.MethodGet, "/2015-03-31/functions/"+url.PathEscape(wrongAccountARN)+"/configuration", nil)
+	if wrongAccount.Code != http.StatusNotFound {
+		t.Fatalf("wrong account arn status = %d, body = %s", wrongAccount.Code, wrongAccount.Body.String())
 	}
 
 	tagPath := "/2017-03-31/tags/" + url.PathEscape(created.FunctionArn)
@@ -4228,6 +4284,42 @@ func TestServiceHandlesLambdaVersionsAliasesTagsAndPolicy(t *testing.T) {
 	if permission.Code != http.StatusCreated {
 		t.Fatalf("add permission status = %d, body = %s", permission.Code, permission.Body.String())
 	}
+	var permissionBody struct {
+		Statement string `json:"Statement"`
+	}
+	decodeJSONBody(t, permission, &permissionBody)
+	var statement struct {
+		Resource string `json:"Resource"`
+	}
+	if err := json.Unmarshal([]byte(permissionBody.Statement), &statement); err != nil {
+		t.Fatal(err)
+	}
+	if statement.Resource != created.FunctionArn {
+		t.Fatalf("permission resource = %q, want %q", statement.Resource, created.FunctionArn)
+	}
+
+	qualifiedPermission := executeAWSLambdaRequest(t, handler, http.MethodPost, qualifiedPath+"/policy", map[string]any{
+		"StatementId": "allow-live",
+		"Action":      "lambda:InvokeFunction",
+		"Principal":   "events.amazonaws.com",
+	})
+	if qualifiedPermission.Code != http.StatusCreated {
+		t.Fatalf("add qualified permission status = %d, body = %s", qualifiedPermission.Code, qualifiedPermission.Body.String())
+	}
+	var qualifiedPermissionBody struct {
+		Statement string `json:"Statement"`
+	}
+	decodeJSONBody(t, qualifiedPermission, &qualifiedPermissionBody)
+	var qualifiedStatement struct {
+		Resource string `json:"Resource"`
+	}
+	if err := json.Unmarshal([]byte(qualifiedPermissionBody.Statement), &qualifiedStatement); err != nil {
+		t.Fatal(err)
+	}
+	if qualifiedStatement.Resource != created.FunctionArn+":live" {
+		t.Fatalf("qualified permission resource = %q, want %q", qualifiedStatement.Resource, created.FunctionArn+":live")
+	}
+
 	policy := executeAWSLambdaRequest(t, handler, http.MethodGet, "/2015-03-31/functions/sdk-lambda-release/policy", nil)
 	if policy.Code != http.StatusOK {
 		t.Fatalf("get policy status = %d, body = %s", policy.Code, policy.Body.String())
@@ -4236,13 +4328,31 @@ func TestServiceHandlesLambdaVersionsAliasesTagsAndPolicy(t *testing.T) {
 		Policy string `json:"Policy"`
 	}
 	decodeJSONBody(t, policy, &policyBody)
-	if !strings.Contains(policyBody.Policy, "allow-events") {
+	if !strings.Contains(policyBody.Policy, "allow-events") || !strings.Contains(policyBody.Policy, created.FunctionArn) || !strings.Contains(policyBody.Policy, created.FunctionArn+":live") {
 		t.Fatalf("unexpected policy: %s", policyBody.Policy)
+	}
+
+	removedLive := executeAWSLambdaRequest(t, handler, http.MethodDelete, qualifiedPath+"/policy/allow-live", nil)
+	if removedLive.Code != http.StatusNoContent {
+		t.Fatalf("remove qualified permission status = %d, body = %s", removedLive.Code, removedLive.Body.String())
 	}
 
 	removed := executeAWSLambdaRequest(t, handler, http.MethodDelete, "/2015-03-31/functions/sdk-lambda-release/policy/allow-events", nil)
 	if removed.Code != http.StatusNoContent {
 		t.Fatalf("remove permission status = %d, body = %s", removed.Code, removed.Body.String())
+	}
+
+	deletedVersion := executeAWSLambdaRequest(t, handler, http.MethodDelete, "/2015-03-31/functions/"+url.PathEscape(created.FunctionArn+":1"), nil)
+	if deletedVersion.Code != http.StatusNoContent {
+		t.Fatalf("delete version arn status = %d, body = %s", deletedVersion.Code, deletedVersion.Body.String())
+	}
+	latestConfig := executeAWSLambdaRequest(t, handler, http.MethodGet, "/2015-03-31/functions/sdk-lambda-release/configuration", nil)
+	if latestConfig.Code != http.StatusOK {
+		t.Fatalf("latest config after version delete status = %d, body = %s", latestConfig.Code, latestConfig.Body.String())
+	}
+	missingVersion := executeAWSLambdaRequest(t, handler, http.MethodGet, "/2015-03-31/functions/sdk-lambda-release/configuration?Qualifier=1", nil)
+	if missingVersion.Code != http.StatusNotFound {
+		t.Fatalf("deleted version status = %d, body = %s", missingVersion.Code, missingVersion.Body.String())
 	}
 }
 

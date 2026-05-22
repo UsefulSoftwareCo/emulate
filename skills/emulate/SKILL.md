@@ -239,6 +239,15 @@ aws:
   sqs:
     queues:
       - name: my-app-events
+  lambda:
+    functions:
+      - function_name: my-app-handler
+        runtime: nodejs22.x
+        role: arn:aws:iam::123456789012:role/lambda-execution-role
+        handler: index.handler
+        invoke_payload: '{"ok":true}'
+        environment:
+          NODE_ENV: local
   iam:
     users:
       - user_name: developer

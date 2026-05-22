@@ -838,7 +838,7 @@ In the native Go runtime, `@aws-sdk/client-lambda` v3 can use the AWS emulator r
 - `AddPermission` / `GetPolicy` / `RemovePermission` - stored resource policy statements
 - Creating or invoking a function creates local CloudWatch Logs metadata under `/aws/lambda/<function-name>`.
 
-## IAM
+### IAM
 Manual IAM requests can use `POST /iam/` with an `Action` form parameter. In the native Go runtime, `@aws-sdk/client-iam` v3 can use the `/iam/` endpoint directly.
 
 - `CreateUser`, `GetUser`, `ListUsers`, `DeleteUser`

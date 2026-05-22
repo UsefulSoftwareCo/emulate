@@ -42,6 +42,19 @@ type route struct {
 	Resource     string
 }
 
+type functionListItem struct {
+	Record  corestore.Record
+	Version string
+}
+
+type functionIdentifier struct {
+	Name      string
+	Qualifier string
+	Region    string
+	AccountID string
+	ARN       bool
+}
+
 var fallbackIDCounter atomic.Uint64
 
 func (h *Handler) Handle(req *http.Request, ctx gateway.AwsRequestContext) protocols.ErrorResponse {
@@ -215,13 +228,33 @@ func (h *Handler) listFunctions(ctx gateway.AwsRequestContext, requestID string)
 	sort.Slice(functions, func(i int, j int) bool {
 		return stringField(functions[i], "function_name") < stringField(functions[j], "function_name")
 	})
-	start, end, nextMarker, response, ok := h.pageBounds(ctx.Input, len(functions), 50, 10000, "Marker", "MaxItems", requestID)
+	includeVersions := strings.EqualFold(stringInput(ctx.Input, "FunctionVersion", "functionVersion"), "ALL")
+	items := make([]functionListItem, 0, len(functions))
+	for _, fn := range functions {
+		items = append(items, functionListItem{Record: fn, Version: "$LATEST"})
+		if !includeVersions {
+			continue
+		}
+		versions := []corestore.Record{}
+		for _, version := range h.Versions.FindBy("function_name", stringField(fn, "function_name")) {
+			if h.sameScope(ctx, version) {
+				versions = append(versions, version)
+			}
+		}
+		sort.SliceStable(versions, func(i int, j int) bool {
+			return versionSortValue(stringField(versions[i], "version")) < versionSortValue(stringField(versions[j], "version"))
+		})
+		for _, version := range versions {
+			items = append(items, functionListItem{Record: version, Version: stringField(version, "version")})
+		}
+	}
+	start, end, nextMarker, response, ok := h.pageBounds(ctx.Input, len(items), 50, 10000, "Marker", "MaxItems", requestID)
 	if !ok {
 		return response
 	}
 	out := make([]map[string]any, 0, end-start)
-	for _, fn := range functions[start:end] {
-		out = append(out, h.functionConfiguration(fn, "$LATEST"))
+	for _, item := range items[start:end] {
+		out = append(out, h.functionConfiguration(item.Record, item.Version))
 	}
 	body := map[string]any{"Functions": out}
 	if nextMarker != "" {
@@ -596,6 +629,7 @@ func (h *Handler) addPermission(ctx gateway.AwsRequestContext, route route, requ
 		"principal":      stringInput(input, "Principal", "principal"),
 		"source_arn":     stringInput(input, "SourceArn", "sourceArn"),
 		"source_account": stringInput(input, "SourceAccount", "sourceAccount"),
+		"resource":       policyResourceARN(fn, h.resolveQualifier(route, ctx)),
 	}
 	statements = append(statements, statement)
 	updated, _ := h.Functions.Update(intField(fn, "id"), corestore.Record{"policy_statements": statements, "revision_id": h.generateID("rev")})
@@ -756,19 +790,31 @@ func (h *Handler) requireFunctionByResource(ctx gateway.AwsRequestContext, resou
 		}
 	}
 	name := nameFromFunctionIdentifier(resource)
-	return h.requireFunction(ctx, name, requestID)
+	if name == "" {
+		return nil, h.notFound("Function not found.", requestID), false
+	}
+	return h.requireFunction(ctx, resource, requestID)
 }
 
 func (h *Handler) findFunction(ctx gateway.AwsRequestContext, identifier string) (corestore.Record, bool) {
-	identifier = strings.TrimSpace(identifier)
-	if identifier == "" {
+	parsed := parseFunctionIdentifier(identifier)
+	if parsed.Name == "" {
 		return nil, false
 	}
 	for _, fn := range h.Functions.All() {
-		if !h.sameScope(ctx, fn) {
-			continue
+		if parsed.ARN {
+			if parsed.AccountID != "" && stringField(fn, "account_id") != parsed.AccountID {
+				continue
+			}
+			if parsed.Region != "" && stringField(fn, "region") != parsed.Region {
+				continue
+			}
+		} else {
+			if !h.sameScope(ctx, fn) {
+				continue
+			}
 		}
-		if functionIdentifierMatches(fn, identifier) {
+		if stringField(fn, "function_name") == parsed.Name {
 			return fn, true
 		}
 	}
@@ -805,7 +851,7 @@ func (h *Handler) versionExists(ctx gateway.AwsRequestContext, functionName stri
 }
 
 func (h *Handler) resolveQualifier(route route, ctx gateway.AwsRequestContext) string {
-	return firstNonEmpty(route.Qualifier, stringInput(ctx.Input, "Qualifier", "qualifier"))
+	return firstNonEmpty(route.Qualifier, stringInput(ctx.Input, "Qualifier", "qualifier"), parseFunctionIdentifier(route.FunctionName).Qualifier)
 }
 
 func (h *Handler) ensureLogGroup(ctx gateway.AwsRequestContext, functionName string) {
@@ -1232,7 +1278,7 @@ func statementDocument(statement corestore.Record) map[string]any {
 		"Effect":    firstNonEmpty(stringField(statement, "effect"), "Allow"),
 		"Action":    stringField(statement, "action"),
 		"Principal": principal,
-		"Resource":  "*",
+		"Resource":  firstNonEmpty(stringField(statement, "resource"), "*"),
 	}
 	condition := map[string]any{}
 	if value := stringField(statement, "source_arn"); value != "" {
@@ -1248,26 +1294,62 @@ func statementDocument(statement corestore.Record) map[string]any {
 }
 
 func functionIdentifierMatches(fn corestore.Record, identifier string) bool {
-	identifier = strings.TrimSpace(identifier)
-	if identifier == stringField(fn, "function_name") || identifier == stringField(fn, "arn") {
+	parsed := parseFunctionIdentifier(identifier)
+	if parsed.Name == "" {
+		return false
+	}
+	if parsed.ARN {
+		if parsed.AccountID != "" && stringField(fn, "account_id") != parsed.AccountID {
+			return false
+		}
+		if parsed.Region != "" && stringField(fn, "region") != parsed.Region {
+			return false
+		}
+	}
+	if parsed.Name == stringField(fn, "function_name") {
 		return true
 	}
-	name := nameFromFunctionIdentifier(identifier)
-	return name != "" && name == stringField(fn, "function_name")
+	return false
 }
 
 func nameFromFunctionIdentifier(identifier string) string {
+	return parseFunctionIdentifier(identifier).Name
+}
+
+func parseFunctionIdentifier(identifier string) functionIdentifier {
 	identifier = strings.TrimSpace(identifier)
 	if identifier == "" {
-		return ""
+		return functionIdentifier{}
+	}
+	if !strings.HasPrefix(identifier, "arn:") {
+		return functionIdentifier{Name: identifier}
 	}
 	parts := strings.Split(identifier, ":")
-	for i := 0; i < len(parts)-1; i++ {
-		if parts[i] == "function" {
-			return parts[i+1]
-		}
+	if len(parts) < 7 || parts[2] != "lambda" || parts[5] != "function" {
+		return functionIdentifier{}
 	}
-	return identifier
+	out := functionIdentifier{
+		Name:      parts[6],
+		Region:    parts[3],
+		AccountID: parts[4],
+		ARN:       true,
+	}
+	if len(parts) > 7 {
+		out.Qualifier = strings.Join(parts[7:], ":")
+	}
+	return out
+}
+
+func policyResourceARN(fn corestore.Record, qualifier string) string {
+	arn := stringField(fn, "arn")
+	qualifier = strings.TrimSpace(qualifier)
+	if arn == "" || qualifier == "" {
+		return arn
+	}
+	if strings.HasSuffix(arn, ":"+qualifier) {
+		return arn
+	}
+	return arn + ":" + qualifier
 }
 
 func functionARN(region string, accountID string, name string) string {

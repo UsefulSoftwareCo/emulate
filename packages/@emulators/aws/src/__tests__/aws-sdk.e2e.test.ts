@@ -1518,6 +1518,13 @@ describeExternalLambdaE2E("AWS native runtime - real @aws-sdk/client-lambda E2E"
     const versions = await lambda.send(new ListVersionsByFunctionCommand({ FunctionName: functionName }));
     expect((versions.Versions ?? []).map((item) => item.Version)).toEqual(expect.arrayContaining(["$LATEST", "1"]));
 
+    const allFunctions = await lambda.send(new ListFunctionsCommand({ FunctionVersion: "ALL" }));
+    expect(
+      (allFunctions.Functions ?? [])
+        .filter((item) => item.FunctionName === functionName)
+        .map((item) => item.Version),
+    ).toEqual(expect.arrayContaining(["$LATEST", "1"]));
+
     const alias = await lambda.send(
       new CreateLambdaAliasCommand({ FunctionName: functionName, Name: "live", FunctionVersion: "1" }),
     );
@@ -1526,6 +1533,14 @@ describeExternalLambdaE2E("AWS native runtime - real @aws-sdk/client-lambda E2E"
 
     const aliases = await lambda.send(new ListLambdaAliasesCommand({ FunctionName: functionName }));
     expect((aliases.Aliases ?? []).map((item) => item.Name)).toContain("live");
+
+    const liveArn = `${created.FunctionArn}:live`;
+    const qualifiedConfig = await lambda.send(new GetFunctionConfigurationCommand({ FunctionName: liveArn }));
+    expect(qualifiedConfig.Version).toBe("1");
+
+    const qualifiedInvoked = await lambda.send(new InvokeCommand({ FunctionName: liveArn }));
+    expect(qualifiedInvoked.StatusCode).toBe(200);
+    expect(qualifiedInvoked.ExecutedVersion).toBe("1");
 
     await lambda.send(new TagLambdaResourceCommand({ Resource: created.FunctionArn, Tags: { stage: "dev" } }));
     const tags = await lambda.send(new ListLambdaTagsCommand({ Resource: created.FunctionArn }));
@@ -1543,12 +1558,29 @@ describeExternalLambdaE2E("AWS native runtime - real @aws-sdk/client-lambda E2E"
       }),
     );
     expect(permission.Statement).toContain("allow-events");
+    expect(JSON.parse(permission.Statement ?? "{}").Resource).toBe(created.FunctionArn);
+
+    const qualifiedPermission = await lambda.send(
+      new AddPermissionCommand({
+        FunctionName: liveArn,
+        StatementId: "allow-live",
+        Action: "lambda:InvokeFunction",
+        Principal: "events.amazonaws.com",
+      }),
+    );
+    expect(JSON.parse(qualifiedPermission.Statement ?? "{}").Resource).toBe(liveArn);
 
     const policy = await lambda.send(new GetLambdaPolicyCommand({ FunctionName: functionName }));
     expect(policy.Policy).toContain("allow-events");
+    expect(policy.Policy).toContain("allow-live");
+    expect(policy.Policy).toContain(liveArn);
 
     await lambda.send(new RemovePermissionCommand({ FunctionName: functionName, StatementId: "allow-events" }));
+    await lambda.send(new RemovePermissionCommand({ FunctionName: liveArn, StatementId: "allow-live" }));
     await lambda.send(new DeleteLambdaAliasCommand({ FunctionName: functionName, Name: "live" }));
+    await lambda.send(new DeleteFunctionCommand({ FunctionName: `${created.FunctionArn}:1` }));
+    const latestAfterVersionDelete = await lambda.send(new GetFunctionConfigurationCommand({ FunctionName: functionName }));
+    expect(latestAfterVersionDelete.Version).toBe("$LATEST");
     await lambda.send(new DeleteFunctionCommand({ FunctionName: functionName }));
     await expect(
       lambda.send(new GetFunctionConfigurationCommand({ FunctionName: functionName })),
