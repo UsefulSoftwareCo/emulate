@@ -6,7 +6,7 @@ allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
 
 # Slack API Emulator
 
-Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. State changes dispatch `event_callback` payloads to configured webhook URLs.
+Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. Seeded OAuth apps and OAuth installs create bot users, installation records, and scoped token records. State changes dispatch `event_callback` payloads to configured webhook URLs.
 
 ## Start
 
@@ -37,6 +37,8 @@ curl -X POST http://localhost:4003/api/auth.test \
 ```
 
 When no token is provided, requests fall back to the first seeded user.
+
+Scope checks are relaxed by default for local development. Set `slack.strict_scopes: true` in seed config when you need supported Web API methods to return Slack-style `missing_scope` errors with `needed` and `provided` fields.
 
 ## Pointing Your App at the Emulator
 
@@ -108,12 +110,26 @@ slack:
   oauth_apps:
     - client_id: "12345.67890"
       client_secret: example_client_secret
+      app_id: A000000001
       name: My Slack App
       redirect_uris:
         - http://localhost:3000/api/auth/callback/slack
+      scopes:
+        - chat:write
+        - channels:read
+      user_scopes:
+        - users:read
+      bot_name: my-bot
+  tokens:
+    - token: xoxb-local-test
+      user: developer
+      scopes:
+        - chat:write
+        - channels:read
   incoming_webhooks:
     - channel: general
       label: CI Notifications
+  strict_scopes: false
   signing_secret: my_signing_secret
 ```
 
@@ -419,7 +435,9 @@ Returns a Slack-style response:
   "ok": true,
   "access_token": "xoxb-...",
   "token_type": "bot",
-  "bot_user_id": "B000000001",
+  "scope": "chat:write,channels:read",
+  "app_id": "A000000001",
+  "bot_user_id": "U000000099",
   "team": { "id": "T000000001", "name": "Emulate" },
   "authed_user": { "id": "U000000001" }
 }
@@ -470,6 +488,8 @@ curl -X POST $BASE/api/reactions.add \
 3. Emulator redirects back with `?code=...&state=...`
 4. Exchange code for token via `POST /api/oauth.v2.access`
 5. Use `xoxb-` token to call Web API endpoints
+
+When `user_scope` is included in the authorize URL and callback, the exchange response includes `authed_user.access_token`, `authed_user.scope`, and `authed_user.token_type`.
 
 ### CI Notifications via Webhook
 

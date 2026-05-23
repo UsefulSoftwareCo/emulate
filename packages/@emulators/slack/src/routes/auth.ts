@@ -25,13 +25,24 @@ export function authRoutes(ctx: RouteContext): void {
     }
 
     const team = ss().teams.all()[0];
+    const token = c.get("authToken");
+    const tokenRecord = token ? ss().tokens.findOneBy("token", token) : undefined;
+    const bot =
+      (tokenRecord?.bot_id ? ss().bots.findOneBy("bot_id", tokenRecord.bot_id) : undefined) ??
+      (user.is_bot ? ss().bots.all().find((item) => item.user_id === user.user_id) : undefined);
+    const installation = tokenRecord?.installation_id
+      ? ss().installations.findOneBy("installation_id", tokenRecord.installation_id)
+      : undefined;
+
     return slackOk(c, {
       url: `https://${team?.domain ?? "emulate"}.slack.com/`,
       team: team?.name ?? "Emulate",
       user: user.name,
       team_id: team?.team_id ?? "T000000001",
       user_id: user.user_id,
-      bot_id: user.is_bot ? user.user_id : undefined,
+      bot_id: bot?.bot_id,
+      app_id: tokenRecord?.app_id,
+      app_name: installation?.app_name,
     });
   });
 }

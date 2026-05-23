@@ -12,6 +12,7 @@ import {
   hasSlackMessageContent,
   parseSlackBody,
   parseSlackRichMessageFields,
+  requireSlackScopes,
   setSlackConversationOpenState,
   slackError,
   slackOk,
@@ -108,6 +109,8 @@ export function chatRoutes(ctx: RouteContext): void {
   app.post("/api/chat.postMessage", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
+    const scopeError = requireSlackScopes(c, store, ["chat:write"]);
+    if (scopeError) return scopeError;
 
     const body = await parseSlackBody(c);
     const channel = typeof body.channel === "string" ? body.channel : "";
@@ -179,6 +182,8 @@ export function chatRoutes(ctx: RouteContext): void {
   app.post("/api/chat.postEphemeral", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
+    const scopeError = requireSlackScopes(c, store, ["chat:write"]);
+    if (scopeError) return scopeError;
 
     const body = await parseSlackBody(c);
     const channel = typeof body.channel === "string" ? body.channel : "";
@@ -223,6 +228,8 @@ export function chatRoutes(ctx: RouteContext): void {
   app.post("/api/chat.update", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
+    const scopeError = requireSlackScopes(c, store, ["chat:write"]);
+    if (scopeError) return scopeError;
 
     const body = await parseSlackBody(c);
     const channel = typeof body.channel === "string" ? body.channel : "";
@@ -291,6 +298,8 @@ export function chatRoutes(ctx: RouteContext): void {
   app.post("/api/chat.delete", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
+    const scopeError = requireSlackScopes(c, store, ["chat:write"]);
+    if (scopeError) return scopeError;
 
     const body = await parseSlackBody(c);
     const channel = typeof body.channel === "string" ? body.channel : "";
@@ -366,6 +375,8 @@ export function chatRoutes(ctx: RouteContext): void {
   app.post("/api/chat.scheduleMessage", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
+    const scopeError = requireSlackScopes(c, store, ["chat:write"]);
+    if (scopeError) return scopeError;
 
     const body = await parseSlackBody(c);
     const channel = typeof body.channel === "string" ? body.channel : "";
@@ -414,6 +425,8 @@ export function chatRoutes(ctx: RouteContext): void {
   app.post("/api/chat.deleteScheduledMessage", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
+    const scopeError = requireSlackScopes(c, store, ["chat:write"]);
+    if (scopeError) return scopeError;
 
     const body = await parseSlackBody(c);
     const channel = typeof body.channel === "string" ? body.channel : "";
@@ -440,6 +453,8 @@ export function chatRoutes(ctx: RouteContext): void {
   app.post("/api/chat.scheduledMessages.list", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
+    const scopeError = requireSlackScopes(c, store, ["chat:write"]);
+    if (scopeError) return scopeError;
 
     const body = await parseSlackBody(c);
     const channel = typeof body.channel === "string" ? body.channel : "";
@@ -496,6 +511,8 @@ export function chatRoutes(ctx: RouteContext): void {
   app.post("/api/chat.meMessage", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
+    const scopeError = requireSlackScopes(c, store, ["chat:write"]);
+    if (scopeError) return scopeError;
 
     const body = await parseSlackBody(c);
     const channel = typeof body.channel === "string" ? body.channel : "";

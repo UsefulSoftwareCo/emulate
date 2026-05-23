@@ -36,6 +36,65 @@ describe("Slack plugin - real @slack/web-api WebClient baseline", () => {
     expect(team.team?.name).toBe("Emulate");
   });
 
+  it("uses an OAuth generated bot token through the Slack SDK", async () => {
+    expect(emulator).toBeDefined();
+    const ss = getSlackStore(emulator!.store);
+    ss.oauthApps.insert({
+      app_id: "A000000777",
+      client_id: "77777.00001",
+      client_secret: "sdk-secret",
+      name: "SDK OAuth App",
+      redirect_uris: ["http://localhost:3000/slack/callback"],
+      scopes: ["chat:write", "channels:read"],
+      bot_id: "B000000777",
+      bot_user_id: "U000000777",
+      bot_name: "sdk-oauth-app",
+    });
+
+    const params = new URLSearchParams({
+      user_id: "U000000001",
+      redirect_uri: "http://localhost:3000/slack/callback",
+      scope: "chat:write,channels:read",
+      state: "sdk",
+      client_id: "77777.00001",
+    });
+    const callback = await fetch(`${emulator!.url}/oauth/v2/authorize/callback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: params,
+      redirect: "manual",
+    });
+    expect(callback.status).toBe(302);
+    const code = new URL(callback.headers.get("Location")!).searchParams.get("code");
+    expect(code).toBeDefined();
+
+    const oauthClient = new WebClient(undefined, {
+      slackApiUrl: `${emulator!.url}/api/`,
+    });
+    const exchanged = (await oauthClient.apiCall("oauth.v2.access", {
+      code: code!,
+      client_id: "77777.00001",
+      client_secret: "sdk-secret",
+      redirect_uri: "http://localhost:3000/slack/callback",
+    })) as any;
+    expect(exchanged.ok).toBe(true);
+    expect(exchanged.access_token).toMatch(/^xoxb-/);
+    expect(exchanged.bot_user_id).toBe("U000000777");
+
+    const generatedClient = new WebClient(exchanged.access_token, {
+      slackApiUrl: `${emulator!.url}/api/`,
+    });
+    const auth = await generatedClient.auth.test();
+    expect(auth.ok).toBe(true);
+    expect(auth.user_id).toBe("U000000777");
+    expect(auth.bot_id).toBe("B000000777");
+
+    const channel = ss.channels.findOneBy("name", "general")!.channel_id;
+    const posted = await generatedClient.chat.postMessage({ channel, text: "from generated OAuth token" });
+    expect(posted.ok).toBe(true);
+    expect(posted.message?.user).toBe("U000000777");
+  });
+
   it("round trips chat writes and conversation reads through the Slack SDK", async () => {
     const created = await client.conversations.create({ name: "sdk-baseline" });
     expect(created.ok).toBe(true);

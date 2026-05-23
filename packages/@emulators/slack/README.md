@@ -1,6 +1,6 @@
 # @emulators/slack
 
-Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors.
+Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. OAuth installs create bot users, installation records, and scoped token records.
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
 
@@ -56,7 +56,7 @@ npm install @emulators/slack
 
 ## Auth
 
-All Web API endpoints require `Authorization: Bearer <token>`. OAuth v2 flow with user picker UI.
+All Web API endpoints require `Authorization: Bearer <token>`. Seeded OAuth apps create local installation state, and the OAuth v2 flow with user picker UI returns Slack-style bot tokens. Scope checks are relaxed by default for local development. Set `strict_scopes: true` in Slack seed config to return Slack-style `missing_scope` errors when a token lacks the required method scope.
 
 ## Seed Configuration
 
@@ -79,9 +79,23 @@ slack:
   oauth_apps:
     - client_id: "12345.67890"
       client_secret: example_client_secret
+      app_id: A000000001
       name: My Slack App
       redirect_uris:
         - http://localhost:3000/api/auth/callback/slack
+      scopes:
+        - chat:write
+        - channels:read
+      user_scopes:
+        - users:read
+      bot_name: my-bot
+  tokens:
+    - token: xoxb-local-test
+      user: developer
+      scopes:
+        - chat:write
+        - channels:read
+  strict_scopes: false
 ```
 
 ## Links

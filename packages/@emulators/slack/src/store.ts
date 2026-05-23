@@ -8,6 +8,8 @@ import type {
   SlackScheduledMessage,
   SlackBot,
   SlackOAuthApp,
+  SlackInstallation,
+  SlackToken,
   SlackIncomingWebhook,
 } from "./entities.js";
 
@@ -20,6 +22,8 @@ export interface SlackStore {
   scheduledMessages: Collection<SlackScheduledMessage>;
   bots: Collection<SlackBot>;
   oauthApps: Collection<SlackOAuthApp>;
+  installations: Collection<SlackInstallation>;
+  tokens: Collection<SlackToken>;
   incomingWebhooks: Collection<SlackIncomingWebhook>;
 }
 
@@ -40,6 +44,13 @@ export function getSlackStore(store: Store): SlackStore {
     ]),
     bots: store.collection<SlackBot>("slack.bots", ["bot_id"]),
     oauthApps: store.collection<SlackOAuthApp>("slack.oauth_apps", ["client_id"]),
+    installations: store.collection<SlackInstallation>("slack.installations", [
+      "installation_id",
+      "app_id",
+      "client_id",
+      "team_id",
+    ]),
+    tokens: store.collection<SlackToken>("slack.tokens", ["token", "user_id", "app_id", "team_id"]),
     incomingWebhooks: store.collection<SlackIncomingWebhook>("slack.incoming_webhooks", ["token"]),
   };
 }

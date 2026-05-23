@@ -1,10 +1,12 @@
 # Slack API
 
-Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. State changes dispatch `event_callback` payloads to configured webhook URLs.
+Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. Seeded OAuth apps and OAuth installs create bot users, installation records, and scoped token records. State changes dispatch `event_callback` payloads to configured webhook URLs.
 
 ## Auth
 
 - `POST /api/auth.test` - test authentication
+
+Scope checks are relaxed by default for local development. Set `slack.strict_scopes: true` in seed config to make supported Web API methods return Slack-style `missing_scope` errors with `needed` and `provided` fields.
 
 ## Chat
 
@@ -67,6 +69,8 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 
 - `GET /oauth/v2/authorize` - authorization endpoint (shows user picker)
 - `POST /api/oauth.v2.access` - token exchange
+
+`oauth.v2.access` returns a bot token, `bot_user_id`, `app_id`, team details, and the `authed_user` object. When `user_scope` is requested, `authed_user` also includes a user token and granted user scopes.
 
 ## Event Dispatching
 

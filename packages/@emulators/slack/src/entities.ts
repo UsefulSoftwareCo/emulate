@@ -112,16 +112,53 @@ export interface SlackScheduledMessage extends Entity {
 
 export interface SlackBot extends Entity {
   bot_id: string;
+  app_id?: string;
+  user_id?: string;
   name: string;
   deleted: boolean;
   icons: { image_48: string };
 }
 
 export interface SlackOAuthApp extends Entity {
+  app_id?: string;
   client_id: string;
   client_secret: string;
   name: string;
   redirect_uris: string[];
+  scopes?: string[];
+  user_scopes?: string[];
+  bot_id?: string;
+  bot_user_id?: string;
+  bot_name?: string;
+}
+
+export interface SlackInstallation extends Entity {
+  installation_id: string;
+  app_id: string;
+  client_id: string;
+  team_id: string;
+  app_name: string;
+  installer_user_id: string;
+  bot_id: string;
+  bot_user_id: string;
+  scopes: string[];
+  user_scopes: string[];
+}
+
+export type SlackTokenType = "bot" | "user" | "test";
+
+export interface SlackToken extends Entity {
+  token: string;
+  token_type: SlackTokenType;
+  team_id: string;
+  user_id: string;
+  scopes: string[];
+  app_id?: string;
+  client_id?: string;
+  installation_id?: string;
+  bot_id?: string;
+  bot_user_id?: string;
+  authed_user_id?: string;
 }
 
 export interface SlackIncomingWebhook extends Entity {

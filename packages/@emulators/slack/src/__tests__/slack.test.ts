@@ -2088,6 +2088,21 @@ describe("Slack plugin - seedFromConfig", () => {
         { name: "secret", is_private: true },
       ],
       bots: [{ name: "deploy-bot" }],
+      oauth_apps: [
+        {
+          app_id: "A000000001",
+          client_id: "12345.67890",
+          client_secret: "test-secret",
+          name: "Deploy App",
+          redirect_uris: ["http://localhost:3000/callback"],
+          scopes: ["chat:write", "channels:read"],
+          user_scopes: ["users:read"],
+          bot_id: "B000000099",
+          bot_user_id: "U000000099",
+        },
+      ],
+      tokens: [{ token: "xoxb-seeded-slack-token", user: "alice", scopes: ["chat:write"] }],
+      strict_scopes: true,
     });
 
     const ss = getSlackStore(store);
@@ -2097,7 +2112,7 @@ describe("Slack plugin - seedFromConfig", () => {
     expect(team.domain).toBe("acme");
 
     const users = ss.users.all();
-    expect(users.length).toBe(3); // admin + alice + bob
+    expect(users.length).toBe(4); // admin + alice + bob + app bot user
 
     const channels = ss.channels.all();
     expect(channels.length).toBe(4); // general + random + engineering + secret
@@ -2107,23 +2122,49 @@ describe("Slack plugin - seedFromConfig", () => {
     expect(secret?.is_private).toBe(true);
 
     const bots = ss.bots.all();
-    expect(bots.length).toBe(1);
-    expect(bots[0].name).toBe("deploy-bot");
+    expect(bots.length).toBe(2);
+    expect(bots.map((bot) => bot.name)).toContain("deploy-bot");
+    expect(bots.map((bot) => bot.bot_id)).toContain("B000000099");
+
+    const oauthApp = ss.oauthApps.findOneBy("client_id", "12345.67890");
+    expect(oauthApp?.app_id).toBe("A000000001");
+    expect(oauthApp?.scopes).toEqual(["chat:write", "channels:read"]);
+    expect(oauthApp?.user_scopes).toEqual(["users:read"]);
+
+    const token = ss.tokens.findOneBy("token", "xoxb-seeded-slack-token");
+    expect(token?.user_id).toBe("alice");
+    expect(token?.scopes).toEqual(["chat:write"]);
+    expect(ss.installations.findOneBy("app_id", "A000000001")).toMatchObject({
+      client_id: "12345.67890",
+      bot_id: "B000000099",
+      bot_user_id: "U000000099",
+      scopes: ["chat:write", "channels:read"],
+      user_scopes: ["users:read"],
+    });
+    expect(store.getData("slack.strict_scopes")).toBe(true);
   });
 });
 
 describe("Slack plugin - OAuth flow", () => {
   let app: SlackTestApp["app"];
+  let store: Store;
 
   beforeEach(() => {
     const setup = createTestApp();
     app = setup.app;
+    store = setup.store;
     const ss = getSlackStore(setup.store);
     ss.oauthApps.insert({
+      app_id: "A000000001",
       client_id: "12345.67890",
       client_secret: "test-secret",
       name: "Test App",
       redirect_uris: ["http://localhost:3000/callback"],
+      scopes: ["chat:write", "channels:read"],
+      user_scopes: ["users:read"],
+      bot_id: "B000000099",
+      bot_user_id: "U000000099",
+      bot_name: "test-app",
     });
   });
 
@@ -2150,7 +2191,7 @@ describe("Slack plugin - OAuth flow", () => {
   it("completes the token exchange", async () => {
     // Get the consent page to verify it loads
     const authRes = await app.request(
-      `${base}/oauth/v2/authorize?client_id=12345.67890&redirect_uri=http://localhost:3000/callback&scope=chat:write&state=xyz`,
+      `${base}/oauth/v2/authorize?client_id=12345.67890&redirect_uri=http://localhost:3000/callback&scope=chat:write,channels:read&user_scope=users:read&state=xyz`,
     );
     expect(authRes.status).toBe(200);
 
@@ -2158,7 +2199,7 @@ describe("Slack plugin - OAuth flow", () => {
     const callbackRes = await app.request(`${base}/oauth/v2/authorize/callback`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: `user_id=U000000001&redirect_uri=http://localhost:3000/callback&scope=chat:write&state=xyz&client_id=12345.67890`,
+      body: `user_id=U000000001&redirect_uri=http://localhost:3000/callback&scope=chat:write,channels:read&user_scope=users:read&state=xyz&client_id=12345.67890`,
     });
     expect(callbackRes.status).toBe(302);
     const location = callbackRes.headers.get("Location")!;
@@ -2169,13 +2210,108 @@ describe("Slack plugin - OAuth flow", () => {
     const tokenRes = await app.request(`${base}/api/oauth.v2.access`, {
       method: "POST",
       headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: `code=${code}&client_id=12345.67890&client_secret=test-secret`,
+      body: `code=${code}&client_id=12345.67890&client_secret=test-secret&redirect_uri=http://localhost:3000/callback`,
     });
     const token = (await tokenRes.json()) as any;
     expect(token.ok).toBe(true);
     expect(token.access_token).toMatch(/^xoxb-/);
+    expect(token.token_type).toBe("bot");
+    expect(token.scope).toBe("chat:write,channels:read");
+    expect(token.bot_user_id).toBe("U000000099");
+    expect(token.app_id).toBe("A000000001");
     expect(token.team.name).toBe("Emulate");
+    expect(token.enterprise).toBeNull();
+    expect(token.is_enterprise_install).toBe(false);
     expect(token.authed_user.id).toBe("U000000001");
+    expect(token.authed_user.access_token).toMatch(/^xoxp-/);
+    expect(token.authed_user.scope).toBe("users:read");
+    expect(token.authed_user.token_type).toBe("user");
+
+    const ss = getSlackStore(store);
+    const installation = ss.installations.findOneBy("app_id", "A000000001");
+    expect(installation).toMatchObject({
+      client_id: "12345.67890",
+      team_id: "T000000001",
+      installer_user_id: "U000000001",
+      bot_id: "B000000099",
+      bot_user_id: "U000000099",
+      scopes: ["chat:write", "channels:read"],
+      user_scopes: ["users:read"],
+    });
+    expect(ss.users.findOneBy("user_id", "U000000099")?.is_bot).toBe(true);
+    expect(ss.tokens.findOneBy("token", token.access_token)).toMatchObject({
+      token_type: "bot",
+      app_id: "A000000001",
+      user_id: "U000000099",
+      authed_user_id: "U000000001",
+    });
+
+    const authTestRes = await app.request(`${base}/api/auth.test`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token.access_token}` },
+    });
+    const authTest = (await authTestRes.json()) as any;
+    expect(authTest.ok).toBe(true);
+    expect(authTest.user_id).toBe("U000000099");
+    expect(authTest.bot_id).toBe("B000000099");
+    expect(authTest.app_id).toBe("A000000001");
+  });
+});
+
+describe("Slack plugin - scope modes", () => {
+  let app: SlackTestApp["app"];
+  let store: Store;
+  let tokenMap: SlackTestApp["tokenMap"];
+
+  beforeEach(() => {
+    ({ app, store, tokenMap } = createTestApp());
+  });
+
+  it("keeps missing scope checks relaxed by default", async () => {
+    tokenMap.set("xoxb-relaxed-token", { login: "U000000001", id: 1, scopes: [] });
+    const res = await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: { Authorization: "Bearer xoxb-relaxed-token", "Content-Type": "application/json" },
+      body: JSON.stringify({ channel: "C000000001", text: "relaxed" }),
+    });
+    const body = (await res.json()) as any;
+    expect(body.ok).toBe(true);
+  });
+
+  it("returns missing_scope in strict mode", async () => {
+    store.setData("slack.strict_scopes", true);
+    tokenMap.set("xoxb-missing-scope-token", { login: "U000000001", id: 1, scopes: ["channels:read"] });
+
+    const res = await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: { Authorization: "Bearer xoxb-missing-scope-token", "Content-Type": "application/json" },
+      body: JSON.stringify({ channel: "C000000001", text: "strict" }),
+    });
+    const body = (await res.json()) as any;
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe("missing_scope");
+    expect(body.needed).toBe("chat:write");
+    expect(body.provided).toBe("channels:read");
+  });
+
+  it("authenticates seeded Slack token records in strict mode", async () => {
+    store.setData("slack.strict_scopes", true);
+    getSlackStore(store).tokens.insert({
+      token: "xoxb-store-token",
+      token_type: "test",
+      team_id: "T000000001",
+      user_id: "U000000001",
+      scopes: ["chat:write"],
+    });
+
+    const res = await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: { Authorization: "Bearer xoxb-store-token", "Content-Type": "application/json" },
+      body: JSON.stringify({ channel: "C000000001", text: "seeded token" }),
+    });
+    const body = (await res.json()) as any;
+    expect(body.ok).toBe(true);
+    expect(body.message.user).toBe("U000000001");
   });
 });
 

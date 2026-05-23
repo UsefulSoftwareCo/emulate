@@ -256,9 +256,18 @@ slack:
   oauth_apps:
     - client_id: "12345.67890"
       client_secret: example_client_secret
+      app_id: A000000001
       name: My Slack App
       redirect_uris:
         - http://localhost:3000/api/auth/callback/slack
+      scopes: [chat:write, channels:read]
+      user_scopes: [users:read]
+      bot_name: my-bot
+  tokens:
+    - token: xoxb-local-test
+      user: developer
+      scopes: [chat:write, channels:read]
+  strict_scopes: false
 
 apple:
   users:
@@ -598,7 +607,7 @@ OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local
 
 ## Slack API
 
-Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors.
+Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. Seeded OAuth apps and OAuth installs create bot users, installation records, and scoped token records.
 
 ### Auth & Chat
 - `POST /api/auth.test` - test authentication
@@ -641,6 +650,8 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 ### OAuth
 - `GET /oauth/v2/authorize` - authorization (shows user picker)
 - `POST /api/oauth.v2.access` - token exchange
+
+Slack scope checks are relaxed by default so local tests can use simple bearer tokens. Set `slack.strict_scopes: true` in seed config to make supported Web API methods return Slack-style `missing_scope` errors with `needed` and `provided` fields.
 
 ## Apple Sign In
 
@@ -844,7 +855,7 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 
 **Google**: Standard OAuth 2.0 authorization code flow. Configure clients in the seed config.
 
-**Slack**: All Web API endpoints require `Authorization: Bearer <token>`. OAuth v2 flow with user picker UI.
+**Slack**: All Web API endpoints require `Authorization: Bearer <token>`. Seeded OAuth apps and OAuth v2 flow with user picker UI create bot users, installation records, and scoped bot tokens. Optional strict scope mode returns `missing_scope` when a token lacks a required method scope.
 
 **Apple**: OIDC authorization code flow with RS256 ID tokens. On first auth per user/client pair, a `user` JSON blob is included.
 
