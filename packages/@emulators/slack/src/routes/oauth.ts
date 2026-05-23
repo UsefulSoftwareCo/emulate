@@ -349,7 +349,17 @@ function ensureBotForApp(
         email: `${botName}@bots.emulate.dev`,
         image_48: "",
         image_192: "",
+        real_name_normalized: oauthApp?.name ?? botName,
+        display_name_normalized: botName,
+        status_text: "",
+        status_emoji: "",
+        status_emoji_display_info: [],
+        status_expiration: 0,
       },
+      presence: "active",
+      manual_presence: "auto",
+      connection_count: 1,
+      last_activity: Math.floor(Date.now() / 1000),
     });
 
   return {

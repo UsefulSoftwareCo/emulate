@@ -230,7 +230,19 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
     initConfig: {
       slack: {
         team: { name: "My Workspace", domain: "my-workspace" },
-        users: [{ name: "developer", real_name: "Developer", email: "dev@example.com" }],
+        users: [
+          {
+            name: "developer",
+            real_name: "Developer",
+            email: "dev@example.com",
+            profile: {
+              title: "Local Developer",
+              status_text: "Testing locally",
+              status_emoji: ":computer:",
+            },
+            presence: "active",
+          },
+        ],
         channels: [
           { name: "general", topic: "General discussion" },
           { name: "random", topic: "Random stuff" },
@@ -243,8 +255,8 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
             app_id: "A000000001",
             name: "My Slack App",
             redirect_uris: ["http://localhost:3000/api/auth/callback/slack"],
-            scopes: ["chat:write", "channels:read"],
-            user_scopes: ["users:read"],
+            scopes: ["chat:write", "channels:read", "users.profile:read", "users.profile:write", "users:write"],
+            user_scopes: ["users:read", "users.profile:read"],
             bot_name: "my-bot",
           },
         ],

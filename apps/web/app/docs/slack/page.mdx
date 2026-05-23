@@ -1,12 +1,12 @@
 # Slack API
 
-Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. Seeded OAuth apps and OAuth installs create bot users and installation records. OAuth exchanges and explicit token seeds create scoped token records. State changes dispatch `event_callback` payloads to configured webhook URLs.
+Fully stateful Slack Web API emulation with channels, messages, threads, reactions, user profiles, presence, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. User writes update profile fields, status, custom fields, and deterministic active or away presence. Seeded OAuth apps and OAuth installs create bot users and installation records. OAuth exchanges and explicit token seeds create scoped token records. State changes dispatch `event_callback` payloads to configured webhook URLs.
 
 ## Auth
 
 - `POST /api/auth.test` - test authentication
 
-Scope checks are relaxed by default for local development. Set `slack.strict_scopes: true` in seed config to make supported Web API methods return Slack-style `missing_scope` errors with `needed` and `provided` fields.
+Scope checks are relaxed by default for local development. Set `slack.strict_scopes: true` in seed config to make supported Web API methods return Slack-style `missing_scope` errors with `needed` and `provided` fields. Supported user and presence checks include `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, and `users:write`.
 
 ## Chat
 
@@ -46,6 +46,10 @@ Scope checks are relaxed by default for local development. Set `slack.strict_sco
 - `POST /api/users.list` - list users (cursor pagination)
 - `POST /api/users.info` - get user info
 - `POST /api/users.lookupByEmail` - lookup by email
+- `GET /api/users.profile.get` / `POST /api/users.profile.get` - get user profile fields
+- `POST /api/users.profile.set` - update profile fields, status, and custom fields
+- `GET /api/users.getPresence` / `POST /api/users.getPresence` - get active or away presence
+- `POST /api/users.setPresence` - set the authed user to away or automatic presence
 
 ## Reactions
 
@@ -88,3 +92,5 @@ When messages are posted, updated, deleted, or reactions change, the emulator di
 - `message` with public `channel_topic` / `channel_purpose` or private `group_topic` / `group_purpose` subtypes on topic and purpose writes
 - `member_joined_channel` / `member_left_channel` on invite, join, leave, and kick writes
 - `im_created`, `im_open`, `im_close`, `im_marked`, and group open/close/marked events for DM and MPIM writes
+- `user_change` on profile writes
+- `presence_change` on presence writes

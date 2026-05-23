@@ -1787,9 +1787,11 @@ describe("Slack plugin - conversations", () => {
 
 describe("Slack plugin - users", () => {
   let app: SlackTestApp["app"];
+  let store: Store;
+  let tokenMap: SlackTestApp["tokenMap"];
 
   beforeEach(() => {
-    app = createTestApp().app;
+    ({ app, store, tokenMap } = createTestApp());
   });
 
   it("lists users", async () => {
@@ -1823,6 +1825,166 @@ describe("Slack plugin - users", () => {
     const body = (await res.json()) as any;
     expect(body.ok).toBe(true);
     expect(body.user.profile.email).toBe("admin@emulate.dev");
+  });
+
+  it("gets and sets profile fields", async () => {
+    const getRes = await app.request(`${base}/api/users.profile.get?user=U000000001`, {
+      method: "GET",
+      headers: authHeaders(),
+    });
+    const initial = (await getRes.json()) as any;
+    expect(initial.ok).toBe(true);
+    expect(initial.profile.display_name).toBe("admin");
+    expect(initial.profile.status_text).toBe("");
+
+    const setRes = await app.request(`${base}/api/users.profile.set`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        user: "U000000001",
+        profile: {
+          display_name: "Admin Ops",
+          real_name: "Admin Operator",
+          title: "Incident Commander",
+          phone: "+1 555 0100",
+          pronouns: "they/them",
+          status_text: "Watching deploys",
+          status_emoji: ":eyes:",
+          status_expiration: 0,
+          fields: { Xf0000001: { value: "Platform", alt: "" } },
+        },
+      }),
+    });
+    const set = (await setRes.json()) as any;
+    expect(set.ok).toBe(true);
+    expect(set.profile).toMatchObject({
+      display_name: "Admin Ops",
+      display_name_normalized: "Admin Ops",
+      real_name: "Admin Operator",
+      real_name_normalized: "Admin Operator",
+      title: "Incident Commander",
+      phone: "+1 555 0100",
+      pronouns: "they/them",
+      status_text: "Watching deploys",
+      status_emoji: ":eyes:",
+      fields: { Xf0000001: { value: "Platform", alt: "" } },
+    });
+
+    const stored = getSlackStore(store).users.findOneBy("user_id", "U000000001");
+    expect(stored?.real_name).toBe("Admin Operator");
+    expect(stored?.profile.display_name).toBe("Admin Ops");
+  });
+
+  it("sets a single profile field from form data", async () => {
+    const form = new URLSearchParams();
+    form.set("user", "U000000001");
+    form.set("name", "status_text");
+    form.set("value", "On call");
+
+    const res = await app.request(`${base}/api/users.profile.set`, {
+      method: "POST",
+      headers: authHeaders("application/x-www-form-urlencoded"),
+      body: form.toString(),
+    });
+    const body = (await res.json()) as any;
+    expect(body.ok).toBe(true);
+    expect(body.profile.status_text).toBe("On call");
+  });
+
+  it("gets and sets presence", async () => {
+    const initialRes = await app.request(`${base}/api/users.getPresence`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ user: "U000000001" }),
+    });
+    const initial = (await initialRes.json()) as any;
+    expect(initial).toMatchObject({
+      ok: true,
+      presence: "active",
+      online: true,
+      manual_away: false,
+      connection_count: 1,
+    });
+
+    const awayRes = await app.request(`${base}/api/users.setPresence`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ presence: "away" }),
+    });
+    expect(((await awayRes.json()) as any).ok).toBe(true);
+
+    const awayPresenceRes = await app.request(`${base}/api/users.getPresence`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ user: "U000000001" }),
+    });
+    const awayPresence = (await awayPresenceRes.json()) as any;
+    expect(awayPresence).toMatchObject({
+      ok: true,
+      presence: "away",
+      online: false,
+      manual_away: true,
+      connection_count: 0,
+    });
+
+    const autoRes = await app.request(`${base}/api/users.setPresence`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ presence: "auto" }),
+    });
+    expect(((await autoRes.json()) as any).ok).toBe(true);
+    expect(getSlackStore(store).users.findOneBy("user_id", "U000000001")?.presence).toBe("active");
+  });
+
+  it("returns invalid_presence for unsupported presence values", async () => {
+    const res = await app.request(`${base}/api/users.setPresence`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ presence: "busy" }),
+    });
+    const body = (await res.json()) as any;
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe("invalid_presence");
+  });
+
+  it("enforces profile and presence scopes in strict mode", async () => {
+    store.setData("slack.strict_scopes", true);
+    tokenMap.set("xoxb-profile-read-token", { login: "U000000001", id: 1, scopes: ["users.profile:read"] });
+
+    const profileGetRes = await app.request(`${base}/api/users.profile.get`, {
+      method: "POST",
+      headers: { Authorization: "Bearer xoxb-profile-read-token", "Content-Type": "application/json" },
+      body: JSON.stringify({ user: "U000000001" }),
+    });
+    expect(((await profileGetRes.json()) as any).ok).toBe(true);
+
+    const profileSetMissingRes = await app.request(`${base}/api/users.profile.set`, {
+      method: "POST",
+      headers: { Authorization: "Bearer xoxb-profile-read-token", "Content-Type": "application/json" },
+      body: JSON.stringify({ profile: { display_name: "Nope" } }),
+    });
+    const profileSetMissing = (await profileSetMissingRes.json()) as any;
+    expect(profileSetMissing.ok).toBe(false);
+    expect(profileSetMissing.error).toBe("missing_scope");
+    expect(profileSetMissing.needed).toBe("users.profile:write");
+
+    tokenMap.set("xoxb-presence-read-token", { login: "U000000001", id: 1, scopes: ["users:read"] });
+    const presenceRes = await app.request(`${base}/api/users.getPresence`, {
+      method: "POST",
+      headers: { Authorization: "Bearer xoxb-presence-read-token", "Content-Type": "application/json" },
+      body: JSON.stringify({ user: "U000000001" }),
+    });
+    expect(((await presenceRes.json()) as any).ok).toBe(true);
+
+    const presenceSetMissingRes = await app.request(`${base}/api/users.setPresence`, {
+      method: "POST",
+      headers: { Authorization: "Bearer xoxb-presence-read-token", "Content-Type": "application/json" },
+      body: JSON.stringify({ presence: "away" }),
+    });
+    const presenceSetMissing = (await presenceSetMissingRes.json()) as any;
+    expect(presenceSetMissing.ok).toBe(false);
+    expect(presenceSetMissing.error).toBe("missing_scope");
+    expect(presenceSetMissing.needed).toBe("users:write");
   });
 
   it("returns error for unknown user", async () => {
@@ -2080,7 +2242,20 @@ describe("Slack plugin - seedFromConfig", () => {
     seedFromConfig(store, base, {
       team: { name: "Acme Corp", domain: "acme" },
       users: [
-        { name: "alice", real_name: "Alice Smith", email: "alice@acme.com", is_admin: true },
+        {
+          name: "alice",
+          real_name: "Alice Smith",
+          email: "alice@acme.com",
+          is_admin: true,
+          presence: "away",
+          profile: {
+            title: "Staff Engineer",
+            phone: "+1 555 0101",
+            pronouns: "she/her",
+            status_text: "Deep work",
+            status_emoji: ":hammer_and_wrench:",
+          },
+        },
         { name: "bob", email: "bob@acme.com" },
       ],
       channels: [
@@ -2113,6 +2288,16 @@ describe("Slack plugin - seedFromConfig", () => {
 
     const users = ss.users.all();
     expect(users.length).toBe(4); // admin + alice + bob + app bot user
+    const alice = users.find((user) => user.name === "alice");
+    expect(alice?.presence).toBe("away");
+    expect(alice?.manual_presence).toBe("away");
+    expect(alice?.profile).toMatchObject({
+      title: "Staff Engineer",
+      phone: "+1 555 0101",
+      pronouns: "she/her",
+      status_text: "Deep work",
+      status_emoji: ":hammer_and_wrench:",
+    });
 
     const channels = ss.channels.all();
     expect(channels.length).toBe(4); // general + random + engineering + secret
