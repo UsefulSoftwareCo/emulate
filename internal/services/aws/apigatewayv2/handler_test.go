@@ -1,6 +1,8 @@
 package apigatewayv2
 
 import (
+	"bytes"
+	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -105,6 +107,67 @@ func TestLambdaProxyEventIncludesPathParameters(t *testing.T) {
 
 	if params["id"] != "abc" {
 		t.Fatalf("id path parameter = %q", params["id"])
+	}
+}
+
+func TestLambdaProxyEventEncodesBinaryBody(t *testing.T) {
+	handler := Handler{
+		AccountID: "123456789012",
+		Region:    "us-east-1",
+		Now:       func() time.Time { return time.Unix(0, 0) },
+	}
+	body := []byte{0, 1, 2, 3, 255, 'o', 'k'}
+	req := httptest.NewRequest(http.MethodPost, "http://example.test/upload", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/octet-stream")
+
+	event := handler.lambdaProxyEvent(
+		req,
+		gateway.AwsRequestContext{AccountID: "123456789012", Region: "us-east-1", RawBody: body},
+		corestore.Record{"api_id": "api-1"},
+		corestore.Record{"stage_name": "$default"},
+		routeMatch{Record: corestore.Record{"route_key": "POST /upload"}},
+		"/upload",
+		"req-1",
+	)
+
+	if event["isBase64Encoded"] != true {
+		t.Fatalf("isBase64Encoded = %#v", event["isBase64Encoded"])
+	}
+	if got := event["body"]; got != base64.StdEncoding.EncodeToString(body) {
+		t.Fatalf("body = %q", got)
+	}
+}
+
+func TestLambdaProxyEventIncludesCookiesAndStageVariables(t *testing.T) {
+	handler := Handler{
+		AccountID: "123456789012",
+		Region:    "us-east-1",
+		Now:       func() time.Time { return time.Unix(0, 0) },
+	}
+	req := httptest.NewRequest(http.MethodGet, "http://example.test/with-context", nil)
+	req.Header.Add("Cookie", "sid=one; prefs=two")
+	req.Header.Add("Cookie", "theme=dark")
+
+	event := handler.lambdaProxyEvent(
+		req,
+		gateway.AwsRequestContext{AccountID: "123456789012", Region: "us-east-1"},
+		corestore.Record{"api_id": "api-1"},
+		corestore.Record{
+			"stage_name":      "$default",
+			"stage_variables": corestore.Record{"alias": "live", "debug": "true"},
+		},
+		routeMatch{Record: corestore.Record{"route_key": "GET /with-context"}},
+		"/with-context",
+		"req-1",
+	)
+
+	cookies := event["cookies"].([]string)
+	if len(cookies) != 3 || cookies[0] != "sid=one" || cookies[1] != "prefs=two" || cookies[2] != "theme=dark" {
+		t.Fatalf("cookies = %#v", cookies)
+	}
+	stageVariables := event["stageVariables"].(map[string]string)
+	if stageVariables["alias"] != "live" || stageVariables["debug"] != "true" {
+		t.Fatalf("stageVariables = %#v", stageVariables)
 	}
 }
 

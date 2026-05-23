@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"mime"
 	"net"
 	"net/http"
 	"net/url"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	corestore "github.com/vercel-labs/emulate/internal/core/store"
 	"github.com/vercel-labs/emulate/internal/services/aws/gateway"
@@ -450,7 +452,7 @@ func (h *Handler) lambdaProxyEvent(req *http.Request, ctx gateway.AwsRequestCont
 			query[key] = strings.Join(values, ",")
 		}
 	}
-	body := string(ctx.RawBody)
+	body, isBase64Encoded := lambdaProxyEventBody(req, ctx.RawBody)
 	event := map[string]any{
 		"version":               "2.0",
 		"routeKey":              stringField(route.Record, "route_key"),
@@ -477,12 +479,91 @@ func (h *Handler) lambdaProxyEvent(req *http.Request, ctx gateway.AwsRequestCont
 			},
 		},
 		"body":            body,
-		"isBase64Encoded": false,
+		"isBase64Encoded": isBase64Encoded,
+	}
+	if cookies := requestCookies(req); len(cookies) > 0 {
+		event["cookies"] = cookies
 	}
 	if len(route.PathParameters) > 0 {
 		event["pathParameters"] = route.PathParameters
 	}
+	if stageVariables := stringMap(stage["stage_variables"]); len(stageVariables) > 0 {
+		event["stageVariables"] = stageVariables
+	}
 	return event
+}
+
+func lambdaProxyEventBody(req *http.Request, raw []byte) (string, bool) {
+	if len(raw) == 0 {
+		return "", false
+	}
+	if !shouldBase64EncodeRequestBody(req, raw) {
+		return string(raw), false
+	}
+	return base64.StdEncoding.EncodeToString(raw), true
+}
+
+func shouldBase64EncodeRequestBody(req *http.Request, raw []byte) bool {
+	if !utf8.Valid(raw) {
+		return true
+	}
+	contentType := ""
+	if req != nil {
+		contentType = req.Header.Get("Content-Type")
+	}
+	contentType = normalizedContentType(contentType)
+	if contentType == "" {
+		return false
+	}
+	return !isTextualContentType(contentType)
+}
+
+func normalizedContentType(value string) string {
+	mediaType, _, err := mime.ParseMediaType(value)
+	if err == nil {
+		return strings.ToLower(mediaType)
+	}
+	if mediaType, _, ok := strings.Cut(value, ";"); ok {
+		value = mediaType
+	}
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func isTextualContentType(contentType string) bool {
+	if strings.HasPrefix(contentType, "text/") {
+		return true
+	}
+	if strings.HasSuffix(contentType, "+json") || strings.HasSuffix(contentType, "+xml") {
+		return true
+	}
+	switch contentType {
+	case "application/ecmascript",
+		"application/graphql",
+		"application/graphql+json",
+		"application/javascript",
+		"application/json",
+		"application/x-www-form-urlencoded",
+		"application/xml":
+		return true
+	default:
+		return false
+	}
+}
+
+func requestCookies(req *http.Request) []string {
+	if req == nil {
+		return nil
+	}
+	cookies := []string{}
+	for _, header := range req.Header.Values("Cookie") {
+		for _, part := range strings.Split(header, ";") {
+			cookie := strings.TrimSpace(part)
+			if cookie != "" {
+				cookies = append(cookies, cookie)
+			}
+		}
+	}
+	return cookies
 }
 
 func lambdaProxyHTTPResponse(payload []byte) (int, map[string]string, map[string][]string, []byte) {
