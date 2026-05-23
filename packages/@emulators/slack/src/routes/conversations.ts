@@ -158,7 +158,9 @@ export function conversationsRoutes(ctx: RouteContext): void {
     const body = await parseSlackBody(c);
     const name = normalizeChannelName(typeof body.name === "string" ? body.name : "");
     const isPrivate = body.is_private === true || body.is_private === "true";
-    const scopeError = requireSlackScopes(c, store, [isPrivate ? "groups:write" : "channels:manage"]);
+    const scopeError = requireSlackScopes(c, store, [
+      isPrivate ? "groups:write" : ["channels:manage", "channels:write"],
+    ]);
     if (scopeError) return scopeError;
 
     if (!name) return slackError(c, "invalid_name_specials");

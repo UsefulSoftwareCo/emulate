@@ -1,6 +1,6 @@
 import type { RouteContext } from "@emulators/core";
 import { getSlackStore } from "../store.js";
-import { slackOk, slackError, parseSlackBody } from "../helpers.js";
+import { slackOk, slackError, parseSlackBody, requireSlackScopes } from "../helpers.js";
 
 export function teamRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
@@ -10,6 +10,8 @@ export function teamRoutes(ctx: RouteContext): void {
   app.post("/api/team.info", (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
+    const scopeError = requireSlackScopes(c, store, ["team:read"]);
+    if (scopeError) return scopeError;
 
     const team = ss().teams.all()[0];
     if (!team) return slackError(c, "team_not_found");
@@ -27,6 +29,8 @@ export function teamRoutes(ctx: RouteContext): void {
   app.post("/api/bots.info", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
+    const scopeError = requireSlackScopes(c, store, ["users:read"]);
+    if (scopeError) return scopeError;
 
     const body = await parseSlackBody(c);
     const botId = typeof body.bot === "string" ? body.bot : "";

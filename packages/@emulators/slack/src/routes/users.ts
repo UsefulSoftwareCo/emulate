@@ -1,6 +1,13 @@
-import type { RouteContext } from "@emulators/core";
+import type { Context, RouteContext } from "@emulators/core";
 import { getSlackStore } from "../store.js";
-import { slackOk, slackError, parseSlackBody, requireSlackScopes } from "../helpers.js";
+import {
+  slackOk,
+  slackError,
+  parseSlackBody,
+  requireSlackScopes,
+  isSlackStrictScopes,
+  hasSlackScope,
+} from "../helpers.js";
 import type { SlackUser } from "../entities.js";
 
 export function usersRoutes(ctx: RouteContext): void {
@@ -32,7 +39,7 @@ export function usersRoutes(ctx: RouteContext): void {
     const nextCursor = startIndex + limit < allUsers.length ? allUsers[startIndex + limit].user_id : "";
 
     return slackOk(c, {
-      members: page.map(formatUser),
+      members: page.map((user) => formatUser(user, canExposeEmail(c))),
       response_metadata: { next_cursor: nextCursor },
     });
   });
@@ -50,7 +57,7 @@ export function usersRoutes(ctx: RouteContext): void {
     const user = ss().users.findOneBy("user_id", userId);
     if (!user) return slackError(c, "user_not_found");
 
-    return slackOk(c, { user: formatUser(user) });
+    return slackOk(c, { user: formatUser(user, canExposeEmail(c)) });
   });
 
   // users.lookupByEmail
@@ -68,11 +75,16 @@ export function usersRoutes(ctx: RouteContext): void {
     const user = ss().users.findOneBy("email", email);
     if (!user) return slackError(c, "users_not_found");
 
-    return slackOk(c, { user: formatUser(user) });
+    return slackOk(c, { user: formatUser(user, true) });
   });
+
+  function canExposeEmail(c: Context): boolean {
+    return !isSlackStrictScopes(store) || hasSlackScope(c, "users:read.email");
+  }
 }
 
-function formatUser(u: SlackUser) {
+function formatUser(u: SlackUser, includeEmail = true) {
+  const profile = includeEmail ? u.profile : omitEmail(u.profile);
   return {
     id: u.user_id,
     team_id: u.team_id,
@@ -81,6 +93,11 @@ function formatUser(u: SlackUser) {
     is_admin: u.is_admin,
     is_bot: u.is_bot,
     deleted: u.deleted,
-    profile: u.profile,
+    profile,
   };
+}
+
+function omitEmail(profile: SlackUser["profile"]): Omit<SlackUser["profile"], "email"> {
+  const { email: _email, ...rest } = profile;
+  return rest;
 }

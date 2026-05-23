@@ -63,7 +63,7 @@ export function isSlackStrictScopes(store: Store): boolean {
 export function requireSlackScopes(c: Context, store: Store, requirements: SlackScopeRequirement[]) {
   if (!isSlackStrictScopes(store)) return undefined;
 
-  const provided = c.get("authScopes") ?? c.get("authUser")?.scopes ?? [];
+  const provided = slackProvidedScopes(c);
   const providedSet = new Set(provided);
   const missing = requirements.filter((requirement) => {
     if (Array.isArray(requirement)) {
@@ -82,6 +82,14 @@ export function requireSlackScopes(c: Context, store: Store, requirements: Slack
   });
 }
 
+export function hasSlackScope(c: Context, scope: string): boolean {
+  return slackProvidedScopes(c).includes(scope);
+}
+
+function slackProvidedScopes(c: Context): string[] {
+  return c.get("authScopes") ?? c.get("authUser")?.scopes ?? [];
+}
+
 export function slackConversationReadScope(ch: SlackChannel): string {
   if (ch.is_im) return "im:read";
   if (ch.is_mpim) return "mpim:read";
@@ -96,11 +104,11 @@ export function slackConversationHistoryScope(ch: SlackChannel): string {
   return "channels:history";
 }
 
-export function slackConversationWriteScope(ch: SlackChannel): string {
+export function slackConversationWriteScope(ch: SlackChannel): SlackScopeRequirement {
   if (ch.is_im) return "im:write";
   if (ch.is_mpim) return "mpim:write";
   if (ch.is_private) return "groups:write";
-  return "channels:manage";
+  return ["channels:manage", "channels:write"];
 }
 
 export function slackConversationJoinScope(ch: SlackChannel): SlackScopeRequirement {

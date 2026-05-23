@@ -2294,6 +2294,99 @@ describe("Slack plugin - scope modes", () => {
     expect(body.provided).toBe("channels:read");
   });
 
+  it("accepts channels:write for public channel writes in strict mode", async () => {
+    store.setData("slack.strict_scopes", true);
+    tokenMap.set("xoxb-public-channel-write-token", { login: "U000000001", id: 1, scopes: ["channels:write"] });
+    const headers = {
+      Authorization: "Bearer xoxb-public-channel-write-token",
+      "Content-Type": "application/json",
+    };
+
+    const createRes = await app.request(`${base}/api/conversations.create`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ name: "strict-public-write" }),
+    });
+    const created = (await createRes.json()) as any;
+    expect(created.ok).toBe(true);
+
+    const topicRes = await app.request(`${base}/api/conversations.setTopic`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ channel: created.channel.id, topic: "via channels:write" }),
+    });
+    const topic = (await topicRes.json()) as any;
+    expect(topic.ok).toBe(true);
+    expect(topic.channel.topic.value).toBe("via channels:write");
+  });
+
+  it("hides user emails without users:read.email in strict mode", async () => {
+    store.setData("slack.strict_scopes", true);
+    tokenMap.set("xoxb-users-read-token", { login: "U000000001", id: 1, scopes: ["users:read"] });
+
+    const infoRes = await app.request(`${base}/api/users.info`, {
+      method: "POST",
+      headers: { Authorization: "Bearer xoxb-users-read-token", "Content-Type": "application/json" },
+      body: JSON.stringify({ user: "U000000001" }),
+    });
+    const info = (await infoRes.json()) as any;
+    expect(info.ok).toBe(true);
+    expect(info.user.profile.email).toBeUndefined();
+
+    tokenMap.set("xoxb-users-email-token", {
+      login: "U000000001",
+      id: 1,
+      scopes: ["users:read", "users:read.email"],
+    });
+    const emailRes = await app.request(`${base}/api/users.info`, {
+      method: "POST",
+      headers: { Authorization: "Bearer xoxb-users-email-token", "Content-Type": "application/json" },
+      body: JSON.stringify({ user: "U000000001" }),
+    });
+    const email = (await emailRes.json()) as any;
+    expect(email.ok).toBe(true);
+    expect(email.user.profile.email).toBe("admin@emulate.dev");
+  });
+
+  it("requires team and bot info scopes in strict mode", async () => {
+    store.setData("slack.strict_scopes", true);
+    getSlackStore(store).bots.insert({
+      bot_id: "B000000777",
+      name: "strict-bot",
+      deleted: false,
+      icons: { image_48: "" },
+    });
+    tokenMap.set("xoxb-no-team-scope-token", { login: "U000000001", id: 1, scopes: ["users:read"] });
+
+    const missingTeamRes = await app.request(`${base}/api/team.info`, {
+      method: "POST",
+      headers: { Authorization: "Bearer xoxb-no-team-scope-token" },
+    });
+    const missingTeam = (await missingTeamRes.json()) as any;
+    expect(missingTeam.ok).toBe(false);
+    expect(missingTeam.error).toBe("missing_scope");
+    expect(missingTeam.needed).toBe("team:read");
+
+    tokenMap.set("xoxb-team-read-token", { login: "U000000001", id: 1, scopes: ["team:read"] });
+    const teamRes = await app.request(`${base}/api/team.info`, {
+      method: "POST",
+      headers: { Authorization: "Bearer xoxb-team-read-token" },
+    });
+    const team = (await teamRes.json()) as any;
+    expect(team.ok).toBe(true);
+
+    tokenMap.set("xoxb-no-users-scope-token", { login: "U000000001", id: 1, scopes: ["team:read"] });
+    const missingBotRes = await app.request(`${base}/api/bots.info`, {
+      method: "POST",
+      headers: { Authorization: "Bearer xoxb-no-users-scope-token", "Content-Type": "application/json" },
+      body: JSON.stringify({ bot: "B000000777" }),
+    });
+    const missingBot = (await missingBotRes.json()) as any;
+    expect(missingBot.ok).toBe(false);
+    expect(missingBot.error).toBe("missing_scope");
+    expect(missingBot.needed).toBe("users:read");
+  });
+
   it("requires history scopes for history and replies in strict mode", async () => {
     const ss = getSlackStore(store);
     const ch = ss.channels.findOneBy("name", "general")!;

@@ -224,26 +224,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       return {
         login: "U000000001",
         id: 1,
-        scopes: [
-          "chat:write",
-          "channels:read",
-          "channels:history",
-          "channels:join",
-          "channels:manage",
-          "groups:read",
-          "groups:history",
-          "groups:write",
-          "im:read",
-          "im:history",
-          "im:write",
-          "mpim:read",
-          "mpim:history",
-          "mpim:write",
-          "users:read",
-          "users:read.email",
-          "reactions:read",
-          "reactions:write",
-        ],
+        scopes: [],
       };
     },
     initConfig: {

@@ -58,6 +58,32 @@ describe("createEmulator", () => {
     await github.close();
   });
 
+  it("does not grant Slack fallback scopes in strict mode", async () => {
+    const slack = await createEmulator({
+      service: "slack",
+      port: 14030,
+      seed: { slack: { strict_scopes: true } },
+    });
+
+    const res = await fetch(`${slack.url}/api/chat.postMessage`, {
+      method: "POST",
+      headers: {
+        Authorization: "Bearer arbitrary-slack-token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ channel: "C000000001", text: "strict fallback" }),
+    });
+    const body = (await res.json()) as { ok: boolean; error: string; needed: string; provided: string };
+    expect(body).toMatchObject({
+      ok: false,
+      error: "missing_scope",
+      needed: "chat:write",
+      provided: "",
+    });
+
+    await slack.close();
+  });
+
   it("throws on unknown service", async () => {
     // @ts-expect-error testing invalid service name
     await expect(createEmulator({ service: "unknown-svc" })).rejects.toThrow("Unknown service");

@@ -76,6 +76,7 @@ const DEFAULT_SLACK_SCOPES = [
   "channels:history",
   "channels:join",
   "channels:manage",
+  "channels:write",
   "groups:read",
   "groups:history",
   "groups:write",
@@ -89,6 +90,7 @@ const DEFAULT_SLACK_SCOPES = [
   "users:read.email",
   "reactions:read",
   "reactions:write",
+  "team:read",
 ];
 
 function seedDefaults(store: Store, _baseUrl: string): void {
@@ -440,8 +442,8 @@ function seedOAuthInstallation(
     });
   }
 
-  const existingInstallation = ss
-    .installations.all()
+  const existingInstallation = ss.installations
+    .all()
     .find((installation) => installation.app_id === appId && installation.team_id === teamId);
   const data = {
     app_id: appId,
