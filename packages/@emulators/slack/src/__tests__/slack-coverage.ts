@@ -121,7 +121,8 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     route: "POST /api/conversations.archive",
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
-    notes: "Archives channels, excludes them from list results, and dispatches channel_archive lifecycle events.",
+    notes:
+      "Archives channels, excludes them from list results, and dispatches channel_archive or group_archive lifecycle events.",
   },
   {
     family: "conversations",
@@ -129,7 +130,8 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     route: "POST /api/conversations.unarchive",
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
-    notes: "Unarchives channels, adds the caller back to membership when needed, and dispatches lifecycle events.",
+    notes:
+      "Unarchives channels, adds the caller back to membership when needed, and dispatches channel_unarchive or group_unarchive lifecycle events.",
   },
   {
     family: "conversations",
@@ -137,7 +139,8 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     route: "POST /api/conversations.rename",
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
-    notes: "Renames member-visible channels with basic Slack name validation and dispatches rename events.",
+    notes:
+      "Renames member-visible channels with basic Slack name validation and dispatches channel_rename or group_rename events.",
   },
   {
     family: "conversations",
@@ -145,7 +148,8 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     route: "POST /api/conversations.setTopic",
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
-    notes: "Updates channel topic metadata, validates membership and length, and dispatches channel_topic messages.",
+    notes:
+      "Updates channel topic metadata, validates membership and length, and dispatches channel_topic or group_topic messages.",
   },
   {
     family: "conversations",
@@ -153,7 +157,8 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     route: "POST /api/conversations.setPurpose",
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
-    notes: "Updates channel purpose metadata, validates membership and length, and dispatches channel_purpose messages.",
+    notes:
+      "Updates channel purpose metadata, validates membership and length, and dispatches channel_purpose or group_purpose messages.",
   },
   {
     family: "conversations",

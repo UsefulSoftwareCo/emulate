@@ -261,6 +261,65 @@ describe("Slack plugin - event dispatch baseline", () => {
     ]);
   });
 
+  it("dispatches private archive and unarchive lifecycle events as group events", async () => {
+    const { app, webhooks } = createSlackTestApp();
+    const capture = captureFetchRequests();
+    registerSlackEventSubscription(webhooks, ["group_archive", "group_unarchive", "message"]);
+
+    const createRes = await app.request(`${base}/api/conversations.create`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ name: "event-private-archive-test", is_private: true }),
+    });
+    const created = (await createRes.json()) as any;
+    const channel = created.channel.id;
+
+    await app.request(`${base}/api/conversations.archive`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel }),
+    });
+    await app.request(`${base}/api/conversations.unarchive`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel }),
+    });
+
+    expect(capture.requests).toHaveLength(4);
+    expect(capture.jsonBodies()).toEqual([
+      expect.objectContaining({
+        event: expect.objectContaining({
+          type: "group_archive",
+          channel,
+          user: "U000000001",
+        }),
+      }),
+      expect.objectContaining({
+        event: expect.objectContaining({
+          type: "message",
+          subtype: "group_archive",
+          channel,
+          user: "U000000001",
+        }),
+      }),
+      expect.objectContaining({
+        event: expect.objectContaining({
+          type: "group_unarchive",
+          channel,
+          user: "U000000001",
+        }),
+      }),
+      expect.objectContaining({
+        event: expect.objectContaining({
+          type: "message",
+          subtype: "group_unarchive",
+          channel,
+          user: "U000000001",
+        }),
+      }),
+    ]);
+  });
+
   it("dispatches rename, topic, and purpose lifecycle events", async () => {
     const { app, webhooks } = createSlackTestApp();
     const capture = captureFetchRequests();
@@ -324,6 +383,74 @@ describe("Slack plugin - event dispatch baseline", () => {
           subtype: "channel_purpose",
           channel,
           purpose: "Event purpose",
+        }),
+      }),
+    ]);
+  });
+
+  it("dispatches private rename, topic, and purpose lifecycle events as group events", async () => {
+    const { app, webhooks } = createSlackTestApp();
+    const capture = captureFetchRequests();
+    registerSlackEventSubscription(webhooks, ["group_rename", "message"]);
+
+    const createRes = await app.request(`${base}/api/conversations.create`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ name: "event-private-lifecycle-test", is_private: true }),
+    });
+    const created = (await createRes.json()) as any;
+    const channel = created.channel.id;
+
+    await app.request(`${base}/api/conversations.rename`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel, name: "event-private-renamed-test" }),
+    });
+    await app.request(`${base}/api/conversations.setTopic`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel, topic: "Private event topic" }),
+    });
+    await app.request(`${base}/api/conversations.setPurpose`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel, purpose: "Private event purpose" }),
+    });
+
+    expect(capture.requests).toHaveLength(4);
+    expect(capture.jsonBodies()).toEqual([
+      expect.objectContaining({
+        event: expect.objectContaining({
+          type: "group_rename",
+          channel: expect.objectContaining({
+            id: channel,
+            name: "event-private-renamed-test",
+          }),
+        }),
+      }),
+      expect.objectContaining({
+        event: expect.objectContaining({
+          type: "message",
+          subtype: "group_name",
+          channel,
+          old_name: "event-private-lifecycle-test",
+          name: "event-private-renamed-test",
+        }),
+      }),
+      expect.objectContaining({
+        event: expect.objectContaining({
+          type: "message",
+          subtype: "group_topic",
+          channel,
+          topic: "Private event topic",
+        }),
+      }),
+      expect.objectContaining({
+        event: expect.objectContaining({
+          type: "message",
+          subtype: "group_purpose",
+          channel,
+          purpose: "Private event purpose",
         }),
       }),
     ]);

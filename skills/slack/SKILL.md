@@ -387,9 +387,10 @@ When messages are posted, updated, deleted, or reactions are added/removed, the 
 - rich message fields are included on posted `message` events when present
 - `reaction_added` / `reaction_removed` events on `reactions.add` / `reactions.remove`
 - `message` with `subtype: bot_message` on incoming webhook posts
-- `channel_archive` / `channel_unarchive` and matching message subtypes on lifecycle archive writes
-- `channel_rename` and `message` with `subtype: channel_name` on `conversations.rename`
-- `message` with `subtype: channel_topic` / `channel_purpose` on topic and purpose writes
+- `channel_archive` / `channel_unarchive` for public lifecycle archive writes
+- `group_archive` / `group_unarchive` for private lifecycle archive writes
+- `channel_rename` / `group_rename` and matching name message subtypes on `conversations.rename`
+- `message` with public `channel_topic` / `channel_purpose` or private `group_topic` / `group_purpose` subtypes on topic and purpose writes
 
 ## Common Patterns
 

@@ -156,10 +156,13 @@ export function conversationsRoutes(ctx: RouteContext): void {
     if (!isChannelMember(ch, authSlackUser, authUserId)) return slackError(c, "not_in_channel");
 
     const updated = ss().channels.update(ch.id, { is_archived: true })!;
-    await dispatchConversationEvent("channel_archive", { channel: updated.channel_id, user: authUserId });
+    await dispatchConversationEvent(lifecycleEventType(updated, "archive"), {
+      channel: updated.channel_id,
+      user: authUserId,
+    });
     await insertAndDispatchMessageEvent(updated, authUserId, {
-      subtype: "channel_archive",
-      text: `<@${authUserId}> archived the channel`,
+      subtype: lifecycleEventType(updated, "archive"),
+      text: `<@${authUserId}> archived the ${conversationNoun(updated)}`,
     });
 
     return slackOk(c, {});
@@ -187,10 +190,13 @@ export function conversationsRoutes(ctx: RouteContext): void {
       num_members: members.length,
     })!;
 
-    await dispatchConversationEvent("channel_unarchive", { channel: updated.channel_id, user: authUserId });
+    await dispatchConversationEvent(lifecycleEventType(updated, "unarchive"), {
+      channel: updated.channel_id,
+      user: authUserId,
+    });
     await insertAndDispatchMessageEvent(updated, authUserId, {
-      subtype: "channel_unarchive",
-      text: `<@${authUserId}> unarchived the channel`,
+      subtype: lifecycleEventType(updated, "unarchive"),
+      text: `<@${authUserId}> unarchived the ${conversationNoun(updated)}`,
     });
 
     return slackOk(c, {});
@@ -226,7 +232,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
 
     const oldName = ch.name;
     const updated = ss().channels.update(ch.id, { name })!;
-    await dispatchConversationEvent("channel_rename", {
+    await dispatchConversationEvent(lifecycleEventType(updated, "rename"), {
       channel: {
         id: updated.channel_id,
         name: updated.name,
@@ -234,8 +240,8 @@ export function conversationsRoutes(ctx: RouteContext): void {
       },
     });
     await insertAndDispatchMessageEvent(updated, authUserId, {
-      subtype: "channel_name",
-      text: `<@${authUserId}> renamed the channel from "${oldName}" to "${updated.name}"`,
+      subtype: lifecycleMessageSubtype(updated, "name"),
+      text: `<@${authUserId}> renamed the ${conversationNoun(updated)} from "${oldName}" to "${updated.name}"`,
       old_name: oldName,
       name: updated.name,
     });
@@ -269,8 +275,8 @@ export function conversationsRoutes(ctx: RouteContext): void {
     })!;
 
     await insertAndDispatchMessageEvent(updated, authUserId, {
-      subtype: "channel_topic",
-      text: `<@${authUserId}> set the channel topic: ${topic}`,
+      subtype: lifecycleMessageSubtype(updated, "topic"),
+      text: `<@${authUserId}> set the ${conversationNoun(updated)} topic: ${topic}`,
       topic,
     });
 
@@ -303,8 +309,8 @@ export function conversationsRoutes(ctx: RouteContext): void {
     })!;
 
     await insertAndDispatchMessageEvent(updated, authUserId, {
-      subtype: "channel_purpose",
-      text: `<@${authUserId}> set the channel purpose: ${purpose}`,
+      subtype: lifecycleMessageSubtype(updated, "purpose"),
+      text: `<@${authUserId}> set the ${conversationNoun(updated)} purpose: ${purpose}`,
       purpose,
     });
 
@@ -472,4 +478,20 @@ function isTruthySlackBoolean(value: unknown): boolean {
 
 function isGeneralChannel(ch: SlackChannel): boolean {
   return ch.channel_id === "C000000001" || ch.name === "general";
+}
+
+function lifecycleEventType(ch: SlackChannel, action: "archive" | "rename" | "unarchive"): string {
+  return `${conversationEventPrefix(ch)}_${action}`;
+}
+
+function lifecycleMessageSubtype(ch: SlackChannel, action: "name" | "purpose" | "topic"): string {
+  return `${conversationEventPrefix(ch)}_${action}`;
+}
+
+function conversationEventPrefix(ch: SlackChannel): "channel" | "group" {
+  return ch.is_private ? "group" : "channel";
+}
+
+function conversationNoun(ch: SlackChannel): "channel" | "group" {
+  return ch.is_private ? "group" : "channel";
 }
