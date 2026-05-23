@@ -130,6 +130,7 @@ describe("Slack plugin - event dispatch baseline", () => {
       },
     });
     expect(event.event.ts).not.toBe(posted.ts);
+    expect(event.event.event_ts).toBe(event.event.ts);
     expect(event.event.message.edited.ts).toBe(event.event.ts);
   });
 
@@ -171,6 +172,7 @@ describe("Slack plugin - event dispatch baseline", () => {
       },
     });
     expect(event.event.ts).not.toBe(posted.ts);
+    expect(event.event.event_ts).toBe(event.event.ts);
   });
 
   it("dispatches bot message events for incoming webhooks", async () => {
