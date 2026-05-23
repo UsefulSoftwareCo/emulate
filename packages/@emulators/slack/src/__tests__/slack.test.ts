@@ -1,50 +1,15 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { Hono } from "@emulators/core";
-import {
-  Store,
-  WebhookDispatcher,
-  authMiddleware,
-  createApiErrorHandler,
-  createErrorHandler,
-  type TokenMap,
-} from "@emulators/core";
+import { Hono, Store, WebhookDispatcher } from "@emulators/core";
 import { slackPlugin, seedFromConfig, getSlackStore } from "../index.js";
-
-const base = "http://localhost:4000";
-
-function createTestApp() {
-  const store = new Store();
-  const webhooks = new WebhookDispatcher();
-  const tokenMap: TokenMap = new Map();
-  tokenMap.set("xoxb-test-token", {
-    login: "U000000001",
-    id: 1,
-    scopes: ["chat:write", "channels:read", "users:read", "reactions:write"],
-  });
-
-  const app = new Hono();
-  app.onError(createApiErrorHandler());
-  app.use("*", createErrorHandler());
-  app.use("*", authMiddleware(tokenMap));
-  slackPlugin.register(app as any, store, webhooks, base, tokenMap);
-  slackPlugin.seed!(store, base);
-
-  // Set the test user_id to match the token
-  const ss = getSlackStore(store);
-  const firstUser = ss.users.all()[0];
-  if (firstUser) {
-    ss.users.update(firstUser.id, { user_id: "U000000001" });
-  }
-
-  return { app, store, webhooks, tokenMap };
-}
-
-function authHeaders(): Record<string, string> {
-  return { Authorization: "Bearer xoxb-test-token", "Content-Type": "application/json" };
-}
+import {
+  authHeaders,
+  createSlackTestApp as createTestApp,
+  slackTestBaseUrl as base,
+  type SlackTestApp,
+} from "./helpers.js";
 
 describe("Slack plugin - auth.test", () => {
-  let app: Hono;
+  let app: SlackTestApp["app"];
 
   beforeEach(() => {
     app = createTestApp().app;
@@ -74,7 +39,7 @@ describe("Slack plugin - auth.test", () => {
 });
 
 describe("Slack plugin - chat.postMessage", () => {
-  let app: Hono;
+  let app: SlackTestApp["app"];
   let store: Store;
 
   beforeEach(() => {
@@ -160,7 +125,7 @@ describe("Slack plugin - chat.postMessage", () => {
 });
 
 describe("Slack plugin - chat.update", () => {
-  let app: Hono;
+  let app: SlackTestApp["app"];
   let store: Store;
 
   beforeEach(() => {
@@ -190,7 +155,7 @@ describe("Slack plugin - chat.update", () => {
 });
 
 describe("Slack plugin - chat.delete", () => {
-  let app: Hono;
+  let app: SlackTestApp["app"];
   let store: Store;
 
   beforeEach(() => {
@@ -219,7 +184,7 @@ describe("Slack plugin - chat.delete", () => {
 });
 
 describe("Slack plugin - conversations", () => {
-  let app: Hono;
+  let app: SlackTestApp["app"];
   let store: Store;
 
   beforeEach(() => {
@@ -379,7 +344,7 @@ describe("Slack plugin - conversations", () => {
 });
 
 describe("Slack plugin - users", () => {
-  let app: Hono;
+  let app: SlackTestApp["app"];
 
   beforeEach(() => {
     app = createTestApp().app;
@@ -431,7 +396,7 @@ describe("Slack plugin - users", () => {
 });
 
 describe("Slack plugin - reactions", () => {
-  let app: Hono;
+  let app: SlackTestApp["app"];
   let store: Store;
 
   beforeEach(() => {
@@ -533,7 +498,7 @@ describe("Slack plugin - reactions", () => {
 });
 
 describe("Slack plugin - team.info", () => {
-  let app: Hono;
+  let app: SlackTestApp["app"];
 
   beforeEach(() => {
     app = createTestApp().app;
@@ -556,8 +521,8 @@ describe("Slack plugin - seedFromConfig", () => {
     const store = new Store();
     const webhooks = new WebhookDispatcher();
     const app = new Hono();
-    slackPlugin.register(app as any, store, webhooks, base);
-    slackPlugin.seed!(store, base);
+    slackPlugin.register!(app as any, store, webhooks, base);
+    slackPlugin.seed?.(store, base);
 
     seedFromConfig(store, base, {
       team: { name: "Acme Corp", domain: "acme" },
@@ -595,7 +560,7 @@ describe("Slack plugin - seedFromConfig", () => {
 });
 
 describe("Slack plugin - OAuth flow", () => {
-  let app: Hono;
+  let app: SlackTestApp["app"];
 
   beforeEach(() => {
     const setup = createTestApp();
@@ -662,7 +627,7 @@ describe("Slack plugin - OAuth flow", () => {
 });
 
 describe("Slack plugin - Incoming Webhooks", () => {
-  let app: Hono;
+  let app: SlackTestApp["app"];
   let store: Store;
 
   beforeEach(() => {
@@ -720,7 +685,7 @@ describe("Slack plugin - Incoming Webhooks", () => {
 });
 
 describe("Slack plugin - Message Inspector", () => {
-  let app: Hono;
+  let app: SlackTestApp["app"];
   let store: Store;
 
   beforeEach(() => {
