@@ -1,350 +1,29 @@
-export const serviceName = "google";
-export const serviceLabel = "Google OAuth, Gmail, Calendar, and Drive";
-export const runtime = "native-go";
+import type { AppEnv, RouteContext, ServicePlugin, Store, TokenMap, WebhookDispatcher } from "@emulators/core";
+import type { Hono } from "@emulators/core";
+import {
+  createLabelRecord,
+  createStoredMessage,
+  ensureSystemLabels,
+  findLabelById,
+  findLabelByName,
+  generateUid,
+} from "./helpers.js";
+import { createCalendarEventRecord, createCalendarRecord } from "./calendar-helpers.js";
+import { createDriveItemRecord } from "./drive-helpers.js";
+import { calendarRoutes } from "./routes/calendar.js";
+import { draftRoutes } from "./routes/drafts.js";
+import { driveRoutes } from "./routes/drive.js";
+import { historyRoutes } from "./routes/history.js";
+import { labelRoutes } from "./routes/labels.js";
+import { messageRoutes } from "./routes/messages.js";
+import { oauthRoutes } from "./routes/oauth.js";
+import { settingsRoutes } from "./routes/settings.js";
+import { threadRoutes } from "./routes/threads.js";
+import { getGoogleStore } from "./store.js";
 
-export interface CompatEntity {
-  id: number;
-  created_at: string;
-  updated_at: string;
-  [key: string]: unknown;
-}
+export { getGoogleStore, type GoogleStore } from "./store.js";
+export * from "./entities.js";
 
-export type CompatInsertInput<T extends CompatEntity> = Omit<T, "id" | "created_at" | "updated_at"> & { id?: number };
-
-export interface CompatQueryOptions<T> {
-  filter?: (item: T) => boolean;
-  sort?: (a: T, b: T) => number;
-  page?: number;
-  per_page?: number;
-}
-
-export interface CompatPaginatedResult<T> {
-  items: T[];
-  total_count: number;
-  page: number;
-  per_page: number;
-  has_next: boolean;
-  has_prev: boolean;
-}
-
-export interface CompatCollection<T extends CompatEntity = CompatEntity> {
-  readonly fieldNames?: string[];
-  insert(data: CompatInsertInput<T>): T;
-  get(id: number): T | undefined;
-  findBy(field: keyof T, value: T[keyof T] | string | number): T[];
-  findOneBy(field: keyof T, value: T[keyof T] | string | number): T | undefined;
-  update(id: number, data: Partial<T>): T | undefined;
-  delete(id: number): boolean;
-  all(): T[];
-  query(options?: CompatQueryOptions<T>): CompatPaginatedResult<T>;
-  count(filter?: (item: T) => boolean): number;
-  clear(): void;
-  snapshot(): unknown;
-  restore(snapshot: unknown): void;
-}
-
-export interface CompatStoreSource {
-  collection<T extends CompatEntity>(name: string, indexFields?: string[]): CompatCollection<T>;
-}
-
-export interface GoogleUser extends CompatEntity {
-  [key: string]: unknown;
-}
-export interface GoogleOAuthClient extends CompatEntity {
-  [key: string]: unknown;
-}
-export interface GoogleMessage extends CompatEntity {
-  [key: string]: unknown;
-}
-export interface GoogleDraft extends CompatEntity {
-  [key: string]: unknown;
-}
-export interface GoogleAttachment extends CompatEntity {
-  [key: string]: unknown;
-}
-export interface GoogleHistoryEvent extends CompatEntity {
-  [key: string]: unknown;
-}
-export interface GoogleLabel extends CompatEntity {
-  [key: string]: unknown;
-}
-export interface GoogleFilter extends CompatEntity {
-  [key: string]: unknown;
-}
-export interface GoogleForwardingAddress extends CompatEntity {
-  [key: string]: unknown;
-}
-export interface GoogleSendAs extends CompatEntity {
-  [key: string]: unknown;
-}
-export interface GoogleCalendar extends CompatEntity {
-  [key: string]: unknown;
-}
-export interface GoogleCalendarEventAttendee {
-  [key: string]: unknown;
-}
-export interface GoogleCalendarConferenceEntryPoint {
-  [key: string]: unknown;
-}
-export interface GoogleCalendarEvent extends CompatEntity {
-  [key: string]: unknown;
-}
-export interface GoogleDriveItem extends CompatEntity {
-  [key: string]: unknown;
-}
-
-export interface GoogleSeedUser {
-  [key: string]: unknown;
-}
-
-export interface GoogleSeedLabel {
-  [key: string]: unknown;
-}
-
-export interface GoogleSeedMessage {
-  [key: string]: unknown;
-}
-
-export interface GoogleSeedCalendar {
-  [key: string]: unknown;
-}
-
-export interface GoogleSeedCalendarEvent {
-  [key: string]: unknown;
-}
-
-export interface GoogleSeedDriveItem {
-  [key: string]: unknown;
-}
-
-export interface GoogleSeedConfig {
-  [key: string]: unknown;
-}
-
-export interface GoogleStore {
-  users: CompatCollection<GoogleUser>;
-  oauthClients: CompatCollection<GoogleOAuthClient>;
-  messages: CompatCollection<GoogleMessage>;
-  drafts: CompatCollection<GoogleDraft>;
-  attachments: CompatCollection<GoogleAttachment>;
-  history: CompatCollection<GoogleHistoryEvent>;
-  labels: CompatCollection<GoogleLabel>;
-  filters: CompatCollection<GoogleFilter>;
-  forwardingAddresses: CompatCollection<GoogleForwardingAddress>;
-  sendAs: CompatCollection<GoogleSendAs>;
-  calendars: CompatCollection<GoogleCalendar>;
-  calendarEvents: CompatCollection<GoogleCalendarEvent>;
-  driveItems: CompatCollection<GoogleDriveItem>;
-}
-
-function compatCollection<T extends CompatEntity>(
-  store: CompatStoreSource,
-  name: string,
-  indexFields: string[],
-): CompatCollection<T> {
-  return store.collection<T>(name, indexFields);
-}
-
-export function getGoogleStore(store: CompatStoreSource): GoogleStore {
-  return {
-    users: compatCollection<GoogleUser>(store, "google.users", ["uid", "email"]),
-    oauthClients: compatCollection<GoogleOAuthClient>(store, "google.oauth_clients", ["client_id"]),
-    messages: compatCollection<GoogleMessage>(store, "google.messages", ["gmail_id", "thread_id", "user_email"]),
-    drafts: compatCollection<GoogleDraft>(store, "google.drafts", ["gmail_id", "message_gmail_id", "user_email"]),
-    attachments: compatCollection<GoogleAttachment>(store, "google.attachments", [
-      "gmail_id",
-      "message_gmail_id",
-      "user_email",
-    ]),
-    history: compatCollection<GoogleHistoryEvent>(store, "google.history", [
-      "gmail_id",
-      "message_gmail_id",
-      "user_email",
-    ]),
-    labels: compatCollection<GoogleLabel>(store, "google.labels", ["gmail_id", "user_email", "name"]),
-    filters: compatCollection<GoogleFilter>(store, "google.filters", ["gmail_id", "user_email"]),
-    forwardingAddresses: compatCollection<GoogleForwardingAddress>(store, "google.forwarding_addresses", [
-      "user_email",
-      "forwarding_email",
-    ]),
-    sendAs: compatCollection<GoogleSendAs>(store, "google.send_as", ["user_email", "send_as_email"]),
-    calendars: compatCollection<GoogleCalendar>(store, "google.calendars", ["google_id", "user_email"]),
-    calendarEvents: compatCollection<GoogleCalendarEvent>(store, "google.calendar_events", [
-      "google_id",
-      "calendar_google_id",
-      "user_email",
-    ]),
-    driveItems: compatCollection<GoogleDriveItem>(store, "google.drive_items", [
-      "google_id",
-      "user_email",
-      "mime_type",
-    ]),
-  };
-}
-
-// Legacy public entity type augmentations.
-export interface GoogleUser extends CompatEntity {
-  uid: string;
-  email: string;
-  name: string;
-  given_name: string;
-  family_name: string;
-  picture: string | null;
-  email_verified: boolean;
-  locale: string;
-  hd: string | null;
-}
-
-export interface GoogleOAuthClient extends CompatEntity {
-  client_id: string;
-  client_secret: string;
-  name: string;
-  redirect_uris: string[];
-}
-
-export interface GoogleMessage extends CompatEntity {
-  gmail_id: string;
-  thread_id: string;
-  user_email: string;
-  history_id: string;
-  internal_date: string;
-  raw: string | null;
-  label_ids: string[];
-  snippet: string;
-  subject: string;
-  from: string;
-  to: string;
-  cc: string | null;
-  bcc: string | null;
-  reply_to: string | null;
-  message_id: string;
-  references: string | null;
-  in_reply_to: string | null;
-  date_header: string;
-  body_text: string | null;
-  body_html: string | null;
-}
-
-export interface GoogleDraft extends CompatEntity {
-  gmail_id: string;
-  user_email: string;
-  message_gmail_id: string;
-}
-
-export interface GoogleAttachment extends CompatEntity {
-  gmail_id: string;
-  user_email: string;
-  message_gmail_id: string;
-  filename: string;
-  mime_type: string;
-  disposition: string | null;
-  content_id: string | null;
-  transfer_encoding: string | null;
-  data: string;
-  size: number;
-}
-
-export interface GoogleHistoryEvent extends CompatEntity {
-  gmail_id: string;
-  user_email: string;
-  change_type: "messageAdded" | "messageDeleted" | "labelAdded" | "labelRemoved";
-  message_gmail_id: string;
-  thread_id: string;
-  label_ids: string[];
-}
-
-export interface GoogleLabel extends CompatEntity {
-  gmail_id: string;
-  user_email: string;
-  name: string;
-  type: "system" | "user";
-  message_list_visibility: string | null;
-  label_list_visibility: string | null;
-  color_background: string | null;
-  color_text: string | null;
-}
-
-export interface GoogleFilter extends CompatEntity {
-  gmail_id: string;
-  user_email: string;
-  criteria_from: string | null;
-  add_label_ids: string[];
-  remove_label_ids: string[];
-}
-
-export interface GoogleForwardingAddress extends CompatEntity {
-  user_email: string;
-  forwarding_email: string;
-  verification_status: string;
-}
-
-export interface GoogleSendAs extends CompatEntity {
-  user_email: string;
-  send_as_email: string;
-  display_name: string | null;
-  is_default: boolean;
-  signature: string;
-}
-
-export interface GoogleCalendar extends CompatEntity {
-  google_id: string;
-  user_email: string;
-  summary: string;
-  description: string | null;
-  time_zone: string;
-  primary: boolean;
-  selected: boolean;
-  access_role: string;
-  background_color: string | null;
-  foreground_color: string | null;
-}
-
-export interface GoogleCalendarEventAttendee {
-  email: string;
-  display_name: string | null;
-  response_status: string | null;
-  organizer: boolean;
-  self: boolean;
-}
-
-export interface GoogleCalendarConferenceEntryPoint {
-  entry_point_type: string;
-  uri: string;
-  label: string | null;
-}
-
-export interface GoogleCalendarEvent extends CompatEntity {
-  google_id: string;
-  user_email: string;
-  calendar_google_id: string;
-  status: string;
-  summary: string;
-  description: string | null;
-  location: string | null;
-  html_link: string | null;
-  hangout_link: string | null;
-  start_date_time: string | null;
-  start_date: string | null;
-  end_date_time: string | null;
-  end_date: string | null;
-  attendees: GoogleCalendarEventAttendee[];
-  conference_entry_points: GoogleCalendarConferenceEntryPoint[];
-  transparency: string | null;
-}
-
-export interface GoogleDriveItem extends CompatEntity {
-  google_id: string;
-  user_email: string;
-  name: string;
-  mime_type: string;
-  parent_google_ids: string[];
-  web_view_link: string | null;
-  size: number | null;
-  trashed: boolean;
-  data: string | null;
-}
-
-// Legacy public seed config type augmentations.
 export interface GoogleSeedUser {
   email: string;
   name?: string;
@@ -448,32 +127,385 @@ export interface GoogleSeedConfig {
   calendar_events?: GoogleSeedCalendarEvent[];
   drive_items?: GoogleSeedDriveItem[];
 }
-export const service = {
-  name: serviceName,
-  label: serviceLabel,
-  runtime,
-} as const;
 
-export const plugin = {
-  ...service,
-  register(): void {
-    return undefined;
-  },
-  seed(): void {
-    return undefined;
-  },
-} as const;
+function seedDefaults(store: Store, _baseUrl: string): void {
+  const gs = getGoogleStore(store);
+  const defaultEmail = "testuser@gmail.com";
 
-export const googlePlugin = plugin;
+  if (!gs.users.findOneBy("email", defaultEmail)) {
+    gs.users.insert({
+      uid: generateUid("goog"),
+      email: defaultEmail,
+      name: "Test User",
+      given_name: "Test",
+      family_name: "User",
+      picture: null,
+      email_verified: true,
+      locale: "en",
+      hd: null,
+    });
+  }
 
-export function seedFromConfig(_store?: unknown, _baseUrl?: string, _config?: GoogleSeedConfig): void {
-  throw new Error(
-    "seedFromConfig is no longer supported by native compatibility facade packages. Pass seed data to createEmulateHandler or createEmulator instead.",
+  ensureSystemLabels(gs, defaultEmail);
+  seedCalendars(
+    store,
+    [
+      {
+        id: "primary",
+        user_email: defaultEmail,
+        summary: defaultEmail,
+        primary: true,
+        selected: true,
+        time_zone: "UTC",
+      },
+      {
+        id: "cal_team",
+        user_email: defaultEmail,
+        summary: "Team Calendar",
+        description: "Shared team events",
+        selected: true,
+        time_zone: "UTC",
+      },
+    ],
+    defaultEmail,
+  );
+  seedCalendarEvents(
+    store,
+    [
+      {
+        id: "evt_standup",
+        user_email: defaultEmail,
+        calendar_id: "primary",
+        summary: "Daily Standup",
+        description: "Team sync",
+        start_date_time: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+        end_date_time: new Date(Date.now() + 90 * 60 * 1000).toISOString(),
+        attendees: [
+          { email: defaultEmail, display_name: "Test User" },
+          { email: "teammate@example.com", display_name: "Teammate" },
+        ],
+        conference_entry_points: [
+          {
+            entry_point_type: "video",
+            uri: "https://meet.google.com/emulate-standup",
+            label: "Google Meet",
+          },
+        ],
+        hangout_link: "https://meet.google.com/emulate-standup",
+      },
+    ],
+    defaultEmail,
+  );
+  seedDriveItems(
+    store,
+    [
+      {
+        id: "drv_root_receipts",
+        user_email: defaultEmail,
+        name: "Receipts",
+        mime_type: "application/vnd.google-apps.folder",
+        parent_ids: ["root"],
+      },
+      {
+        id: "drv_receipt_pdf",
+        user_email: defaultEmail,
+        name: "March Receipt.pdf",
+        mime_type: "application/pdf",
+        parent_ids: ["drv_root_receipts"],
+        data: "receipt-pdf-data",
+      },
+    ],
+    defaultEmail,
+  );
+  seedMessages(
+    store,
+    [
+      {
+        id: "msg_welcome",
+        thread_id: "thr_welcome",
+        user_email: defaultEmail,
+        from: "Welcome Team <welcome@example.com>",
+        to: defaultEmail,
+        subject: "Welcome to your local Gmail emulator",
+        snippet: "Your OAuth flow is set up and Gmail message, thread, and label APIs are ready.",
+        body_text:
+          "Your OAuth flow is set up and Gmail message, thread, and label APIs are ready.\n\nUse this inbox to test Gmail automations locally.",
+        label_ids: ["INBOX", "UNREAD", "CATEGORY_UPDATES"],
+        date: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+      },
+      {
+        id: "msg_build",
+        thread_id: "thr_build",
+        user_email: defaultEmail,
+        from: "Build Bot <builds@example.com>",
+        to: defaultEmail,
+        subject: "Nightly build finished successfully",
+        snippet: "The latest build completed successfully in 6 minutes.",
+        body_text:
+          "The latest build completed successfully in 6 minutes.\n\nArtifact upload finished and smoke checks passed.",
+        label_ids: ["INBOX", "CATEGORY_UPDATES"],
+        date: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+      },
+      {
+        id: "msg_build_reply",
+        thread_id: "thr_build",
+        user_email: defaultEmail,
+        from: defaultEmail,
+        to: "Build Bot <builds@example.com>",
+        subject: "Re: Nightly build finished successfully",
+        snippet: "Thanks, I will review the artifact after lunch.",
+        body_text: "Thanks, I will review the artifact after lunch.",
+        label_ids: ["SENT"],
+        date: new Date(Date.now() - 90 * 60 * 1000).toISOString(),
+        in_reply_to: "<msg_build@emulate.google.local>",
+        references: "<msg_build@emulate.google.local>",
+      },
+      {
+        id: "msg_draft",
+        thread_id: "thr_draft",
+        user_email: defaultEmail,
+        from: defaultEmail,
+        to: "someone@example.com",
+        subject: "Draft follow-up",
+        snippet: "Checking in on the open question from yesterday.",
+        body_text: "Checking in on the open question from yesterday.",
+        label_ids: ["DRAFT"],
+        date: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+      },
+    ],
+    defaultEmail,
   );
 }
 
-export function createAppKeyResolver(): undefined {
-  return undefined;
+const CONSUMER_EMAIL_DOMAINS = new Set(["gmail.com", "googlemail.com"]);
+
+function deriveHd(email: string): string | null {
+  const domain = email.split("@")[1]?.toLowerCase();
+  if (!domain) return null;
+  if (CONSUMER_EMAIL_DOMAINS.has(domain)) return null;
+  return domain;
 }
 
-export default plugin;
+function resolveHd(user: GoogleSeedUser): string | null {
+  if (user.hd !== undefined) return user.hd || null;
+  return deriveHd(user.email);
+}
+
+export function seedFromConfig(store: Store, _baseUrl: string, config: GoogleSeedConfig): void {
+  const gs = getGoogleStore(store);
+
+  if (config.users) {
+    for (const user of config.users) {
+      const existing = gs.users.findOneBy("email", user.email);
+      if (!existing) {
+        const nameParts = (user.name ?? "").split(/\s+/).filter(Boolean);
+        gs.users.insert({
+          uid: generateUid("goog"),
+          email: user.email,
+          name: user.name ?? user.email.split("@")[0],
+          given_name: user.given_name ?? nameParts[0] ?? "",
+          family_name: user.family_name ?? nameParts.slice(1).join(" "),
+          picture: user.picture ?? null,
+          email_verified: user.email_verified ?? true,
+          locale: user.locale ?? "en",
+          hd: resolveHd(user),
+        });
+      }
+
+      ensureSystemLabels(gs, user.email);
+    }
+  }
+
+  if (config.oauth_clients) {
+    for (const client of config.oauth_clients) {
+      const existing = gs.oauthClients.findOneBy("client_id", client.client_id);
+      if (existing) continue;
+
+      gs.oauthClients.insert({
+        client_id: client.client_id,
+        client_secret: client.client_secret,
+        name: client.name ?? "Code App (Google)",
+        redirect_uris: client.redirect_uris,
+      });
+    }
+  }
+
+  const fallbackEmail = config.users?.[0]?.email ?? gs.users.all()[0]?.email ?? "testuser@gmail.com";
+  ensureSystemLabels(gs, fallbackEmail);
+
+  if (config.labels) {
+    seedLabels(store, config.labels, fallbackEmail);
+  }
+
+  if (config.messages) {
+    seedMessages(store, config.messages, fallbackEmail);
+  }
+
+  if (config.calendars) {
+    seedCalendars(store, config.calendars, fallbackEmail);
+  }
+
+  if (config.calendar_events) {
+    seedCalendarEvents(store, config.calendar_events, fallbackEmail);
+  }
+
+  if (config.drive_items) {
+    seedDriveItems(store, config.drive_items, fallbackEmail);
+  }
+}
+
+function seedLabels(store: Store, labels: GoogleSeedLabel[], fallbackEmail: string): void {
+  const gs = getGoogleStore(store);
+
+  for (const label of labels) {
+    const userEmail = label.user_email ?? fallbackEmail;
+    ensureSystemLabels(gs, userEmail);
+
+    const existing =
+      (label.id ? findLabelById(gs, userEmail, label.id) : undefined) ?? findLabelByName(gs, userEmail, label.name);
+
+    if (existing) continue;
+
+    createLabelRecord(gs, {
+      gmail_id: label.id,
+      user_email: userEmail,
+      name: label.name,
+      type: label.type ?? "user",
+      message_list_visibility: label.message_list_visibility ?? "show",
+      label_list_visibility: label.label_list_visibility ?? "labelShow",
+      color_background: label.color_background ?? null,
+      color_text: label.color_text ?? null,
+    });
+  }
+}
+
+function seedMessages(store: Store, messages: GoogleSeedMessage[], fallbackEmail: string): void {
+  const gs = getGoogleStore(store);
+
+  for (const message of messages) {
+    const userEmail = message.user_email ?? fallbackEmail;
+    ensureSystemLabels(gs, userEmail);
+
+    if (message.id && gs.messages.findOneBy("gmail_id", message.id)) continue;
+
+    createStoredMessage(
+      gs,
+      {
+        gmail_id: message.id,
+        thread_id: message.thread_id,
+        user_email: userEmail,
+        raw: message.raw ?? null,
+        from: message.from,
+        to: message.to,
+        cc: message.cc ?? null,
+        bcc: message.bcc ?? null,
+        reply_to: message.reply_to ?? null,
+        subject: message.subject,
+        snippet: message.snippet,
+        body_text: message.body_text ?? null,
+        body_html: message.body_html ?? null,
+        label_ids: message.label_ids ?? ["INBOX", "UNREAD"],
+        date: message.date,
+        internal_date: message.internal_date,
+        message_id: message.message_id,
+        references: message.references ?? null,
+        in_reply_to: message.in_reply_to ?? null,
+      },
+      {
+        createMissingCustomLabels: true,
+      },
+    );
+  }
+}
+
+function seedCalendars(store: Store, calendars: GoogleSeedCalendar[], fallbackEmail: string): void {
+  const gs = getGoogleStore(store);
+
+  for (const calendar of calendars) {
+    const userEmail = calendar.user_email ?? fallbackEmail;
+    createCalendarRecord(gs, {
+      google_id: calendar.id,
+      user_email: userEmail,
+      summary: calendar.summary,
+      description: calendar.description ?? null,
+      time_zone: calendar.time_zone ?? "UTC",
+      primary: calendar.primary ?? false,
+      selected: calendar.selected ?? true,
+      access_role: calendar.access_role ?? "owner",
+    });
+  }
+}
+
+function seedCalendarEvents(store: Store, events: GoogleSeedCalendarEvent[], fallbackEmail: string): void {
+  const gs = getGoogleStore(store);
+
+  for (const event of events) {
+    const userEmail = event.user_email ?? fallbackEmail;
+    createCalendarEventRecord(gs, {
+      google_id: event.id,
+      user_email: userEmail,
+      calendar_google_id: event.calendar_id ?? "primary",
+      status: event.status ?? "confirmed",
+      summary: event.summary,
+      description: event.description ?? null,
+      location: event.location ?? null,
+      start_date_time: event.start_date_time ?? null,
+      start_date: event.start_date ?? null,
+      end_date_time: event.end_date_time ?? null,
+      end_date: event.end_date ?? null,
+      attendees: (event.attendees ?? []).map((attendee) => ({
+        email: attendee.email,
+        display_name: attendee.display_name ?? null,
+        response_status: null,
+        organizer: false,
+        self: attendee.email === userEmail,
+      })),
+      conference_entry_points: (event.conference_entry_points ?? []).map((entry) => ({
+        entry_point_type: entry.entry_point_type,
+        uri: entry.uri,
+        label: entry.label ?? null,
+      })),
+      hangout_link: event.hangout_link ?? null,
+    });
+  }
+}
+
+function seedDriveItems(store: Store, items: GoogleSeedDriveItem[], fallbackEmail: string): void {
+  const gs = getGoogleStore(store);
+
+  for (const item of items) {
+    const userEmail = item.user_email ?? fallbackEmail;
+    if (item.id && gs.driveItems.findOneBy("google_id", item.id)) continue;
+
+    createDriveItemRecord(gs, {
+      google_id: item.id,
+      user_email: userEmail,
+      name: item.name,
+      mime_type: item.mime_type,
+      parent_google_ids: item.parent_ids ?? ["root"],
+      size: item.data ? Buffer.byteLength(item.data, "utf8") : null,
+      data: item.data ? Buffer.from(item.data, "utf8").toString("base64url") : null,
+    });
+  }
+}
+
+export const googlePlugin: ServicePlugin = {
+  name: "google",
+  register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
+    const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
+    oauthRoutes(ctx);
+    calendarRoutes(ctx);
+    driveRoutes(ctx);
+    messageRoutes(ctx);
+    draftRoutes(ctx);
+    historyRoutes(ctx);
+    threadRoutes(ctx);
+    labelRoutes(ctx);
+    settingsRoutes(ctx);
+  },
+  seed(store: Store, baseUrl: string): void {
+    seedDefaults(store, baseUrl);
+  },
+};
+
+export default googlePlugin;

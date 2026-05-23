@@ -13,8 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Next.js Native Proxy Example – emulate",
-  description: "OAuth with native emulators proxied through @emulators/adapter-next",
+  title: "Next.js Embedded Example – emulate",
+  description: "OAuth with emulators embedded in the Next.js app via @emulators/adapter-next",
 };
 
 export default function RootLayout({

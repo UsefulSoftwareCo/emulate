@@ -1,181 +1,29 @@
-export const serviceName = "okta";
-export const serviceLabel = "Okta identity provider and management API";
-export const runtime = "native-go";
+import type { Hono } from "@emulators/core";
+import type { AppEnv, RouteContext, ServicePlugin, Store, TokenMap, WebhookDispatcher } from "@emulators/core";
+import type { OktaAuthorizationServerStatus, OktaGroupType, OktaUserStatus } from "./entities.js";
+import {
+  createDefaultApp,
+  createDefaultAuthorizationServer,
+  createDefaultGroup,
+  createDefaultUser,
+  DEFAULT_AUTH_SERVER_ID,
+  DEFAULT_EVERYONE_GROUP_ID,
+  generateOktaId,
+  normalizeAppStatus,
+  normalizeAuthServerStatus,
+  normalizeGroupType,
+  normalizeStatus,
+} from "./helpers.js";
+import { appRoutes } from "./routes/apps.js";
+import { authorizationServerRoutes } from "./routes/auth-servers.js";
+import { groupRoutes } from "./routes/groups.js";
+import { oauthRoutes } from "./routes/oauth.js";
+import { userRoutes } from "./routes/users.js";
+import { getOktaStore } from "./store.js";
 
-export interface CompatEntity {
-  id: number;
-  created_at: string;
-  updated_at: string;
-  [key: string]: unknown;
-}
+export { getOktaStore, type OktaStore } from "./store.js";
+export * from "./entities.js";
 
-export type CompatInsertInput<T extends CompatEntity> = Omit<T, "id" | "created_at" | "updated_at"> & { id?: number };
-
-export interface CompatQueryOptions<T> {
-  filter?: (item: T) => boolean;
-  sort?: (a: T, b: T) => number;
-  page?: number;
-  per_page?: number;
-}
-
-export interface CompatPaginatedResult<T> {
-  items: T[];
-  total_count: number;
-  page: number;
-  per_page: number;
-  has_next: boolean;
-  has_prev: boolean;
-}
-
-export interface CompatCollection<T extends CompatEntity = CompatEntity> {
-  readonly fieldNames?: string[];
-  insert(data: CompatInsertInput<T>): T;
-  get(id: number): T | undefined;
-  findBy(field: keyof T, value: T[keyof T] | string | number): T[];
-  findOneBy(field: keyof T, value: T[keyof T] | string | number): T | undefined;
-  update(id: number, data: Partial<T>): T | undefined;
-  delete(id: number): boolean;
-  all(): T[];
-  query(options?: CompatQueryOptions<T>): CompatPaginatedResult<T>;
-  count(filter?: (item: T) => boolean): number;
-  clear(): void;
-  snapshot(): unknown;
-  restore(snapshot: unknown): void;
-}
-
-export interface CompatStoreSource {
-  collection<T extends CompatEntity>(name: string, indexFields?: string[]): CompatCollection<T>;
-}
-
-export type OktaUserStatus = "STAGED" | "PROVISIONED" | "ACTIVE" | "SUSPENDED" | "DEPROVISIONED";
-export type OktaGroupType = "OKTA_GROUP" | "BUILT_IN";
-export type OktaAppStatus = "ACTIVE" | "INACTIVE";
-export type OktaAuthorizationServerStatus = "ACTIVE" | "INACTIVE";
-
-export interface OktaUser extends CompatEntity {
-  [key: string]: unknown;
-}
-export interface OktaGroup extends CompatEntity {
-  [key: string]: unknown;
-}
-export interface OktaApp extends CompatEntity {
-  [key: string]: unknown;
-}
-export interface OktaOAuthClient extends CompatEntity {
-  [key: string]: unknown;
-}
-export interface OktaAuthorizationServer extends CompatEntity {
-  [key: string]: unknown;
-}
-export interface OktaGroupMembership extends CompatEntity {
-  [key: string]: unknown;
-}
-export interface OktaAppAssignment extends CompatEntity {
-  [key: string]: unknown;
-}
-
-export interface OktaSeedConfig {
-  [key: string]: unknown;
-}
-
-export interface OktaStore {
-  users: CompatCollection<OktaUser>;
-  groups: CompatCollection<OktaGroup>;
-  apps: CompatCollection<OktaApp>;
-  oauthClients: CompatCollection<OktaOAuthClient>;
-  authorizationServers: CompatCollection<OktaAuthorizationServer>;
-  groupMemberships: CompatCollection<OktaGroupMembership>;
-  appAssignments: CompatCollection<OktaAppAssignment>;
-}
-
-function compatCollection<T extends CompatEntity>(
-  store: CompatStoreSource,
-  name: string,
-  indexFields: string[],
-): CompatCollection<T> {
-  return store.collection<T>(name, indexFields);
-}
-
-export function getOktaStore(store: CompatStoreSource): OktaStore {
-  return {
-    users: compatCollection<OktaUser>(store, "okta.users", ["okta_id", "login", "email"]),
-    groups: compatCollection<OktaGroup>(store, "okta.groups", ["okta_id", "name"]),
-    apps: compatCollection<OktaApp>(store, "okta.apps", ["okta_id", "name"]),
-    oauthClients: compatCollection<OktaOAuthClient>(store, "okta.oauth_clients", ["client_id", "auth_server_id"]),
-    authorizationServers: compatCollection<OktaAuthorizationServer>(store, "okta.auth_servers", ["server_id"]),
-    groupMemberships: compatCollection<OktaGroupMembership>(store, "okta.group_memberships", [
-      "group_okta_id",
-      "user_okta_id",
-    ]),
-    appAssignments: compatCollection<OktaAppAssignment>(store, "okta.app_assignments", ["app_okta_id", "user_okta_id"]),
-  };
-}
-
-// Legacy public entity type augmentations.
-export interface OktaUser extends CompatEntity {
-  okta_id: string;
-  status: OktaUserStatus;
-  activated_at: string | null;
-  status_changed_at: string;
-  last_login_at: string | null;
-  password_changed_at: string | null;
-  transitioning_to_status: OktaUserStatus | null;
-  login: string;
-  email: string;
-  first_name: string;
-  last_name: string;
-  display_name: string;
-  locale: string;
-  time_zone: string;
-}
-
-export interface OktaGroup extends CompatEntity {
-  okta_id: string;
-  type: OktaGroupType;
-  name: string;
-  description: string | null;
-}
-
-export interface OktaApp extends CompatEntity {
-  okta_id: string;
-  name: string;
-  label: string;
-  status: OktaAppStatus;
-  sign_on_mode: string;
-  settings: Record<string, unknown>;
-  credentials: Record<string, unknown>;
-}
-
-export interface OktaOAuthClient extends CompatEntity {
-  client_id: string;
-  client_secret?: string;
-  name: string;
-  redirect_uris: string[];
-  response_types: string[];
-  grant_types: string[];
-  token_endpoint_auth_method: "client_secret_post" | "client_secret_basic" | "none";
-  auth_server_id: string;
-}
-
-export interface OktaAuthorizationServer extends CompatEntity {
-  server_id: string;
-  name: string;
-  description: string;
-  audiences: string[];
-  status: OktaAuthorizationServerStatus;
-}
-
-export interface OktaGroupMembership extends CompatEntity {
-  group_okta_id: string;
-  user_okta_id: string;
-}
-
-export interface OktaAppAssignment extends CompatEntity {
-  app_okta_id: string;
-  user_okta_id: string;
-}
-
-// Legacy public seed config type augmentations.
 export interface OktaSeedConfig {
   users?: Array<{
     okta_id?: string;
@@ -229,32 +77,202 @@ export interface OktaSeedConfig {
     user_okta_id: string;
   }>;
 }
-export const service = {
-  name: serviceName,
-  label: serviceLabel,
-  runtime,
-} as const;
 
-export const plugin = {
-  ...service,
-  register(): void {
-    return undefined;
-  },
-  seed(): void {
-    return undefined;
-  },
-} as const;
-
-export const oktaPlugin = plugin;
-
-export function seedFromConfig(_store?: unknown, _baseUrl?: string, _config?: OktaSeedConfig): void {
-  throw new Error(
-    "seedFromConfig is no longer supported by native compatibility facade packages. Pass seed data to createEmulateHandler or createEmulator instead.",
-  );
+function ensureMembership(store: ReturnType<typeof getOktaStore>, groupOktaId: string, userOktaId: string): void {
+  const existing = store.groupMemberships
+    .findBy("group_okta_id", groupOktaId)
+    .find((entry) => entry.user_okta_id === userOktaId);
+  if (!existing) {
+    store.groupMemberships.insert({
+      group_okta_id: groupOktaId,
+      user_okta_id: userOktaId,
+    });
+  }
 }
 
-export function createAppKeyResolver(): undefined {
-  return undefined;
+function ensureAppAssignment(store: ReturnType<typeof getOktaStore>, appOktaId: string, userOktaId: string): void {
+  const existing = store.appAssignments
+    .findBy("app_okta_id", appOktaId)
+    .find((entry) => entry.user_okta_id === userOktaId);
+  if (!existing) {
+    store.appAssignments.insert({
+      app_okta_id: appOktaId,
+      user_okta_id: userOktaId,
+    });
+  }
 }
 
-export default plugin;
+function seedDefaults(store: Store, _baseUrl: string): void {
+  const okta = getOktaStore(store);
+
+  const defaultServer = okta.authorizationServers.findOneBy("server_id", DEFAULT_AUTH_SERVER_ID);
+  if (!defaultServer) {
+    okta.authorizationServers.insert(createDefaultAuthorizationServer());
+  }
+
+  let everyone = okta.groups.findOneBy("okta_id", DEFAULT_EVERYONE_GROUP_ID);
+  if (!everyone) {
+    everyone = okta.groups.insert(createDefaultGroup());
+  }
+
+  let user = okta.users.findOneBy("login", "testuser@okta.local");
+  if (!user) {
+    user = okta.users.insert(createDefaultUser());
+  }
+
+  if (!okta.oauthClients.findOneBy("client_id", "okta-test-client")) {
+    okta.oauthClients.insert({
+      client_id: "okta-test-client",
+      client_secret: "okta-test-secret",
+      name: "Sample OIDC Client",
+      redirect_uris: ["http://localhost:3000/callback"],
+      response_types: ["code"],
+      grant_types: ["authorization_code", "refresh_token", "client_credentials"],
+      token_endpoint_auth_method: "client_secret_post",
+      auth_server_id: DEFAULT_AUTH_SERVER_ID,
+    });
+  }
+
+  if (!okta.oauthClients.findOneBy("client_id", "okta-test-app")) {
+    okta.oauthClients.insert({
+      client_id: "okta-test-app",
+      client_secret: "",
+      name: "Sample Public PKCE Client",
+      redirect_uris: ["http://localhost:3000/official-sdk/callback", "http://localhost:3000/official-sdk"],
+      response_types: ["code"],
+      grant_types: ["authorization_code", "refresh_token"],
+      token_endpoint_auth_method: "none",
+      auth_server_id: DEFAULT_AUTH_SERVER_ID,
+    });
+  }
+
+  if (okta.apps.all().length === 0) {
+    okta.apps.insert(createDefaultApp());
+  }
+
+  ensureMembership(okta, everyone.okta_id, user.okta_id);
+}
+
+export function seedFromConfig(store: Store, _baseUrl: string, config: OktaSeedConfig): void {
+  const okta = getOktaStore(store);
+
+  if (config.authorization_servers) {
+    for (const server of config.authorization_servers) {
+      const existing = okta.authorizationServers.findOneBy("server_id", server.id);
+      if (existing) continue;
+      okta.authorizationServers.insert({
+        server_id: server.id,
+        name: server.name,
+        description: server.description ?? "",
+        audiences: server.audiences ?? ["api://default"],
+        status: normalizeAuthServerStatus(server.status, "ACTIVE"),
+      });
+    }
+  }
+
+  if (config.users) {
+    for (const user of config.users) {
+      const byLogin = okta.users.findOneBy("login", user.login);
+      if (byLogin) continue;
+      const resolvedStatus = normalizeStatus(user.status, "ACTIVE");
+      okta.users.insert({
+        okta_id: user.okta_id ?? generateOktaId("00u"),
+        status: resolvedStatus,
+        activated_at: resolvedStatus === "ACTIVE" ? new Date().toISOString() : null,
+        status_changed_at: new Date().toISOString(),
+        last_login_at: null,
+        password_changed_at: null,
+        transitioning_to_status: null,
+        login: user.login,
+        email: user.email ?? user.login,
+        first_name: user.first_name ?? "Test",
+        last_name: user.last_name ?? "User",
+        display_name: user.display_name ?? `${user.first_name ?? "Test"} ${user.last_name ?? "User"}`.trim(),
+        locale: user.locale ?? "en-US",
+        time_zone: user.time_zone ?? "UTC",
+      });
+    }
+  }
+
+  if (config.groups) {
+    for (const group of config.groups) {
+      const byName = okta.groups.findOneBy("name", group.name);
+      if (byName) continue;
+      okta.groups.insert({
+        okta_id: group.okta_id ?? generateOktaId("00g"),
+        type: normalizeGroupType(group.type, "OKTA_GROUP"),
+        name: group.name,
+        description: group.description ?? null,
+      });
+    }
+  }
+
+  if (config.apps) {
+    for (const app of config.apps) {
+      const byName = okta.apps.findOneBy("name", app.name);
+      if (byName) continue;
+      okta.apps.insert({
+        okta_id: app.okta_id ?? generateOktaId("0oa"),
+        name: app.name,
+        label: app.label ?? app.name,
+        status: normalizeAppStatus(app.status, "ACTIVE"),
+        sign_on_mode: app.sign_on_mode ?? "OPENID_CONNECT",
+        settings: app.settings ?? {},
+        credentials: app.credentials ?? {},
+      });
+    }
+  }
+
+  if (config.oauth_clients) {
+    for (const client of config.oauth_clients) {
+      const existing = okta.oauthClients.findOneBy("client_id", client.client_id);
+      if (existing) continue;
+      const tokenEndpointAuthMethod = client.token_endpoint_auth_method ?? "client_secret_post";
+      okta.oauthClients.insert({
+        client_id: client.client_id,
+        client_secret: client.client_secret ?? "",
+        name: client.name,
+        redirect_uris: client.redirect_uris,
+        response_types: client.response_types ?? ["code"],
+        grant_types: client.grant_types ?? ["authorization_code", "refresh_token", "client_credentials"],
+        token_endpoint_auth_method: tokenEndpointAuthMethod,
+        auth_server_id: client.auth_server_id ?? DEFAULT_AUTH_SERVER_ID,
+      });
+    }
+  }
+
+  if (config.group_memberships) {
+    for (const membership of config.group_memberships) {
+      const group = okta.groups.findOneBy("okta_id", membership.group_okta_id);
+      const user = okta.users.findOneBy("okta_id", membership.user_okta_id);
+      if (!group || !user) continue;
+      ensureMembership(okta, group.okta_id, user.okta_id);
+    }
+  }
+
+  if (config.app_assignments) {
+    for (const assignment of config.app_assignments) {
+      const app = okta.apps.findOneBy("okta_id", assignment.app_okta_id);
+      const user = okta.users.findOneBy("okta_id", assignment.user_okta_id);
+      if (!app || !user) continue;
+      ensureAppAssignment(okta, app.okta_id, user.okta_id);
+    }
+  }
+}
+
+export const oktaPlugin: ServicePlugin = {
+  name: "okta",
+  register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
+    const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
+    oauthRoutes(ctx);
+    userRoutes(ctx);
+    groupRoutes(ctx);
+    appRoutes(ctx);
+    authorizationServerRoutes(ctx);
+  },
+  seed(store: Store, baseUrl: string): void {
+    seedDefaults(store, baseUrl);
+  },
+};
+
+export default oktaPlugin;

@@ -1,12 +1,12 @@
 ---
 name: stripe
 description: Emulated Stripe API for local development and testing. Use when the user needs to process payments locally, test checkout flows, create customers, manage products and prices, handle payment intents, work with webhooks, or use the Stripe SDK without hitting real Stripe servers. Triggers include "Stripe API", "emulate Stripe", "test payments locally", "checkout flow", "payment intent", "Stripe webhook", "Stripe SDK", "STRIPE_API_KEY", or any task requiring a local Stripe API.
-allowed-tools: Bash(npx emulate:*), Bash(curl:*)
+allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
 ---
 
 # Stripe API Emulator
 
-Fully stateful Stripe API emulation. Customers, products, prices, checkout sessions, payment intents, charges, and payment methods persist in memory. The hosted checkout UI lets you complete payments in the browser. The native Go runtime implements the API, payment state, seed config, and hosted checkout foundation, but does not deliver outbound webhook callbacks yet.
+Fully stateful Stripe API emulation. Customers, products, prices, checkout sessions, payment intents, charges, and payment methods persist in memory. Webhooks fire on state changes. The hosted checkout UI lets you complete payments in the browser.
 
 No real payments are processed. Every Stripe SDK call hits the emulator and produces realistic responses.
 
@@ -29,14 +29,6 @@ const stripe = await createEmulator({ service: 'stripe', port: 4000 })
 // stripe.url === 'http://localhost:4000'
 ```
 
-For a Vercel Go Function preview:
-
-```bash
-npx emulate vercel init --service stripe
-```
-
-Deploy the generated app to expose Stripe at `/emulate/stripe/*`.
-
 ## Pointing Your App at the Emulator
 
 ### Stripe SDK
@@ -54,17 +46,59 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
 })
 ```
 
-### Next.js proxy
+### Embedded in Next.js (adapter-next)
 
-Use `@emulators/adapter-next` to proxy a separately running native Stripe runtime through your Next.js app:
+When using `@emulators/adapter-next`, the emulator runs inside your Next.js app at `/emulate/stripe`. The SDK needs to point at `localhost` with a proxy route to forward `/v1/*` calls to `/emulate/stripe/v1/*`:
+
+```typescript
+// next.config.ts
+import { withEmulate } from '@emulators/adapter-next'
+
+export default withEmulate({
+  env: {
+    STRIPE_SECRET_KEY: 'sk_test_emulated',
+  },
+})
+```
+
+```typescript
+// lib/stripe.ts
+import Stripe from 'stripe'
+
+const port = process.env.PORT ?? '3000'
+
+export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
+  apiVersion: '2024-12-18.acacia',
+  host: 'localhost',
+  port: parseInt(port, 10),
+  protocol: 'http',
+})
+```
 
 ```typescript
 // app/emulate/[...path]/route.ts
-import { createEmulateProxy } from '@emulators/adapter-next'
+import { createEmulateHandler } from '@emulators/adapter-next'
+import * as stripe from '@emulators/stripe'
 
-export const { GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS } = createEmulateProxy({
-  targets: {
-    stripe: process.env.EMULATE_STRIPE_URL ?? 'http://127.0.0.1:4000',
+export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
+  services: {
+    stripe: {
+      emulator: stripe,
+      seed: {
+        products: [
+          { id: 'prod_widget', name: 'Widget', description: 'A useful widget' },
+        ],
+        prices: [
+          { id: 'price_widget', product_name: 'Widget', currency: 'usd', unit_amount: 1000 },
+        ],
+        webhooks: [
+          {
+            url: `http://localhost:${process.env.PORT ?? '3000'}/api/webhooks/stripe`,
+            events: ['*'],
+          },
+        ],
+      },
+    },
   },
 })
 ```
@@ -127,7 +161,7 @@ stripe:
       secret: whsec_test
 ```
 
-The `product_name` field in prices links to the product by name. Outbound webhook callback delivery is not implemented in the native Stripe engine yet.
+The `product_name` field in prices links to the product by name. Use `events: ['*']` to receive all webhook events, or specify individual event types.
 
 ## API Endpoints
 
@@ -201,7 +235,7 @@ curl http://localhost:4000/v1/checkout/sessions
 curl -X POST http://localhost:4000/v1/checkout/sessions/cs_xxx/expire
 ```
 
-The session's `url` field points to a hosted checkout page at `/checkout/cs_xxx`. Clicking "Pay" on that page completes the session and redirects to `success_url`. The `{CHECKOUT_SESSION_ID}` template in `success_url` is replaced with the actual session ID.
+The session's `url` field points to a hosted checkout page at `/checkout/cs_xxx`. Clicking "Pay" on that page completes the session, fires the `checkout.session.completed` webhook, and redirects to `success_url`. The `{CHECKOUT_SESSION_ID}` template in `success_url` is replaced with the actual session ID.
 
 ### Payment Intents
 
@@ -217,7 +251,7 @@ curl http://localhost:4000/v1/payment_intents/pi_xxx
 curl -X POST http://localhost:4000/v1/payment_intents/pi_xxx \
   -d "amount=3000"
 
-# Confirm
+# Confirm (triggers payment_intent.succeeded + charge.succeeded webhooks)
 curl -X POST http://localhost:4000/v1/payment_intents/pi_xxx/confirm
 
 # Cancel
@@ -256,7 +290,23 @@ curl http://localhost:4000/v1/payment_methods
 
 ## Webhooks
 
-Webhook seed config is accepted for compatibility, but the native Go Stripe runtime does not deliver outbound webhook callbacks yet. Do not rely on webhook side effects in tests until callback delivery lands in the native engine.
+The emulator dispatches webhook events when state changes. Register webhooks via seed config or programmatically.
+
+### Events dispatched
+
+| Event | Trigger |
+|-------|---------|
+| `customer.created` | Customer created |
+| `customer.updated` | Customer updated |
+| `customer.deleted` | Customer deleted |
+| `product.created` | Product created |
+| `price.created` | Price created |
+| `payment_intent.created` | Payment intent created |
+| `payment_intent.succeeded` | Payment intent confirmed |
+| `payment_intent.canceled` | Payment intent canceled |
+| `charge.succeeded` | Payment intent confirmed (charge auto-created) |
+| `checkout.session.completed` | Checkout completed via hosted page |
+| `checkout.session.expired` | Checkout session expired |
 
 ### Webhook handler example
 
@@ -290,7 +340,7 @@ export async function POST(request: Request) {
 
 ## Common Patterns
 
-### Checkout Flow (Next.js)
+### Checkout Flow (embedded Next.js)
 
 ```typescript
 // Server action
@@ -329,6 +379,7 @@ const pi = await stripe.paymentIntents.create({
   customer: 'cus_xxx',
 })
 
+// Confirm triggers payment_intent.succeeded + charge.succeeded webhooks
 const confirmed = await stripe.paymentIntents.confirm(pi.id)
 console.log(confirmed.status) // 'succeeded'
 ```

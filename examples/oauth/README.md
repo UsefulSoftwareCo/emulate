@@ -31,6 +31,6 @@ Open [http://localhost:3000](http://localhost:3000) and click any provider to si
 
 ## Configuration
 
-The `emulate.config.yaml` seeds users and OAuth apps for all three providers. By default, the Next.js app sends GitHub, Google, and Vercel OAuth traffic to `http://localhost:4000`, matching `npx emulate --seed emulate.config.yaml`. If you override the provider URLs with environment variables, point all three at the same server unless you start separate emulator processes.
+The `emulate.config.yaml` seeds users and OAuth apps for all three providers. The `.env.local` connects the Next.js app to the emulator's ports and provides matching client credentials.
 
 See the root [README](../../README.md) for full emulator configuration options.

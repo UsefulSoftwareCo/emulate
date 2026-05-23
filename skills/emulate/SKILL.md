@@ -1,7 +1,7 @@
 ---
 name: emulate
-description: Local drop-in API emulator for Vercel, GitHub, Google, Slack, Apple, Microsoft, Okta, Clerk, AWS, MongoDB Atlas, Resend, and Stripe. Use when the user needs to start emulated services, configure seed data, write tests against local APIs, set up CI without network access, scaffold Vercel Go Function previews, or work with the emulate CLI or programmatic API. Triggers include "start the emulator", "emulate services", "mock API locally", "create emulator config", "test against local API", "npx emulate", "npx emulate vercel init", or any task requiring local service emulation.
-allowed-tools: Bash(npx emulate:*)
+description: Local drop-in API emulator for Vercel, GitHub, Google, Slack, Apple, Microsoft, and AWS. Use when the user needs to start emulated services, configure seed data, write tests against local APIs, set up CI without network access, or work with the emulate CLI or programmatic API. Triggers include "start the emulator", "emulate services", "mock API locally", "create emulator config", "test against local API", "npx emulate", or any task requiring local service emulation.
+allowed-tools: Bash(npx emulate:*), Bash(emulate:*)
 ---
 
 # Service Emulation with emulate
@@ -14,11 +14,17 @@ Local drop-in replacement services for CI and no-network sandboxes. Fully statef
 npx emulate
 ```
 
-The npm CLI launches the native Go engine. All services start on one local server with sensible defaults:
+All services start with sensible defaults:
 
-```bash
-http://localhost:4000
-```
+| Service   | Default Port |
+|-----------|-------------|
+| Vercel    | 4000        |
+| GitHub    | 4001        |
+| Google    | 4002        |
+| Slack     | 4003        |
+| Apple     | 4004        |
+| Microsoft | 4005        |
+| AWS       | 4006        |
 
 ## CLI
 
@@ -29,7 +35,7 @@ npx emulate
 # Start specific services
 npx emulate --service vercel,github
 
-# Custom native server port
+# Custom base port (auto-increments per service)
 npx emulate --port 3000
 
 # Use a seed config file
@@ -41,9 +47,6 @@ npx emulate init
 # Generate config for a specific service
 npx emulate init --service vercel
 
-# Scaffold a Vercel Go Function preview route
-npx emulate vercel init
-
 # List available services
 npx emulate list
 ```
@@ -52,16 +55,15 @@ npx emulate list
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-p, --port` | `4000` | Port for the native server |
+| `-p, --port` | `4000` | Base port (auto-increments per service) |
 | `-s, --service` | all | Comma-separated services to enable |
 | `--seed` | auto-detect | Path to seed config (YAML or JSON) |
 | `--base-url` | none | Override advertised base URL (supports `{service}` template) |
 | `--portless` | off | Serve over HTTPS via portless (auto-registers aliases) |
-| `--allow-local-lambda` | off | Allow direct localhost AWS Lambda Node.js ZipFile code execution |
 
 The port can also be set via `EMULATE_PORT` or `PORT` environment variables.
 
-The advertised base URL can be overridden via `--base-url`, the `EMULATE_BASE_URL` env var, or per-service `baseUrl` in the seed config. `{service}` templates require exactly one selected service in native single-server mode; use `--portless` for per-service aliases.
+The advertised base URL (used in OAuth redirects, webhook URLs, etc.) can be overridden via `--base-url`, the `EMULATE_BASE_URL` env var (supports `{service}` template), or per-service `baseUrl` in the seed config. When running under portless, the `PORTLESS_URL` env var is also detected automatically.
 
 ## Programmatic API
 
@@ -88,18 +90,17 @@ await vercel.close()
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, or `'clerk'` |
+| `service` | *(required)* | `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, or `'aws'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
-| `allowLocalLambda` | `false` | Allow AWS Lambda Node.js ZipFile code execution for direct localhost invokes signed by a known AWS access key |
 
 ### Instance Methods
 
 | Method | Description |
 |--------|-------------|
 | `url` | Base URL of the running server |
-| `reset()` | Restart the native process and replay seed data, returns a Promise |
+| `reset()` | Wipe the store and replay seed data |
 | `close()` | Shut down the HTTP server, returns a Promise |
 
 ## Vitest / Jest Setup
@@ -119,7 +120,7 @@ beforeAll(async () => {
   process.env.VERCEL_EMULATOR_URL = vercel.url
 })
 
-afterEach(() => Promise.all([github.reset(), vercel.reset()]))
+afterEach(() => { github.reset(); vercel.reset() })
 afterAll(() => Promise.all([github.close(), vercel.close()]))
 ```
 
@@ -241,17 +242,6 @@ aws:
   sqs:
     queues:
       - name: my-app-events
-  lambda:
-    functions:
-      - function_name: my-app-handler
-        runtime: nodejs22.x
-        role: arn:aws:iam::123456789012:role/lambda-execution-role
-        handler: index.handler
-        invoke_payload: '{"ok":true}'
-        # Optional base64 Lambda zip for local Node.js handler execution.
-        code_zip_base64: ""
-        environment:
-          NODE_ENV: local
   iam:
     users:
       - user_name: developer
@@ -277,7 +267,7 @@ npx emulate start --portless
 # ...
 ```
 
-This requires the portless proxy to be running (`portless proxy start`). If portless is not installed, install it with `npm i -g portless`.
+This requires the portless proxy to be running (`portless proxy start`). If portless is not installed, emulate will prompt to install it.
 
 The `--portless` flag overwrites any existing portless aliases matching `*.emulate`. Aliases are removed automatically when emulate shuts down.
 
@@ -290,12 +280,12 @@ portless github.emulate emulate start --service github
 For a custom base URL without portless (any reverse proxy):
 
 ```bash
-npx emulate start --service github --base-url "https://github.myproxy.test"
+npx emulate start --base-url "https://{service}.myproxy.test"
 # or
-EMULATE_BASE_URL="https://github.myproxy.test" npx emulate start --service github
+EMULATE_BASE_URL="https://{service}.myproxy.test" npx emulate start
 ```
 
-The `PORTLESS_URL` env var is automatically set by the `portless` CLI wrapper when running a command through it. `{service}` interpolation is supported when exactly one service is enabled. When no explicit `baseUrl` is provided, it is used as a fallback.
+The `PORTLESS_URL` env var is automatically set by the `portless` CLI wrapper when running a command through it (e.g. `portless github.emulate emulate start`), typically to a value like `https://{service}.emulate.localhost`. It supports `{service}` interpolation, just like `--base-url` and `EMULATE_BASE_URL`. When no explicit `baseUrl` is provided, it is used as a fallback.
 
 Per-service overrides in the seed config (these take highest priority over all other base URL sources):
 
@@ -312,43 +302,61 @@ Set environment variables to override real service URLs:
 
 ```bash
 VERCEL_EMULATOR_URL=http://localhost:4000
-GITHUB_EMULATOR_URL=http://localhost:4000
-GOOGLE_EMULATOR_URL=http://localhost:4000
-SLACK_EMULATOR_URL=http://localhost:4000
-APPLE_EMULATOR_URL=http://localhost:4000
-MICROSOFT_EMULATOR_URL=http://localhost:4000
-OKTA_EMULATOR_URL=http://localhost:4000
-AWS_EMULATOR_URL=http://localhost:4000
-RESEND_EMULATOR_URL=http://localhost:4000
-STRIPE_EMULATOR_URL=http://localhost:4000
-MONGOATLAS_EMULATOR_URL=http://localhost:4000
+GITHUB_EMULATOR_URL=http://localhost:4001
+GOOGLE_EMULATOR_URL=http://localhost:4002
+SLACK_EMULATOR_URL=http://localhost:4003
+APPLE_EMULATOR_URL=http://localhost:4004
+MICROSOFT_EMULATOR_URL=http://localhost:4005
+AWS_EMULATOR_URL=http://localhost:4006
 ```
 
 Then use these in your app to construct API and OAuth URLs. See each service's skill for SDK-specific override instructions.
 
-## Next.js Integration
+## Next.js Integration (Embedded Mode)
 
-The `@emulators/adapter-next` package proxies native runtime routes on the same Next.js origin. For native Go `apple`, `aws`, `clerk`, `github`, `google`, `microsoft`, `mongoatlas`, `okta`, `resend`, `slack`, `stripe`, and `vercel` previews on Vercel, run `npx emulate vercel init` to generate `api/emulate.go`, `vercel.json`, and `go.mod`. See the **next** skill (`skills/next/SKILL.md`) for setup, Auth.js configuration, Vercel Go Function state behavior, and `createEmulateProxy` details.
+The `@emulators/adapter-next` package embeds emulators directly into a Next.js app on the same origin. See the **next** skill (`skills/next/SKILL.md`) for full setup, Auth.js configuration, persistence, and font tracing details.
 
 ## Persistence
 
-By default, all local CLI and programmatic API state is in-memory. Vercel Go Function previews use warm in-memory state by default. For snapshots across cold starts, implement `vercel.Persistence` in `api/emulate.go` and pass it to `emulate.NewHandler`.
+By default, all emulator state is in-memory. For persistence across process restarts and serverless cold starts, use a `PersistenceAdapter`.
+
+### Built-in file persistence
+
+```typescript
+import { filePersistence } from '@emulators/core'
+
+// CLI or local dev: persists to a JSON file
+const adapter = filePersistence('.emulate/state.json')
+```
+
+### Custom adapters
+
+```typescript
+import type { PersistenceAdapter } from '@emulators/core'
+
+const kvAdapter: PersistenceAdapter = {
+  async load() { return await kv.get('emulate-state') },
+  async save(data) { await kv.set('emulate-state', data) },
+}
+```
+
+State is loaded on cold start and saved after every mutating request (POST, PUT, PATCH, DELETE). Saves are serialized to prevent race conditions.
 
 ## Architecture
 
 ```
 packages/
-  emulate/           # npm CLI shim + native process programmatic API
+  emulate/           # CLI entry point + programmatic API
   @emulators/
-    core/            # compatibility helpers and native proxy facade
-    adapter-next/    # Next.js App Router proxy integration
-    vercel/          # Vercel API metadata and compatibility package
-    github/          # GitHub API metadata and compatibility package
-    google/          # Google metadata and compatibility package
-    slack/           # Slack metadata and compatibility package
-    apple/           # Apple metadata and compatibility package
-    microsoft/       # Microsoft metadata and compatibility package
-    aws/             # AWS metadata, compatibility package, and SDK conformance tests
+    core/            # HTTP server, Store, plugin interface, middleware
+    adapter-next/    # Next.js App Router integration
+    vercel/          # Vercel API service plugin
+    github/          # GitHub API service plugin
+    google/          # Google OAuth 2.0 / OIDC plugin
+    slack/           # Slack Web API, OAuth, incoming webhooks plugin
+    apple/           # Sign in with Apple / OIDC plugin
+    microsoft/       # Microsoft Entra ID OAuth 2.0 / OIDC plugin
+    aws/             # AWS S3, SQS, IAM, STS plugin
 ```
 
-Service routing, state, UI, and protocol behavior live in Go under `internal/`.
+The core provides a generic `Store` with typed `Collection<T>` instances supporting CRUD, indexing, filtering, and pagination. Each service plugin registers routes with the shared internal app and uses the store for state.

@@ -1,105 +1,12 @@
-export const serviceName = "apple";
-export const serviceLabel = "Apple Sign In and OIDC";
-export const runtime = "native-go";
+import type { Hono } from "@emulators/core";
+import type { ServicePlugin, Store, WebhookDispatcher, TokenMap, AppEnv, RouteContext } from "@emulators/core";
+import { getAppleStore } from "./store.js";
+import { generateAppleUid, generatePrivateRelayEmail } from "./helpers.js";
+import { oauthRoutes } from "./routes/oauth.js";
 
-export interface CompatEntity {
-  id: number;
-  created_at: string;
-  updated_at: string;
-  [key: string]: unknown;
-}
+export { getAppleStore, type AppleStore } from "./store.js";
+export * from "./entities.js";
 
-export type CompatInsertInput<T extends CompatEntity> = Omit<T, "id" | "created_at" | "updated_at"> & { id?: number };
-
-export interface CompatQueryOptions<T> {
-  filter?: (item: T) => boolean;
-  sort?: (a: T, b: T) => number;
-  page?: number;
-  per_page?: number;
-}
-
-export interface CompatPaginatedResult<T> {
-  items: T[];
-  total_count: number;
-  page: number;
-  per_page: number;
-  has_next: boolean;
-  has_prev: boolean;
-}
-
-export interface CompatCollection<T extends CompatEntity = CompatEntity> {
-  readonly fieldNames?: string[];
-  insert(data: CompatInsertInput<T>): T;
-  get(id: number): T | undefined;
-  findBy(field: keyof T, value: T[keyof T] | string | number): T[];
-  findOneBy(field: keyof T, value: T[keyof T] | string | number): T | undefined;
-  update(id: number, data: Partial<T>): T | undefined;
-  delete(id: number): boolean;
-  all(): T[];
-  query(options?: CompatQueryOptions<T>): CompatPaginatedResult<T>;
-  count(filter?: (item: T) => boolean): number;
-  clear(): void;
-  snapshot(): unknown;
-  restore(snapshot: unknown): void;
-}
-
-export interface CompatStoreSource {
-  collection<T extends CompatEntity>(name: string, indexFields?: string[]): CompatCollection<T>;
-}
-
-export interface AppleUser extends CompatEntity {
-  [key: string]: unknown;
-}
-export interface AppleOAuthClient extends CompatEntity {
-  [key: string]: unknown;
-}
-
-export interface AppleSeedConfig {
-  [key: string]: unknown;
-}
-
-export interface AppleStore {
-  users: CompatCollection<AppleUser>;
-  oauthClients: CompatCollection<AppleOAuthClient>;
-}
-
-function compatCollection<T extends CompatEntity>(
-  store: CompatStoreSource,
-  name: string,
-  indexFields: string[],
-): CompatCollection<T> {
-  return store.collection<T>(name, indexFields);
-}
-
-export function getAppleStore(store: CompatStoreSource): AppleStore {
-  return {
-    users: compatCollection<AppleUser>(store, "apple.users", ["uid", "email"]),
-    oauthClients: compatCollection<AppleOAuthClient>(store, "apple.oauth_clients", ["client_id"]),
-  };
-}
-
-// Legacy public entity type augmentations.
-export interface AppleUser extends CompatEntity {
-  uid: string;
-  email: string;
-  name: string;
-  given_name: string;
-  family_name: string;
-  email_verified: boolean;
-  is_private_email: boolean;
-  private_relay_email: string | null;
-  real_user_status: number;
-}
-
-export interface AppleOAuthClient extends CompatEntity {
-  client_id: string;
-  team_id: string;
-  key_id: string;
-  name: string;
-  redirect_uris: string[];
-}
-
-// Legacy public seed config type augmentations.
 export interface AppleSeedConfig {
   users?: Array<{
     email: string;
@@ -116,32 +23,72 @@ export interface AppleSeedConfig {
     redirect_uris: string[];
   }>;
 }
-export const service = {
-  name: serviceName,
-  label: serviceLabel,
-  runtime,
-} as const;
 
-export const plugin = {
-  ...service,
-  register(): void {
-    return undefined;
-  },
-  seed(): void {
-    return undefined;
-  },
-} as const;
+function seedDefaults(store: Store, _baseUrl: string): void {
+  const as = getAppleStore(store);
 
-export const applePlugin = plugin;
-
-export function seedFromConfig(_store?: unknown, _baseUrl?: string, _config?: AppleSeedConfig): void {
-  throw new Error(
-    "seedFromConfig is no longer supported by native compatibility facade packages. Pass seed data to createEmulateHandler or createEmulator instead.",
-  );
+  as.users.insert({
+    uid: generateAppleUid(),
+    email: "testuser@icloud.com",
+    name: "Test User",
+    given_name: "Test",
+    family_name: "User",
+    email_verified: true,
+    is_private_email: false,
+    private_relay_email: null,
+    real_user_status: 2,
+  });
 }
 
-export function createAppKeyResolver(): undefined {
-  return undefined;
+export function seedFromConfig(store: Store, _baseUrl: string, config: AppleSeedConfig): void {
+  const as = getAppleStore(store);
+
+  if (config.users) {
+    for (const u of config.users) {
+      const existing = as.users.findOneBy("email", u.email);
+      if (existing) continue;
+
+      const nameParts = (u.name ?? "").split(/\s+/);
+      const isPrivate = u.is_private_email ?? false;
+
+      as.users.insert({
+        uid: generateAppleUid(),
+        email: u.email,
+        name: u.name ?? u.email.split("@")[0],
+        given_name: u.given_name ?? nameParts[0] ?? "",
+        family_name: u.family_name ?? nameParts.slice(1).join(" ") ?? "",
+        email_verified: true,
+        is_private_email: isPrivate,
+        private_relay_email: isPrivate ? generatePrivateRelayEmail() : null,
+        real_user_status: 2,
+      });
+    }
+  }
+
+  if (config.oauth_clients) {
+    for (const client of config.oauth_clients) {
+      const existing = as.oauthClients.findOneBy("client_id", client.client_id);
+      if (existing) continue;
+      as.oauthClients.insert({
+        client_id: client.client_id,
+        team_id: client.team_id,
+        key_id: client.key_id ?? "TESTKEY001",
+        name: client.name,
+        redirect_uris: client.redirect_uris,
+      });
+    }
+  }
 }
 
-export default plugin;
+export const applePlugin: ServicePlugin = {
+  name: "apple",
+  register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
+    const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
+    oauthRoutes(ctx);
+  },
+  seed(store: Store, baseUrl: string): void {
+    seedDefaults(store, baseUrl);
+  },
+};
+
+export default applePlugin;

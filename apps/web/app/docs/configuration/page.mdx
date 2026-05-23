@@ -282,16 +282,6 @@ aws:
         visibility_timeout: 60
       - name: my-app-orders.fifo
         fifo: true
-  lambda:
-    functions:
-      - function_name: my-app-handler
-        runtime: nodejs22.x
-        role: arn:aws:iam::123456789012:role/lambda-execution-role
-        handler: index.handler
-        invoke_payload: '{"ok":true}'
-        code_zip_base64: ""
-        environment:
-          NODE_ENV: local
   iam:
     users:
       - user_name: developer
@@ -310,8 +300,8 @@ okta:
   users:
     - login: testuser@example.com
       email: testuser@example.com
-      first_name: Test
-      last_name: User
+      firstName: Test
+      lastName: User
   groups:
     - name: Everyone
       description: All users
@@ -321,29 +311,6 @@ okta:
   authorization_servers:
     - name: default
       audiences: ["api://default"]
-```
-
-## Clerk Seed Config
-
-```yaml
-clerk:
-  users:
-    - email_addresses: ["test@example.com"]
-      first_name: Test
-      last_name: User
-      password: clerk_test_password
-  organizations:
-    - name: My Company
-      slug: my-company
-      members:
-        - email: test@example.com
-          role: admin
-  oauth_applications:
-    - client_id: clerk_emulate_client
-      client_secret: clerk_emulate_secret
-      name: Emulate App
-      redirect_uris:
-        - http://localhost:3000/api/auth/callback/clerk
 ```
 
 ## MongoDB Atlas Seed Config
@@ -358,14 +325,6 @@ mongoatlas:
   database_users:
     - project: my-project
       username: app-user
-      roles:
-        - database_name: mydb
-          role_name: readWrite
-  databases:
-    - cluster: my-cluster
-      name: mydb
-      collections:
-        - items
 ```
 
 ## Resend Seed Config
@@ -388,7 +347,9 @@ stripe:
   products:
     - name: Pro Plan
   prices:
-    - product_name: Pro Plan
+    - product: Pro Plan
       unit_amount: 2000
       currency: usd
+      recurring:
+        interval: month
 ```

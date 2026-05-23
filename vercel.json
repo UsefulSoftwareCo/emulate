@@ -1,3 +1,0 @@
-{
-  "buildCommand": "VERCEL_PREVIEW_COMMENTS_ENABLED=0 turbo run build"
-}

@@ -42,7 +42,7 @@ export default async function Home() {
       <Card className="w-full max-w-sm">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl">Sign In</CardTitle>
-          <CardDescription>Choose a provider to sign in with the native emulator</CardDescription>
+          <CardDescription>Choose a provider to sign in with the embedded emulator</CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           {Object.values(getProviders()).map((provider) => (
@@ -56,9 +56,8 @@ export default async function Home() {
             </a>
           ))}
           <p className="text-xs text-center text-muted-foreground mt-2">
-            Emulators are proxied through this Next.js app via{" "}
-            <code className="font-mono">@emulators/adapter-next</code>. Start `npx emulate --service github,google`
-            separately.
+            Emulators are embedded in this Next.js app via <code className="font-mono">@emulators/adapter-next</code>.
+            No separate emulator process needed.
           </p>
         </CardContent>
       </Card>

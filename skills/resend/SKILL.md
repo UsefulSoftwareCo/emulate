@@ -1,7 +1,7 @@
 ---
 name: resend
-description: Emulated Resend email API for local development, testing, and native Vercel preview functions. Use when the user needs to send emails locally, test transactional email flows, implement magic link or verification code auth, inspect sent emails, manage domains/contacts/API keys, scaffold Resend through npx emulate vercel init, or work with the Resend API without sending real emails. Triggers include "Resend API", "emulate Resend", "send email locally", "test email", "magic link", "verification email", "email inbox", "RESEND_BASE_URL", or any task requiring a local email API.
-allowed-tools: Bash(npx emulate:*), Bash(curl:*)
+description: Emulated Resend email API for local development and testing. Use when the user needs to send emails locally, test transactional email flows, implement magic link or verification code auth, inspect sent emails, manage domains/contacts/API keys, or work with the Resend API without sending real emails. Triggers include "Resend API", "emulate Resend", "send email locally", "test email", "magic link", "verification email", "email inbox", "RESEND_BASE_URL", or any task requiring a local email API.
+allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
 ---
 
 # Resend Email API Emulator
@@ -9,18 +9,6 @@ allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 Fully stateful Resend API emulation. Emails, domains, API keys, audiences, and contacts persist in memory. Sent emails are captured and viewable through the inbox UI or the REST API.
 
 No real emails are sent. Every call to `POST /emails` stores the message locally so you can inspect it programmatically or in the browser.
-
-The native Go runtime implements the current Resend routes, supports YAML and JSON seed configs for Resend through `--seed`, and is verified against the official `resend` Node.js SDK for emails, batch email sends, domains, API keys, and legacy audience contacts.
-
-## Vercel Preview
-
-To expose the native Resend emulator in a Vercel preview without separate infrastructure, scaffold the Go Function route:
-
-```bash
-npx emulate vercel init --service resend
-```
-
-The generated route serves Resend at `/emulate/resend/*`. Set `RESEND_BASE_URL` to the preview origin plus `/emulate/resend`. State uses warm memory by default: cold starts reset to a fresh store, warm invocations reuse mutations, and concurrent function instances can diverge.
 
 ## Start
 
@@ -76,17 +64,34 @@ await resend.emails.send({
 })
 ```
 
-### Next.js proxy
+### Embedded in Next.js (adapter-next)
 
-Use `@emulators/adapter-next` to proxy a separately running native Resend runtime through your Next.js app:
+When using `@emulators/adapter-next`, the emulator runs inside your Next.js app at `/emulate/resend`. Set `RESEND_BASE_URL` via `next.config.ts`:
+
+```typescript
+// next.config.ts
+import { withEmulate } from '@emulators/adapter-next'
+
+export default withEmulate({
+  env: {
+    RESEND_BASE_URL: `http://localhost:${process.env.PORT ?? '3000'}/emulate/resend`,
+  },
+})
+```
 
 ```typescript
 // app/emulate/[...path]/route.ts
-import { createEmulateProxy } from '@emulators/adapter-next'
+import { createEmulateHandler } from '@emulators/adapter-next'
+import * as resend from '@emulators/resend'
 
-export const { GET, HEAD, POST, PUT, PATCH, DELETE, OPTIONS } = createEmulateProxy({
-  targets: {
-    resend: process.env.EMULATE_RESEND_URL ?? 'http://127.0.0.1:4000',
+export const { GET, POST, PUT, PATCH, DELETE } = createEmulateHandler({
+  services: {
+    resend: {
+      emulator: resend,
+      seed: {
+        domains: [{ name: 'example.com' }],
+      },
+    },
   },
 })
 ```

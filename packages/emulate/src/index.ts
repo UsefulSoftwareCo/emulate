@@ -1,49 +1,57 @@
-import { spawn } from "node:child_process";
-import { resolveNativeBinary } from "./native.js";
+import { Command } from "commander";
+import { startCommand } from "./commands/start.js";
+import { initCommand } from "./commands/init.js";
+import { listCommand } from "./commands/list.js";
 
-const args = process.argv.slice(2);
-const resolved = resolveNativeBinary();
+declare const PKG_VERSION: string;
+const pkg = { version: PKG_VERSION };
 
-if (!resolved.ok) {
-  console.error(resolved.message);
-  process.exit(1);
-}
+const defaultPort = process.env.EMULATE_PORT ?? process.env.PORT ?? "4000";
 
-const child = spawn(resolved.path, args, { stdio: "inherit" });
-const forwardedSignals: NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGHUP"];
+const program = new Command();
 
-const forwardSignal = (signal: NodeJS.Signals) => {
-  if (!child.killed) {
-    child.kill(signal);
-  }
-};
+program
+  .name("emulate")
+  .description("Local drop-in replacement services for CI and no-network sandboxes")
+  .version(pkg.version);
 
-for (const signal of forwardedSignals) {
-  process.once(signal, () => forwardSignal(signal));
-}
+program
+  .command("start", { isDefault: true })
+  .description("Start the emulator server")
+  .option("-p, --port <port>", "Base port", defaultPort)
+  .option("-s, --service <services>", "Comma-separated services to enable")
+  .option("--seed <file>", "Path to seed config file")
+  .option("--base-url <url>", "Override advertised base URL (supports {service} template)")
+  .option("--portless", "Serve over HTTPS via portless (auto-registers aliases)")
+  .action(async (opts) => {
+    const port = parseInt(opts.port, 10);
+    if (Number.isNaN(port) || port < 1 || port > 65535) {
+      console.error(`Invalid port: ${opts.port}`);
+      process.exit(1);
+    }
+    await startCommand({
+      port,
+      service: opts.service,
+      seed: opts.seed,
+      baseUrl: opts.baseUrl,
+      portless: opts.portless,
+    });
+  });
 
-child.once("error", (error) => {
-  console.error(`Failed to run native emulate binary: ${error.message}`);
-  process.exit(1);
-});
+program
+  .command("init")
+  .description("Generate a starter config file")
+  .option("-s, --service <service>", "Service to generate config for", "all")
+  .action((opts) => {
+    initCommand({ service: opts.service });
+  });
 
-child.once("exit", (code, signal) => {
-  for (const forwarded of forwardedSignals) {
-    process.removeAllListeners(forwarded);
-  }
-  if (signal) {
-    process.exit(exitCodeForSignal(signal));
-  }
-  process.exit(code ?? 1);
-});
+program
+  .command("list")
+  .alias("list-services")
+  .description("List available services")
+  .action(() => {
+    listCommand();
+  });
 
-function exitCodeForSignal(signal: NodeJS.Signals): number {
-  return 128 + (signalNumbers[signal] ?? 1);
-}
-
-const signalNumbers: Partial<Record<NodeJS.Signals, number>> = {
-  SIGHUP: 1,
-  SIGINT: 2,
-  SIGKILL: 9,
-  SIGTERM: 15,
-};
+program.parse();

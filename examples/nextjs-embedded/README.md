@@ -1,8 +1,8 @@
-# Next.js Native Proxy Example
+# Next.js Embedded Example
 
-A Next.js app with native emulators proxied through `@emulators/adapter-next` for local development. Start `npx emulate --service github,google` separately.
+A Next.js app with emulators embedded directly via `@emulators/adapter-next`. No separate emulator process needed.
 
-This demonstrates same-origin OAuth routing for a locally running native runtime. For Vercel preview deployments without separate emulator infrastructure, use `npx emulate vercel init` to scaffold the Go Function runtime instead.
+This demonstrates the solution for **Vercel preview deployments** where OAuth callback URLs change with every deployment. Because the emulators run on the same origin as the app, callbacks always work regardless of the deployment URL.
 
 ## Setup
 
@@ -10,10 +10,7 @@ This demonstrates same-origin OAuth routing for a locally running native runtime
 # From the repo root, install dependencies
 pnpm install
 
-# Terminal 1: start the native runtime
-npx emulate --service github,google
-
-# Terminal 2: start the Next.js app
+# Start the Next.js app (emulators are embedded, no separate process needed)
 cd examples/nextjs-embedded
 pnpm dev
 ```
@@ -23,10 +20,10 @@ Open [http://localhost:3000](http://localhost:3000) and click any provider to si
 ## How It Works
 
 1. Emulators are served from `/emulate/github/**` and `/emulate/google/**` via a catch-all route handler in `src/app/emulate/[...path]/route.ts`.
-2. Clicking a provider button redirects to `/api/auth/[provider]`, which builds the OAuth authorize URL pointing at the native emulator (same origin).
+2. Clicking a provider button redirects to `/api/auth/[provider]`, which builds the OAuth authorize URL pointing at the embedded emulator (same origin).
 3. The emulator shows a user-picker page. Select a seeded user.
 4. The emulator redirects back to `/api/auth/callback/[provider]` with an authorization code.
-5. The callback route exchanges the code for an access token by calling the native emulator's token endpoint, fetches user info, and stores the session in an HTTP-only cookie.
+5. The callback route exchanges the code for an access token by calling the embedded emulator's token endpoint, fetches user info, and stores the session in an HTTP-only cookie.
 6. The dashboard displays the authenticated user's profile and access token.
 
 ## Security Note
@@ -37,11 +34,11 @@ The session cookie in this example is a plain base64url-encoded JSON blob with n
 
 | | `examples/oauth` | `examples/nextjs-embedded` |
 |---|---|---|
-| Emulator process | Separate `npx emulate` process | Separate native process proxied through Next.js |
-| Config | `emulate.config.yaml` + `.env.local` | Seed data from `npx emulate --seed` |
+| Emulator process | Separate `npx emulate` process | Embedded in the Next.js app |
+| Config | `emulate.config.yaml` + `.env.local` | Seed data in `route.ts` |
 | OAuth URLs | `http://localhost:4001/login/oauth/...` | `/emulate/github/login/oauth/...` (same origin) |
 | Client credentials | Must match config | `"any"` (validation skipped) |
-| Preview deploys | Requires fixed callback URL | Use `npx emulate vercel init` |
+| Preview deploys | Requires fixed callback URL | Works on any URL |
 | Extra dependency | None | `@emulators/adapter-next` |
 
 ## Project Structure
@@ -49,7 +46,7 @@ The session cookie in this example is a plain base64url-encoded JSON blob with n
 ```
 src/
   app/
-    emulate/[...path]/route.ts   # Native proxy routes (GitHub + Google)
+    emulate/[...path]/route.ts   # Embedded emulators (GitHub + Google)
     api/auth/
       [provider]/route.ts        # Initiates OAuth flow
       callback/[provider]/route.ts  # Handles OAuth callback

@@ -1,6 +1,6 @@
 {
   "name": "emulate",
-  "version": "0.6.0",
+  "version": "0.5.0",
   "description": "Local drop-in replacement services for CI and no-network sandboxes",
   "license": "Apache-2.0",
   "type": "module",
@@ -42,14 +42,6 @@
   "bin": {
     "emulate": "./dist/index.js"
   },
-  "optionalDependencies": {
-    "@emulators/emulate-darwin-arm64": "workspace:*",
-    "@emulators/emulate-darwin-x64": "workspace:*",
-    "@emulators/emulate-linux-arm64": "workspace:*",
-    "@emulators/emulate-linux-x64": "workspace:*",
-    "@emulators/emulate-win32-arm64": "workspace:*",
-    "@emulators/emulate-win32-x64": "workspace:*"
-  },
   "scripts": {
     "prepack": "cp ../../README.md .",
     "build": "tsup",
@@ -59,10 +51,26 @@
     "type-check": "tsc --noEmit",
     "lint": "eslint src"
   },
-  "dependencies": {},
+  "dependencies": {
+    "commander": "^14",
+    "picocolors": "^1.1.1",
+    "yaml": "^2"
+  },
   "devDependencies": {
+    "@emulators/core": "workspace:*",
+    "@emulators/github": "workspace:*",
+    "@emulators/apple": "workspace:*",
+    "@emulators/microsoft": "workspace:*",
+    "@emulators/okta": "workspace:*",
+    "@emulators/aws": "workspace:*",
+    "@emulators/google": "workspace:*",
+    "@emulators/mongoatlas": "workspace:*",
+    "@emulators/slack": "workspace:*",
+    "@emulators/vercel": "workspace:*",
+    "@emulators/resend": "workspace:*",
+    "@emulators/stripe": "workspace:*",
+    "@emulators/clerk": "workspace:*",
     "tsup": "^8",
-    "typescript": "^5.7",
-    "vitest": "^4.1.0"
+    "typescript": "^5.7"
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@emulators/adapter-next",
-  "version": "0.6.0",
+  "version": "0.5.0",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -31,16 +31,14 @@
     "build": "tsup --clean",
     "dev": "tsup --watch",
     "clean": "rm -rf dist .turbo",
-    "test": "vitest run",
     "type-check": "tsc --noEmit",
     "lint": "eslint src"
   },
   "dependencies": {
-    "emulate": "workspace:*"
+    "@emulators/core": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8",
-    "typescript": "^5.7",
-    "vitest": "^4.1.6"
+    "typescript": "^5.7"
   }
 }

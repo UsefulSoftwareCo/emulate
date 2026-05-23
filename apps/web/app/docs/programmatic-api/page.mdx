@@ -1,10 +1,10 @@
 # Programmatic API
 
-Use the native emulate runtime from tests and scripts.
+Use emulators as libraries in your tests and scripts. There are two approaches: the `emulate` CLI package (which wraps all services) and the individual `@emulators/*` scoped packages.
 
 ## CLI package
 
-The `emulate` package provides a `createEmulator` helper that starts a native Go process for any service by name.
+The `emulate` package provides a `createEmulator` helper that starts any service by name.
 
 ```bash
 npm install emulate
@@ -41,7 +41,7 @@ beforeAll(async () => {
   process.env.VERCEL_EMULATOR_URL = vercel.url
 })
 
-afterEach(() => Promise.all([github.reset(), vercel.reset()]))
+afterEach(() => { github.reset(); vercel.reset() })
 afterAll(() => Promise.all([github.close(), vercel.close()]))
 ```
 
@@ -59,7 +59,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
     <tr>
       <td><code>service</code></td>
       <td><em>(required)</em></td>
-      <td>Service name: <code>'vercel'</code>, <code>'github'</code>, <code>'google'</code>, <code>'slack'</code>, <code>'apple'</code>, <code>'microsoft'</code>, <code>'okta'</code>, <code>'aws'</code>, <code>'resend'</code>, <code>'stripe'</code>, <code>'mongoatlas'</code>, or <code>'clerk'</code></td>
+      <td>Service name: <code>'vercel'</code>, <code>'github'</code>, <code>'google'</code>, <code>'slack'</code>, <code>'apple'</code>, <code>'microsoft'</code>, <code>'aws'</code>, <code>'okta'</code>, <code>'mongoatlas'</code>, <code>'resend'</code>, or <code>'stripe'</code></td>
     </tr>
     <tr>
       <td><code>port</code></td>
@@ -75,11 +75,6 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
       <td><code>baseUrl</code></td>
       <td>none</td>
       <td>Override the advertised base URL (used in OAuth redirects, webhook URLs, etc.). Per-service <code>baseUrl</code> in seed config takes highest priority, then this option, then the <code>EMULATE_BASE_URL</code> env var (supports <code>{'{service}'}</code> template), then <code>PORTLESS_URL</code> (supports <code>{'{service}'}</code>, automatically set by the <code>portless</code> CLI wrapper), then <code>{`http://localhost:<port>`}</code>.</td>
-    </tr>
-    <tr>
-      <td><code>allowLocalLambda</code></td>
-      <td><code>false</code></td>
-      <td>Allow AWS Lambda Node.js ZipFile code execution for direct localhost invokes signed by a known AWS access key.</td>
     </tr>
   </tbody>
 </table>
@@ -100,7 +95,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
     </tr>
     <tr>
       <td><code>reset()</code></td>
-      <td>Restart the native process and replay seed data, returns a Promise</td>
+      <td>Wipe the store and replay seed data</td>
     </tr>
     <tr>
       <td><code>close()</code></td>
@@ -111,7 +106,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 ## Scoped packages
 
-Each emulator name is still published as its own `@emulators/*` package for package discovery and compatibility:
+Each emulator is published as its own `@emulators/*` package. Install only the ones you need:
 
 ```bash
 npm install @emulators/github @emulators/google @emulators/stripe
@@ -133,24 +128,23 @@ npm install @emulators/github @emulators/google @emulators/stripe
     <tr><td><code>@emulators/slack</code></td><td>Slack Web API, OAuth v2, webhooks</td></tr>
     <tr><td><code>@emulators/apple</code></td><td>Apple Sign In / OIDC</td></tr>
     <tr><td><code>@emulators/microsoft</code></td><td>Microsoft Entra ID, Graph API</td></tr>
-    <tr><td><code>@emulators/aws</code></td><td>AWS S3, SQS, SNS, EventBridge, API Gateway v2, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, KMS, Lambda, IAM, STS</td></tr>
+    <tr><td><code>@emulators/aws</code></td><td>AWS S3, SQS, IAM, STS</td></tr>
     <tr><td><code>@emulators/okta</code></td><td>Okta identity provider / OIDC</td></tr>
-    <tr><td><code>@emulators/clerk</code></td><td>Clerk authentication and user management</td></tr>
     <tr><td><code>@emulators/mongoatlas</code></td><td>MongoDB Atlas Admin API + Data API</td></tr>
     <tr><td><code>@emulators/resend</code></td><td>Resend email API</td></tr>
     <tr><td><code>@emulators/stripe</code></td><td>Stripe billing and payments API</td></tr>
-    <tr><td><code>@emulators/core</code></td><td>Compatibility helpers</td></tr>
-    <tr><td><code>@emulators/adapter-next</code></td><td>Next.js App Router proxy integration</td></tr>
+    <tr><td><code>@emulators/core</code></td><td>Shared store, middleware, and utilities</td></tr>
+    <tr><td><code>@emulators/adapter-next</code></td><td>Next.js App Router integration</td></tr>
   </tbody>
 </table>
 
 ### Direct usage
 
-Each scoped package exports metadata plus legacy plugin-shaped markers for compatibility. Service routing, state, and protocol behavior run in the native Go engine. Legacy `seedFromConfig` exports fail loudly; pass seed config to `createEmulator` instead.
+Each scoped package exports its service plugin and seed helpers:
 
 ```typescript
 import * as github from '@emulators/github'
 import * as stripe from '@emulators/stripe'
 ```
 
-Use `createEmulator` from `emulate` to start services in tests, and use [`@emulators/adapter-next`](/docs/nextjs) to proxy native runtimes through Next.js.
+These are the same modules used internally by the CLI and the [Next.js adapter](/docs/nextjs). See the Next.js Integration page for a full example of using scoped packages with `createEmulateHandler`.

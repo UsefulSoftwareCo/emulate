@@ -7,7 +7,7 @@ No real emails are sent. The emulator captures every email in-memory so you can 
 ## How it works
 
 1. User enters their email on the sign-in page
-2. The server generates a 6-digit code and sends it via the official Resend SDK (pointed at the native emulator using `RESEND_BASE_URL`)
+2. The server generates a 6-digit code and sends it via the official Resend SDK (pointed at the embedded emulator using `RESEND_BASE_URL`)
 3. The user is redirected to a verification page
 4. The user retrieves the code from the emulator inbox and enters it
 5. On success, a session cookie is set and the user lands on the dashboard
@@ -20,7 +20,6 @@ From the repository root:
 
 ```bash
 pnpm install
-npx emulate --service resend
 pnpm --filter resend-magic-link dev
 ```
 
@@ -82,7 +81,7 @@ src/
     dashboard/
       page.tsx                  Authenticated landing page
     emulate/
-      [...path]/route.ts        Native proxy route (Resend)
+      [...path]/route.ts        Embedded emulator (Resend)
   lib/
     resend.ts                   Resend SDK client (uses RESEND_BASE_URL)
     session.ts                  Cookie-based session helpers

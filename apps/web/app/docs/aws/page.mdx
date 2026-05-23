@@ -1,16 +1,6 @@
 # AWS
 
-S3, SQS, SNS, EventBridge, API Gateway v2, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, KMS, Lambda, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS, REST JSON endpoints for API Gateway v2 and Lambda, and AWS Query endpoints for SNS/SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, API Gateway v2, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, KMS, Lambda, IAM, and STS; SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS use JSON target requests, API Gateway v2 and Lambda use REST JSON, and SNS/IAM/STS use AWS Query XML.
-
-## Vercel Preview
-
-To expose the native AWS emulator in a Vercel preview without separate infrastructure, scaffold the Go Function route:
-
-```bash
-npx emulate vercel init --service aws
-```
-
-The generated route serves AWS at `/emulate/aws/*`. State uses warm memory by default: cold starts reset to a fresh store, warm invocations reuse mutations, and concurrent function instances can diverge.
+S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and query-style SQS/IAM/STS endpoints. All state is in-memory, and responses use AWS-compatible XML.
 
 ## S3
 
@@ -20,149 +10,43 @@ S3 routes use root paths matching the real AWS S3 wire format, so the official A
 - `PUT /:bucket` - create bucket
 - `DELETE /:bucket` - delete bucket (must be empty)
 - `HEAD /:bucket` - check existence, get region
-- `GET /:bucket?location` - get bucket region
 - `GET /:bucket` - list objects (supports `prefix`, `delimiter`, `max-keys`, `continuation-token`, `start-after`)
 - `POST /:bucket` - presigned POST upload (browser-style multipart form with policy validation)
 - `PUT /:bucket/:key` - put object (supports `Content-Type`, `x-amz-meta-*` headers)
-- `GET /:bucket/:key` - get object (supports `Range`, `If-Match`, `If-None-Match`, `If-Modified-Since`, and `If-Unmodified-Since`)
-- `HEAD /:bucket/:key` - head object (supports range and conditional metadata headers)
+- `GET /:bucket/:key` - get object
+- `HEAD /:bucket/:key` - head object (metadata only)
 - `DELETE /:bucket/:key` - delete object
 - `PUT /:bucket/:key` with `x-amz-copy-source` - copy object
 
 ## SQS
 
-Manual SQS requests can use `POST /sqs/` with an `Action` form parameter. In the native Go runtime, `@aws-sdk/client-sqs` v3 can use the `/sqs/` endpoint directly; the SDK sends `X-Amz-Target: AmazonSQS.<Action>` JSON requests and receives JSON responses.
+All SQS operations use `POST /sqs/` with an `Action` form parameter.
 
 - `CreateQueue` - create queue (with optional attributes like `VisibilityTimeout`)
 - `ListQueues` - list queues (supports `QueueNamePrefix` filter)
 - `GetQueueUrl` - get queue URL by name
 - `GetQueueAttributes` - get queue attributes
-- `SetQueueAttributes` - update queue attributes
 - `SendMessage` - send message (supports message attributes)
-- `SendMessageBatch` - send up to 10 messages in one request
 - `ReceiveMessage` - receive messages (supports `MaxNumberOfMessages`)
-- `ChangeMessageVisibility` and `ChangeMessageVisibilityBatch` - update message visibility timeouts
 - `DeleteMessage` - delete message by receipt handle
-- `DeleteMessageBatch` - delete up to 10 messages in one request
-- `TagQueue`, `UntagQueue`, and `ListQueueTags` - manage queue tags
 - `PurgeQueue` - purge all messages
 - `DeleteQueue` - delete queue
 
-## SNS
-
-In the native Go runtime, `@aws-sdk/client-sns` v3 can use the `/sns/` endpoint directly. SNS uses AWS Query XML and can deliver published notifications to SQS subscriptions.
-
-- `CreateTopic` / `DeleteTopic` / `ListTopics` / `GetTopicAttributes` / `SetTopicAttributes` - topic lifecycle and metadata
-- `Subscribe` / `Unsubscribe` / `ListSubscriptions` / `ListSubscriptionsByTopic` / `ConfirmSubscription` - subscription lifecycle
-- `Publish` - publish notifications, including SQS subscription delivery
-- `TagResource` / `UntagResource` / `ListTagsForResource` - topic tags
-- `AddPermission` / `RemovePermission` - stored topic policy statements
-
-## EventBridge
-
-In the native Go runtime, `@aws-sdk/client-eventbridge` v3 can use the `/events/` endpoint directly. The SDK sends `X-Amz-Target: AWSEvents.<Action>` JSON requests and receives JSON responses. Matching events can be delivered to SQS queues, SNS topics, and Lambda functions. Lambda targets create CloudWatch Logs entries; zipped Node.js handlers run only when `npx emulate` is started with `--allow-local-lambda` and the EventBridge request uses a direct localhost endpoint signed by a known AWS access key.
-
-- `CreateEventBus` / `DeleteEventBus` / `ListEventBuses` - event bus lifecycle and discovery
-- `PutRule` / `DescribeRule` / `ListRules` / `DeleteRule` / `EnableRule` / `DisableRule` - rule lifecycle and state
-- `PutTargets` / `ListTargetsByRule` / `RemoveTargets` - SQS, SNS, and Lambda target management
-- `PutEvents` - publish events with rule pattern matching and target delivery
-- `TagResource` / `UntagResource` / `ListTagsForResource` - event bus and rule tags
-
-## API Gateway v2
-
-In the native Go runtime, `@aws-sdk/client-apigatewayv2` v3 can use the `/apigatewayv2/` endpoint directly. The SDK sends REST JSON requests under `/v2/apis` and receives JSON responses. `CreateApi` returns an `ApiEndpoint` such as `http://localhost:4000/_aws/apigatewayv2/<api-id>` for local HTTP API route invokes backed by Lambda proxy integrations using payload format version `2.0`. Local Node.js Lambda handlers run only when `npx emulate` is started with `--allow-local-lambda` and the route invoke uses a direct localhost endpoint signed by a known AWS access key; otherwise the Lambda deterministic stub payload path is used.
-
-- `CreateApi` / `GetApi` / `GetApis` / `DeleteApi` - HTTP API metadata
-- `CreateIntegration` / `GetIntegration` / `GetIntegrations` / `DeleteIntegration` - `AWS_PROXY` Lambda integrations with payload format version `2.0`
-- `CreateRoute` / `GetRoute` / `GetRoutes` / `DeleteRoute` - exact HTTP routes, path parameter routes, `ANY` routes, greedy proxy routes, and `$default`
-- `CreateStage` / `GetStage` / `GetStages` / `DeleteStage` - local stages, including `$default`
-- `GET`, `POST`, `PUT`, `PATCH`, `DELETE` under `/_aws/apigatewayv2/<api-id>/...` - local Lambda proxy route invokes
-
-## DynamoDB
-
-In the native Go runtime, `@aws-sdk/client-dynamodb` v3 can use the `/dynamodb/` endpoint directly. The SDK sends `X-Amz-Target: DynamoDB_20120810.<Action>` JSON requests and receives JSON responses.
-
-- `CreateTable` / `DescribeTable` / `ListTables` / `UpdateTable` / `DeleteTable` - table lifecycle and discovery
-- `PutItem` / `GetItem` / `DeleteItem` - item writes and reads
-- `Scan` / `Query` - basic reads, including partition-key equality and optional sort-key equality for `Query`
-- `BatchGetItem` / `BatchWriteItem` - basic batch reads and writes
-- `TagResource` / `UntagResource` / `ListTagsOfResource` - table tags
-
-## CloudWatch Logs
-
-In the native Go runtime, `@aws-sdk/client-cloudwatch-logs` v3 can use the `/logs/` endpoint directly. The SDK sends `X-Amz-Target: Logs_20140328.<Action>` JSON requests and receives JSON responses.
-
-- `CreateLogGroup` / `DeleteLogGroup` / `DescribeLogGroups` - log group lifecycle and discovery
-- `CreateLogStream` / `DeleteLogStream` / `DescribeLogStreams` - log stream lifecycle and discovery
-- `PutLogEvents` / `GetLogEvents` / `FilterLogEvents` - event writes and reads
-- `PutRetentionPolicy` / `DeleteRetentionPolicy` - retention settings
-- `TagResource` / `UntagResource` / `ListTagsForResource` - log group tags
-
-## Secrets Manager
-
-In the native Go runtime, `@aws-sdk/client-secrets-manager` v3 can use the `/secretsmanager/` endpoint directly. The SDK sends `X-Amz-Target: secretsmanager.<Action>` JSON requests and receives JSON responses.
-
-- `CreateSecret` / `GetSecretValue` / `PutSecretValue` / `UpdateSecret` - secret value lifecycle
-- `DeleteSecret` / `RestoreSecret` / `ListSecrets` / `DescribeSecret` - discovery and deletion recovery metadata
-- `TagResource` / `UntagResource` - secret tags
-- `ListSecretVersionIds` - version and staging label discovery
-- String and binary secret values, version ids, staging labels, and KMS key id metadata
-
-## SSM Parameter Store
-
-In the native Go runtime, `@aws-sdk/client-ssm` v3 can use the `/ssm/` endpoint directly. The SDK sends `X-Amz-Target: AmazonSSM.<Action>` JSON requests and receives JSON responses.
-
-- `PutParameter` / `GetParameter` / `GetParameters` / `GetParametersByPath` - value writes and reads
-- `DeleteParameter` / `DeleteParameters` / `DescribeParameters` - deletion and metadata discovery
-- `AddTagsToResource` / `RemoveTagsFromResource` / `ListTagsForResource` - parameter tags
-- `String`, `StringList`, and `SecureString` values with local plaintext storage, version history, hierarchical paths, and KMS key id metadata
-
-## KMS
-
-In the native Go runtime, `@aws-sdk/client-kms` v3 can use the `/kms/` endpoint directly. The SDK sends `X-Amz-Target: TrentService.<Action>` JSON requests and receives JSON responses.
-
-- `CreateKey` / `DescribeKey` / `ListKeys` - key metadata lifecycle and discovery
-- `CreateAlias` / `ListAliases` - alias metadata
-- `Encrypt` / `Decrypt` / `GenerateDataKey` - reversible local ciphertext blobs for tests, not real cryptography
-- `GenerateDataKey` accepts `NumberOfBytes` from 1 to 1024.
-- S3 `PutObject` and `HeadObject` preserve SSE-KMS metadata headers for local reference tests.
-
-
-## Lambda
-
-In the native Go runtime, `@aws-sdk/client-lambda` v3 can use the AWS emulator root endpoint directly. Lambda uses AWS REST JSON paths such as `/2015-03-31/functions` and returns JSON responses. The control plane works without Docker. Valid inline `ZipFile` packages for `nodejs*` runtimes run locally with the installed `node` executable when `npx emulate` is started with `--allow-local-lambda` and the invoke request uses a direct localhost endpoint (`localhost`, `127.0.0.1`, or `::1`) signed by a known AWS access key. Custom proxy, tunnel, and portless hosts keep the deterministic stub response path.
-
-- `CreateFunction` / `GetFunction` / `GetFunctionConfiguration` / `ListFunctions` / `DeleteFunction` - function lifecycle and discovery
-- `UpdateFunctionConfiguration` / `UpdateFunctionCode` - local metadata, code-hash updates, and inline zip storage for local invocation
-- `Invoke` - runs valid zipped Node.js handlers for request-response invokes when local Lambda execution is enabled. Seeded `invoke_payload` is returned when no local runner applies, otherwise `{}` is returned. `InvocationType: Event` and `DryRun` return accepted/no-content responses.
-- `PublishVersion` / `ListVersionsByFunction` - local version metadata, including stored inline code for published versions
-- `CreateAlias` / `GetAlias` / `ListAliases` / `UpdateAlias` / `DeleteAlias` - alias metadata
-- `TagResource` / `UntagResource` / `ListTags` - function tags
-- `AddPermission` / `GetPolicy` / `RemovePermission` - stored resource policy statements
-- Creating or invoking a function creates local CloudWatch Logs metadata under `/aws/lambda/<function-name>`. Local Node.js handler console output is written to those logs and returned through `LogType: Tail`.
-- Seed functions with `lambda.functions[].invoke_payload` for deterministic stubs or `lambda.functions[].code_zip_base64` for a base64 Lambda zip used by the local Node.js runner.
-
 ## IAM
 
-Manual IAM requests can use `POST /iam/` with an `Action` form parameter. In the native Go runtime, `@aws-sdk/client-iam` v3 can use the `/iam/` endpoint directly.
+All IAM operations use `POST /iam/` with an `Action` form parameter.
 
 - `CreateUser` / `GetUser` / `ListUsers` / `DeleteUser` - user management
 - `CreateAccessKey` / `ListAccessKeys` / `DeleteAccessKey` - access key management
 - `CreateRole` / `GetRole` / `ListRoles` / `DeleteRole` - role management
-- `PutUserPolicy` / `GetUserPolicy` / `ListUserPolicies` / `DeleteUserPolicy` - inline user policy storage
-- `PutRolePolicy` / `GetRolePolicy` / `ListRolePolicies` / `DeleteRolePolicy` - inline role policy storage
-- `CreatePolicy` / `GetPolicy` / `GetPolicyVersion` / `ListPolicies` / `DeletePolicy` - managed policy storage
-- `AttachUserPolicy` / `DetachUserPolicy` / `ListAttachedUserPolicies` - user managed policy attachments for local policies and AWS managed policy ARNs
-- `AttachRolePolicy` / `DetachRolePolicy` / `ListAttachedRolePolicies` - role managed policy attachments for local policies and AWS managed policy ARNs
-- Delete users and roles after deleting inline policies and detaching managed policies.
 
 ## STS
 
-Manual STS requests can use `POST /sts/` with an `Action` form parameter. In the native Go runtime, `@aws-sdk/client-sts` v3 can use the `/sts/` endpoint directly.
+All STS operations use `POST /sts/` with an `Action` form parameter.
 
 - `GetCallerIdentity` - get caller identity
-- `AssumeRole` - assume a role. Returns temporary credentials with session tag metadata. `DurationSeconds` must be from 900 seconds up to the role `MaxSessionDuration`; roles default to 3600 seconds and role chaining is capped at 3600 seconds.
+- `AssumeRole` - assume a role (returns temporary credentials)
 
 ## Inspector
 
-The emulator serves an HTML dashboard at `GET /_inspector` with `tab` query parameter (`s3`, `sqs`, `iam`, `logs`, `secretsmanager`, `ssm`, `kms`, `lambda`) for browsing current state.
+The emulator serves an HTML dashboard at `GET /_inspector` with `tab` query parameter (`s3`, `sqs`, `iam`) for browsing current state.

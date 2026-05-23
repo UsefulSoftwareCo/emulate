@@ -2,42 +2,48 @@
 
 ```
 packages/
-  emulate/          # npm CLI shim and native process programmatic API
+  emulate/          # CLI entry point (commander)
   @emulators/
-    core/           # compatibility helpers and native proxy facade
-    adapter-next/   # Next.js App Router proxy integration
-    vercel/         # Vercel API metadata and compatibility package
-    github/         # GitHub API metadata and compatibility package
-    google/         # Google metadata and compatibility package
-    slack/          # Slack metadata and compatibility package
-    apple/          # Apple metadata and compatibility package
-    microsoft/      # Microsoft metadata and compatibility package
-    aws/            # AWS metadata, compatibility package, and SDK conformance tests
-    okta/           # Okta metadata package
-    clerk/          # Clerk metadata package
-    mongoatlas/     # MongoDB Atlas metadata package
-    resend/         # Resend metadata package and SDK conformance tests
-    stripe/         # Stripe metadata package
-internal/
-  core/             # Go HTTP, store, assets, config, and UI foundations
-  services/         # Native Go service implementations
-vercel/             # Native Go Vercel Function adapter
+    core/           # HTTP server, in-memory store, plugin interface, middleware
+    adapter-next/   # Next.js App Router integration
+    vercel/         # Vercel API service
+    github/         # GitHub API service
+    google/         # Google OAuth 2.0 / OIDC + Gmail, Calendar, Drive
+    slack/          # Slack Web API, OAuth v2, incoming webhooks
+    apple/          # Apple Sign In / OIDC
+    microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
+    aws/            # AWS S3, SQS, IAM, STS
+    okta/           # Okta identity provider / OIDC
+    mongoatlas/     # MongoDB Atlas Admin API + Data API
+    resend/         # Resend email API
+    stripe/         # Stripe billing and payments API
 apps/
-  web/              # Documentation site
+  web/              # Documentation site (Next.js)
 ```
 
-## Native Runtime
+## Core
 
-The native Go runtime is the service engine for the CLI, the programmatic API, SDK conformance tests, compatibility facades, and Vercel Go Function previews. It serves selected services from one local server by default. `--portless` starts service-specific native listeners so each service can keep a named HTTPS alias.
+The core package provides a generic `Store` with typed `Collection<T>` instances supporting CRUD, indexing, filtering, and pagination. Each service plugin registers its routes with the shared internal app and uses the store for state.
 
-## npm Packages
+## Plugin System
 
-The `emulate` npm package provides the CLI shim, native binary resolution, and `createEmulator()` helper. Platform-specific optional packages carry the native binaries for macOS, Linux, and Windows.
+Each service is a plugin that:
 
-The `@emulators/*` packages remain published for package discovery and compatibility, but they no longer contain Node.js service implementations. Service routing, state, UI, and protocol behavior live in Go.
+1. Defines its entity types and store collections
+2. Registers HTTP routes with the shared internal app
+3. Provides a seed function to populate initial state from config
+4. Uses shared middleware for auth, error handling, and pagination
 
-## State
+Multiple services can run simultaneously, each on its own port (auto-incremented from the base port).
 
-All local CLI state is held in memory with no database. State is populated from seed config on startup and can be modified via API calls during a test run.
+## In-Memory State
 
-Vercel Go Function previews use warm in-memory state by default. Cold starts reset to a fresh store, warm invocations reuse mutations, and concurrent function instances can diverge. For snapshots across cold starts, implement `vercel.Persistence` in `api/emulate.go`.
+All state is held in memory with no database. This makes the emulator fast, easy to reset, and ideal for CI pipelines. State is populated from the seed config on startup and can be modified via API calls during a test run.
+
+## Middleware
+
+The core provides shared middleware:
+
+- **Auth**: validates Bearer/token authorization headers against configured tokens
+- **Error handling**: consistent error responses matching each service's format
+- **Pagination**: GitHub-style `page`/`per_page` with `Link` headers, Vercel-style cursor-based pagination

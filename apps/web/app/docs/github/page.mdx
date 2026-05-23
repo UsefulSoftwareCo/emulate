@@ -2,8 +2,6 @@
 
 Every endpoint below is fully stateful. Creates, updates, and deletes persist in memory and affect related entities.
 
-The native Go runtime implements the GitHub service engine for local CLI runs, the programmatic API, and Vercel Go Function previews: users, orgs, seeded repositories, repository CRUD, topics, languages, branches, refs, issues, issue comments, pull requests, OAuth authorize/token flows, rate limit, and metadata. The `@emulators/github` package remains importable as npm metadata, but it no longer contains a Node.js service implementation.
-
 ## Users
 
 - `GET /user` - authenticated user

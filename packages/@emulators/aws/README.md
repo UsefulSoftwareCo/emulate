@@ -1,10 +1,75 @@
 # @emulators/aws
 
-Metadata package for the AWS cloud services emulator. The native Go engine distributed by the `emulate` npm package implements S3, SQS, SNS, EventBridge, API Gateway v2, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, KMS, Lambda, IAM, and STS.
+S3, SQS, IAM, and STS emulation with AWS SDK-compatible S3 paths and query-style SQS/IAM/STS endpoints. All responses use AWS-compatible XML.
+
+Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
+
+## Install
 
 ```bash
-npm install emulate @emulators/aws
-npx emulate --service aws
+npm install @emulators/aws
 ```
 
-`@emulators/aws` remains importable for package discovery and compatibility, but it no longer contains a Node.js service implementation.
+## Endpoints
+
+### S3
+
+S3 routes use root paths matching the real AWS S3 wire format, so the official AWS SDK works out of the box with `forcePathStyle: true`. Legacy `/s3/` prefixed paths are also supported for backward compatibility.
+
+- `GET /` — list all buckets
+- `PUT /:bucket` — create bucket
+- `DELETE /:bucket` — delete bucket
+- `HEAD /:bucket` — check existence
+- `GET /:bucket` — list objects (prefix, delimiter, max-keys, continuation-token, start-after)
+- `POST /:bucket` — presigned POST upload (browser-style multipart form with policy validation)
+- `PUT /:bucket/:key` — put object (supports copy via `x-amz-copy-source`)
+- `GET /:bucket/:key` — get object
+- `HEAD /:bucket/:key` — head object
+- `DELETE /:bucket/:key` — delete object
+
+### SQS
+All operations via `POST /sqs/` with `Action` parameter:
+- `CreateQueue`, `ListQueues`, `GetQueueUrl`, `GetQueueAttributes`
+- `SendMessage`, `ReceiveMessage`, `DeleteMessage`
+- `PurgeQueue`, `DeleteQueue`
+
+### IAM
+All operations via `POST /iam/` with `Action` parameter:
+- `CreateUser`, `GetUser`, `ListUsers`, `DeleteUser`
+- `CreateAccessKey`, `ListAccessKeys`, `DeleteAccessKey`
+- `CreateRole`, `GetRole`, `ListRoles`, `DeleteRole`
+
+### STS
+All operations via `POST /sts/` with `Action` parameter:
+- `GetCallerIdentity`, `AssumeRole`
+
+## Auth
+
+Bearer tokens or IAM access key credentials. Default key pair always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.
+
+## Seed Configuration
+
+```yaml
+aws:
+  region: us-east-1
+  s3:
+    buckets:
+      - name: my-app-bucket
+      - name: my-app-uploads
+  sqs:
+    queues:
+      - name: my-app-events
+      - name: my-app-dlq
+  iam:
+    users:
+      - user_name: developer
+        create_access_key: true
+    roles:
+      - role_name: lambda-execution-role
+        description: Role for Lambda function execution
+```
+
+## Links
+
+- [Full documentation](https://emulate.dev/aws)
+- [GitHub](https://github.com/vercel-labs/emulate)

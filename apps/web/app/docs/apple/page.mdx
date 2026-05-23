@@ -2,10 +2,6 @@
 
 Sign in with Apple emulation with authorization code flow, PKCE support, RS256 ID tokens, and OIDC discovery.
 
-The native Go runtime implements the Apple OIDC flow below for local CLI runs and Vercel Go Function previews. To expose Apple on a Vercel preview without separate infrastructure, run `npx emulate vercel init --service apple`. The generated route serves Apple at `/emulate/apple/*`.
-
-When more than one of Apple, Google, Microsoft, Okta, and Clerk is enabled on one native Go server, use `/apple/.well-known/openid-configuration` to avoid the shared root discovery path.
-
 ## Endpoints
 
 - `GET /.well-known/openid-configuration` - OIDC discovery document
@@ -16,17 +12,17 @@ When more than one of Apple, Google, Microsoft, Okta, and Clerk is enabled on on
 
 ## Authorization Flow
 
-1. Redirect the user to `/auth/authorize` with `client_id`, `redirect_uri`, `scope`, `state`, and optionally `nonce`, `response_mode`, `code_challenge`, and `code_challenge_method`
+1. Redirect the user to `/auth/authorize` with `client_id`, `redirect_uri`, `scope`, `state`, and optionally `nonce` and `response_mode`
 2. The emulator renders a user picker page where the user selects a seeded account
 3. On selection, the emulator redirects (or auto-submits a form for `form_post` mode) to `redirect_uri` with `code` and `state`
 4. On the first authorization per user/client pair, a `user` JSON blob is also included (matching Apple's real behavior)
-5. Exchange the code for tokens via `POST /auth/token`, including `code_verifier` when PKCE was used
+5. Exchange the code for tokens via `POST /auth/token`
 
 ## ID Token
 
 The `id_token` is an RS256 JWT containing `sub`, `email`, `email_verified`, `is_private_email`, `real_user_status`, `auth_time`, and optional `nonce`.
 
-Users with `is_private_email: true` in the seed config receive a generated `@privaterelay.appleid.com` email in the `id_token` and first authorization `user` JSON instead of their real email, matching Apple's Hide My Email behavior.
+Users with `is_private_email: true` in the seed config receive a generated `@privaterelay.appleid.com` email in the `id_token` instead of their real email, matching Apple's Hide My Email behavior.
 
 ## Supported Parameters
 
@@ -61,14 +57,6 @@ Users with `is_private_email: true` in the seed config receive a generated `@pri
     <tr>
       <td><code>response_mode</code></td>
       <td><code>query</code> (default), <code>form_post</code>, or <code>fragment</code></td>
-    </tr>
-    <tr>
-      <td><code>code_challenge</code></td>
-      <td>PKCE challenge (optional)</td>
-    </tr>
-    <tr>
-      <td><code>code_challenge_method</code></td>
-      <td><code>plain</code> or <code>S256</code> (optional)</td>
     </tr>
   </tbody>
 </table>
