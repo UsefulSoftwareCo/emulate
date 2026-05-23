@@ -2,7 +2,7 @@ import type { Context, Hono } from "@emulators/core";
 import type { ServicePlugin, Store, WebhookDispatcher, TokenMap, AppEnv, RouteContext } from "@emulators/core";
 import { getSlackStore } from "./store.js";
 import { generateSlackId } from "./helpers.js";
-import type { SlackOAuthApp, SlackTokenType } from "./entities.js";
+import type { SlackOAuthApp, SlackPresence, SlackTokenType, SlackUserProfile } from "./entities.js";
 import { authRoutes } from "./routes/auth.js";
 import { chatRoutes } from "./routes/chat.js";
 import { conversationsRoutes } from "./routes/conversations.js";
@@ -27,6 +27,8 @@ export interface SlackSeedConfig {
     real_name?: string;
     email?: string;
     is_admin?: boolean;
+    profile?: Partial<SlackUserProfile>;
+    presence?: SlackPresence;
   }>;
   channels?: Array<{
     name: string;
@@ -88,6 +90,9 @@ const DEFAULT_SLACK_SCOPES = [
   "mpim:write",
   "users:read",
   "users:read.email",
+  "users.profile:read",
+  "users.profile:write",
+  "users:write",
   "reactions:read",
   "reactions:write",
   "team:read",
@@ -120,7 +125,17 @@ function seedDefaults(store: Store, _baseUrl: string): void {
       email: "admin@emulate.dev",
       image_48: "",
       image_192: "",
+      real_name_normalized: "Admin User",
+      display_name_normalized: "admin",
+      status_text: "",
+      status_emoji: "",
+      status_emoji_display_info: [],
+      status_expiration: 0,
     },
+    presence: "active",
+    manual_presence: "auto",
+    connection_count: 1,
+    last_activity: Math.floor(Date.now() / 1000),
   });
 
   ss.channels.insert({
@@ -188,23 +203,30 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: SlackSeed
       if (existing) continue;
 
       const userId = generateSlackId("U");
-      const email = u.email ?? `${u.name}@emulate.dev`;
+      const email = u.profile?.email ?? u.email ?? `${u.name}@emulate.dev`;
+      const realName = u.real_name ?? u.name;
+      const profile = normalizeSeedProfile({
+        display_name: u.name,
+        real_name: realName,
+        email,
+        image_48: "",
+        image_192: "",
+        ...u.profile,
+      });
       ss.users.insert({
         user_id: userId,
         team_id: teamId,
         name: u.name,
-        real_name: u.real_name ?? u.name,
-        email,
+        real_name: profile.real_name,
+        email: profile.email,
         is_admin: u.is_admin ?? false,
         is_bot: false,
         deleted: false,
-        profile: {
-          display_name: u.name,
-          real_name: u.real_name ?? u.name,
-          email,
-          image_48: "",
-          image_192: "",
-        },
+        profile,
+        presence: u.presence ?? "active",
+        manual_presence: u.presence === "away" ? "away" : "auto",
+        connection_count: u.presence === "away" ? 0 : 1,
+        last_activity: u.presence === "away" ? undefined : Math.floor(Date.now() / 1000),
       });
     }
   }
@@ -438,7 +460,17 @@ function seedOAuthInstallation(
         email: `${botName}@bots.emulate.dev`,
         image_48: "",
         image_192: "",
+        real_name_normalized: app.name,
+        display_name_normalized: botName,
+        status_text: "",
+        status_emoji: "",
+        status_emoji_display_info: [],
+        status_expiration: 0,
       },
+      presence: "active",
+      manual_presence: "auto",
+      connection_count: 1,
+      last_activity: Math.floor(Date.now() / 1000),
     });
   }
 
@@ -474,4 +506,16 @@ function slugifySlackBotName(value: string): string {
     .replace(/[^a-z0-9_-]+/g, "-")
     .replace(/^-+|-+$/g, "");
   return slug || "slack-app";
+}
+
+function normalizeSeedProfile(profile: SlackUserProfile): SlackUserProfile {
+  return {
+    ...profile,
+    real_name_normalized: profile.real_name_normalized ?? profile.real_name,
+    display_name_normalized: profile.display_name_normalized ?? profile.display_name,
+    status_text: profile.status_text ?? "",
+    status_emoji: profile.status_emoji ?? "",
+    status_emoji_display_info: profile.status_emoji_display_info ?? [],
+    status_expiration: profile.status_expiration ?? 0,
+  };
 }

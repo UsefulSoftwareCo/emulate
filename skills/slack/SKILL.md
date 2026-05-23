@@ -1,12 +1,12 @@
 ---
 name: slack
 description: Emulated Slack API for local development and testing. Use when the user needs to interact with Slack API endpoints locally, test Slack integrations, emulate channels/messages/users, set up Slack OAuth flows, test incoming webhooks, or work with the Slack Web API without hitting the real Slack API. Triggers include "Slack API", "emulate Slack", "mock Slack", "test Slack OAuth", "Slack bot", "incoming webhook", "local Slack", or any task requiring a local Slack API.
-allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
+allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # Slack API Emulator
 
-Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. Seeded OAuth apps and OAuth installs create bot users and installation records. OAuth exchanges and explicit token seeds create scoped token records. State changes dispatch `event_callback` payloads to configured webhook URLs.
+Fully stateful Slack Web API emulation with channels, messages, threads, reactions, user profiles, presence, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. User writes update profile fields, status, custom fields, and deterministic active or away presence. Seeded OAuth apps and OAuth installs create bot users and installation records. OAuth exchanges and explicit token seeds create scoped token records. State changes dispatch `event_callback` payloads to configured webhook URLs.
 
 ## Start
 
@@ -38,7 +38,7 @@ curl -X POST http://localhost:4003/api/auth.test \
 
 When no token is provided, requests fall back to the first seeded user.
 
-Scope checks are relaxed by default for local development. Set `slack.strict_scopes: true` in seed config when you need supported Web API methods to return Slack-style `missing_scope` errors with `needed` and `provided` fields.
+Scope checks are relaxed by default for local development. Set `slack.strict_scopes: true` in seed config when you need supported Web API methods to return Slack-style `missing_scope` errors with `needed` and `provided` fields. Supported user and presence checks include `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, and `users:write`.
 
 ## Pointing Your App at the Emulator
 
@@ -74,7 +74,7 @@ const client = new WebClient(token, {
   type: 'oauth',
   authorization: {
     url: `${process.env.SLACK_EMULATOR_URL}/oauth/v2/authorize`,
-    params: { scope: 'chat:write,channels:read,users:read' },
+    params: { scope: 'chat:write,channels:read,users:read,users.profile:read' },
   },
   token: {
     url: `${process.env.SLACK_EMULATOR_URL}/api/oauth.v2.access`,
@@ -96,9 +96,17 @@ slack:
       real_name: Developer
       email: dev@example.com
       is_admin: true
+      profile:
+        title: Local Developer
+        status_text: Testing locally
+        status_emoji: ":computer:"
+      presence: active
     - name: designer
       real_name: Designer
       email: designer@example.com
+      profile:
+        title: Designer
+      presence: away
   channels:
     - name: general
       topic: General discussion
@@ -117,8 +125,12 @@ slack:
       scopes:
         - chat:write
         - channels:read
+        - users.profile:read
+        - users.profile:write
+        - users:write
       user_scopes:
         - users:read
+        - users.profile:read
       bot_name: my-bot
   tokens:
     - token: xoxb-local-test
@@ -126,6 +138,9 @@ slack:
       scopes:
         - chat:write
         - channels:read
+        - users.profile:read
+        - users.profile:write
+        - users:write
   incoming_webhooks:
     - channel: general
       label: CI Notifications
@@ -355,6 +370,32 @@ curl -X POST http://localhost:4003/api/users.lookupByEmail \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"email": "dev@example.com"}'
+
+# Get a user profile
+curl -X GET 'http://localhost:4003/api/users.profile.get?user=U000000001' \
+  -H "Authorization: Bearer $TOKEN"
+
+# Update profile fields and status
+curl -X POST http://localhost:4003/api/users.profile.set \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"user": "U000000001", "profile": {"display_name": "Developer", "status_text": "Testing locally", "status_emoji": ":computer:"}}'
+
+# Get presence
+curl -X GET 'http://localhost:4003/api/users.getPresence?user=U000000001' \
+  -H "Authorization: Bearer $TOKEN"
+
+# Set the authed user away
+curl -X POST http://localhost:4003/api/users.setPresence \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"presence": "away"}'
+
+# Return the authed user to automatic presence
+curl -X POST http://localhost:4003/api/users.setPresence \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"presence": "auto"}'
 ```
 
 ### Reactions
@@ -459,6 +500,8 @@ When messages are posted, updated, deleted, or reactions are added/removed, the 
 - `message` with public `channel_topic` / `channel_purpose` or private `group_topic` / `group_purpose` subtypes on topic and purpose writes
 - `member_joined_channel` / `member_left_channel` on invite, join, leave, and kick writes
 - `im_created`, `im_open`, `im_close`, `im_marked`, and group open/close/marked events for DM and MPIM writes
+- `user_change` on profile writes
+- `presence_change` on presence writes
 
 ## Common Patterns
 

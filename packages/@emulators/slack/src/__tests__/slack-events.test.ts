@@ -197,6 +197,60 @@ describe("Slack plugin - event dispatch baseline", () => {
     ]);
   });
 
+  it("dispatches user_change events for profile writes", async () => {
+    const { app, webhooks } = createSlackTestApp();
+    const capture = captureFetchRequests();
+    registerSlackEventSubscription(webhooks, ["user_change"]);
+
+    const res = await app.request(`${base}/api/users.profile.set`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        user: "U000000001",
+        profile: { display_name: "Events Admin", status_text: "Reviewing events" },
+      }),
+    });
+    expect(res.status).toBe(200);
+
+    expect(capture.requests).toHaveLength(1);
+    expect(capture.jsonBodies()[0]).toMatchObject({
+      type: "event_callback",
+      event: {
+        type: "user_change",
+        user: {
+          id: "U000000001",
+          profile: {
+            display_name: "Events Admin",
+            status_text: "Reviewing events",
+          },
+        },
+      },
+    });
+  });
+
+  it("dispatches presence_change events for presence writes", async () => {
+    const { app, webhooks } = createSlackTestApp();
+    const capture = captureFetchRequests();
+    registerSlackEventSubscription(webhooks, ["presence_change"]);
+
+    const res = await app.request(`${base}/api/users.setPresence`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ presence: "away" }),
+    });
+    expect(res.status).toBe(200);
+
+    expect(capture.requests).toHaveLength(1);
+    expect(capture.jsonBodies()[0]).toMatchObject({
+      type: "event_callback",
+      event: {
+        type: "presence_change",
+        user: "U000000001",
+        presence: "away",
+      },
+    });
+  });
+
   it("dispatches message_changed events for chat.update", async () => {
     const { app, store, webhooks } = createSlackTestApp();
     const capture = captureFetchRequests();

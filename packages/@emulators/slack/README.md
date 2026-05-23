@@ -1,6 +1,6 @@
 # @emulators/slack
 
-Fully stateful Slack Web API emulation with channels, messages, threads, reactions, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. OAuth installs create bot users and installation records. OAuth exchanges and explicit token seeds create scoped token records.
+Fully stateful Slack Web API emulation with channels, messages, threads, reactions, user profiles, presence, OAuth v2, and incoming webhooks. Chat writes preserve common rich message fields such as `blocks`, `attachments`, `metadata`, formatting flags, unfurl flags, and client message ids. Conversation writes update archive state, names, topics, purposes, membership, DMs, MPIMs, and read cursors. User writes update profile fields, status, custom fields, and deterministic active or away presence. OAuth installs create bot users and installation records. OAuth exchanges and explicit token seeds create scoped token records.
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
 
@@ -43,6 +43,10 @@ npm install @emulators/slack
 - `POST /api/users.list` — list users (cursor pagination)
 - `POST /api/users.info` — get user info
 - `POST /api/users.lookupByEmail` — lookup by email
+- `GET /api/users.profile.get` / `POST /api/users.profile.get` — get user profile fields
+- `POST /api/users.profile.set` — update profile fields, status, and custom fields
+- `GET /api/users.getPresence` / `POST /api/users.getPresence` — get active or away presence
+- `POST /api/users.setPresence` — set the authed user to away or automatic presence
 - `POST /api/reactions.add` / `reactions.remove` / `reactions.get` — manage reactions
 
 ### Team, Bots & Webhooks
@@ -56,7 +60,7 @@ npm install @emulators/slack
 
 ## Auth
 
-All Web API endpoints require `Authorization: Bearer <token>`. Seeded OAuth apps create local installation state, and the OAuth v2 flow with user picker UI returns Slack-style bot tokens. Scope checks are relaxed by default for local development. Set `strict_scopes: true` in Slack seed config to return Slack-style `missing_scope` errors when a token lacks the required method scope.
+All Web API endpoints require `Authorization: Bearer <token>`. Seeded OAuth apps create local installation state, and the OAuth v2 flow with user picker UI returns Slack-style bot tokens. Scope checks are relaxed by default for local development. Set `strict_scopes: true` in Slack seed config to return Slack-style `missing_scope` errors when a token lacks the required method scope. Supported user and presence checks include `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, and `users:write`.
 
 ## Seed Configuration
 
@@ -69,6 +73,11 @@ slack:
     - name: developer
       real_name: Developer
       email: dev@example.com
+      profile:
+        title: Local Developer
+        status_text: Testing locally
+        status_emoji: ":computer:"
+      presence: active
   channels:
     - name: general
       topic: General discussion
@@ -86,8 +95,12 @@ slack:
       scopes:
         - chat:write
         - channels:read
+        - users.profile:read
+        - users.profile:write
+        - users:write
       user_scopes:
         - users:read
+        - users.profile:read
       bot_name: my-bot
   tokens:
     - token: xoxb-local-test
@@ -95,6 +108,9 @@ slack:
       scopes:
         - chat:write
         - channels:read
+        - users.profile:read
+        - users.profile:write
+        - users:write
   strict_scopes: false
 ```
 

@@ -6,6 +6,38 @@ export interface SlackTeam extends Entity {
   domain: string;
 }
 
+export interface SlackUserProfile {
+  display_name: string;
+  real_name: string;
+  email: string;
+  image_48: string;
+  image_192: string;
+  title?: string;
+  phone?: string;
+  skype?: string;
+  real_name_normalized?: string;
+  display_name_normalized?: string;
+  fields?: Record<string, { value: string; alt?: string; label?: string }>;
+  status_text?: string;
+  status_emoji?: string;
+  status_emoji_display_info?: Record<string, unknown>[];
+  status_expiration?: number;
+  avatar_hash?: string;
+  start_date?: string;
+  pronouns?: string;
+  huddle_state?: string;
+  huddle_state_expiration_ts?: number;
+  first_name?: string;
+  last_name?: string;
+  image_24?: string;
+  image_32?: string;
+  image_72?: string;
+  image_512?: string;
+}
+
+export type SlackPresence = "active" | "away";
+export type SlackManualPresence = "auto" | "away";
+
 export interface SlackUser extends Entity {
   user_id: string;
   team_id: string;
@@ -15,13 +47,11 @@ export interface SlackUser extends Entity {
   is_admin: boolean;
   is_bot: boolean;
   deleted: boolean;
-  profile: {
-    display_name: string;
-    real_name: string;
-    email: string;
-    image_48: string;
-    image_192: string;
-  };
+  profile: SlackUserProfile;
+  presence?: SlackPresence;
+  manual_presence?: SlackManualPresence;
+  connection_count?: number;
+  last_activity?: number;
 }
 
 export interface SlackChannel extends Entity {

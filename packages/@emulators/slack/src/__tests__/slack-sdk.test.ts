@@ -359,6 +359,29 @@ describe("Slack plugin - real @slack/web-api WebClient baseline", () => {
     expect(byEmail.ok).toBe(true);
     expect(byEmail.user?.id).toBe("U000000001");
 
+    const profile = await client.users.profile.get({ user: "U000000001" });
+    expect(profile.ok).toBe(true);
+    expect(profile.profile?.display_name).toBe("admin");
+
+    const setProfile = await client.users.profile.set({
+      user: "U000000001",
+      profile: {
+        display_name: "SDK Admin",
+        status_text: "Testing profile writes",
+        status_emoji: ":test_tube:",
+      },
+    });
+    expect(setProfile.ok).toBe(true);
+    expect(setProfile.profile?.display_name).toBe("SDK Admin");
+    expect(setProfile.profile?.status_text).toBe("Testing profile writes");
+
+    const away = await client.users.setPresence({ presence: "away" });
+    expect(away.ok).toBe(true);
+
+    const presence = await client.users.getPresence({ user: "U000000001" });
+    expect(presence.ok).toBe(true);
+    expect(presence.presence).toBe("away");
+
     const bot = await client.bots.info({ bot: "B000000001" });
     expect(bot.ok).toBe(true);
     expect(bot.bot?.name).toBe("test-bot");
