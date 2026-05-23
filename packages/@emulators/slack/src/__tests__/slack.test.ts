@@ -2256,6 +2256,32 @@ describe("Slack plugin - OAuth flow", () => {
     expect(authTest.bot_id).toBe("B000000099");
     expect(authTest.app_id).toBe("A000000001");
   });
+
+  it("does not issue a user token unless user_scope is requested", async () => {
+    const callbackRes = await app.request(`${base}/oauth/v2/authorize/callback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `user_id=U000000001&redirect_uri=http://localhost:3000/callback&scope=chat:write,channels:read&state=xyz&client_id=12345.67890`,
+    });
+    expect(callbackRes.status).toBe(302);
+    const location = callbackRes.headers.get("Location")!;
+    const code = new URL(location).searchParams.get("code")!;
+    expect(code).toBeDefined();
+
+    const tokenRes = await app.request(`${base}/api/oauth.v2.access`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: `code=${code}&client_id=12345.67890&client_secret=test-secret&redirect_uri=http://localhost:3000/callback`,
+    });
+    const token = (await tokenRes.json()) as any;
+    expect(token.ok).toBe(true);
+    expect(token.access_token).toMatch(/^xoxb-/);
+    expect(token.authed_user).toEqual({ id: "U000000001" });
+
+    const ss = getSlackStore(store);
+    expect(ss.tokens.findBy("token_type", "user")).toEqual([]);
+    expect(ss.installations.findOneBy("app_id", "A000000001")?.user_scopes).toEqual([]);
+  });
 });
 
 describe("Slack plugin - scope modes", () => {

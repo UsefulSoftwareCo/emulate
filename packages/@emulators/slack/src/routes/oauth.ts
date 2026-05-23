@@ -201,7 +201,7 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
     const teamId = team?.team_id ?? "T000000001";
     const appId = ensureOAuthAppId(ss(), oauthApp, client_id || pending.clientId);
     const requestedScopes = normalizeScopes(pending.scope, oauthApp?.scopes ?? ["chat:write", "channels:read"]);
-    const userScopes = normalizeScopes(pending.userScope, oauthApp?.user_scopes ?? []);
+    const userScopes = pending.userScope ? normalizeScopes(pending.userScope, []) : [];
     const bot = ensureBotForApp(ss(), oauthApp, appId, teamId);
     const installation = upsertInstallation(ss(), {
       appId,
