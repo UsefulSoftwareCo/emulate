@@ -280,7 +280,8 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     route: "POST /api/users.profile.set",
     status: "partial",
     testedBy: ["slack.test.ts", "slack-sdk.test.ts", "slack-events.test.ts"],
-    notes: "Updates profile fields, custom status, and custom field values for seeded users and dispatches user_change.",
+    notes:
+      "Updates profile fields, custom status, and custom field values for seeded users and dispatches user_change.",
   },
   {
     family: "users",
