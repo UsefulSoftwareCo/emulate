@@ -1152,6 +1152,30 @@ describe("Slack plugin - conversations", () => {
     const generalKick = (await generalKickRes.json()) as any;
     expect(generalKick.ok).toBe(false);
     expect(generalKick.error).toBe("cant_kick_from_general");
+
+    const inviteRes = await app.request(`${base}/api/conversations.invite`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: random.channel_id, users: "U000000002" }),
+    });
+    expect(((await inviteRes.json()) as any).ok).toBe(true);
+
+    const archiveRes = await app.request(`${base}/api/conversations.archive`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: random.channel_id }),
+    });
+    expect(((await archiveRes.json()) as any).ok).toBe(true);
+
+    const archivedKickRes = await app.request(`${base}/api/conversations.kick`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: random.channel_id, user: "U000000002" }),
+    });
+    const archivedKick = (await archivedKickRes.json()) as any;
+    expect(archivedKick.ok).toBe(false);
+    expect(archivedKick.error).toBe("is_archived");
+    expect(getSlackStore(store).channels.findOneBy("name", "random")?.members).toContain("U000000002");
   });
 
   it("opens, closes, lists, marks, and posts to direct messages", async () => {
@@ -1259,6 +1283,16 @@ describe("Slack plugin - conversations", () => {
     const outsiderClose = (await outsiderCloseRes.json()) as any;
     expect(outsiderClose.ok).toBe(false);
     expect(outsiderClose.error).toBe("not_in_channel");
+
+    const outsiderPostRes = await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: outsiderHeaders,
+      body: JSON.stringify({ channel, text: "blocked direct write" }),
+    });
+    const outsiderPost = (await outsiderPostRes.json()) as any;
+    expect(outsiderPost.ok).toBe(false);
+    expect(outsiderPost.error).toBe("not_in_channel");
+    expect(getSlackStore(store).messages.findBy("channel_id", channel)).toHaveLength(0);
 
     const closeRes = await app.request(`${base}/api/conversations.close`, {
       method: "POST",

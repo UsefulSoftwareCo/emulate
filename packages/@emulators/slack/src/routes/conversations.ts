@@ -543,6 +543,7 @@ export function conversationsRoutes(ctx: RouteContext): void {
 
     const ch = ss().channels.findOneBy("channel_id", channel);
     if (!ch) return slackError(c, "channel_not_found");
+    if (ch.is_archived) return slackError(c, "is_archived");
     if (isGeneralChannel(ch)) return slackError(c, "cant_kick_from_general");
     if (ch.is_im) return slackError(c, "method_not_supported_for_channel_type");
 

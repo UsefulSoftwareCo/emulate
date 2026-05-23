@@ -26,6 +26,12 @@ export function chatRoutes(ctx: RouteContext): void {
     ss().users.findOneBy("user_id", authUser.login)?.user_id ??
     ss().users.findOneBy("name", authUser.login)?.user_id ??
     authUser.login;
+  const isAuthChannelMember = (channel: SlackChannel, authUser: { login: string }) => {
+    const user =
+      ss().users.findOneBy("user_id", authUser.login) ?? ss().users.findOneBy("name", authUser.login);
+    const userId = user?.user_id ?? authUser.login;
+    return channel.members.includes(userId) || (user ? channel.members.includes(user.name) : false);
+  };
   const isChannelMember = (channel: SlackChannel, user: SlackUser) =>
     channel.members.includes(user.user_id) || channel.members.includes(user.name);
   const findOrCreateDirectMessage = (authUser: { login: string }, userId: string) => {
@@ -91,6 +97,9 @@ export function chatRoutes(ctx: RouteContext): void {
     const ch = findWritableConversation(authUser, channel);
     if (!ch) return slackError(c, "channel_not_found");
     if (ch.is_archived) return slackError(c, "is_archived");
+    if ((ch.is_im || ch.is_mpim) && !isAuthChannelMember(ch, authUser)) {
+      return slackError(c, "not_in_channel");
+    }
 
     const ts = generateTs();
     const msg = ss().messages.insert({
