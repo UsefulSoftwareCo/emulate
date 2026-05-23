@@ -64,7 +64,7 @@ export function usersRoutes(ctx: RouteContext): void {
   app.post("/api/users.lookupByEmail", async (c) => {
     const authUser = c.get("authUser");
     if (!authUser) return slackError(c, "not_authed");
-    const scopeError = requireSlackScopes(c, store, ["users:read", "users:read.email"]);
+    const scopeError = requireSlackScopes(c, store, ["users:read.email"]);
     if (scopeError) return scopeError;
 
     const body = await parseSlackBody(c);

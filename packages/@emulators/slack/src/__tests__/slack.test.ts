@@ -2348,6 +2348,24 @@ describe("Slack plugin - scope modes", () => {
     expect(email.user.profile.email).toBe("admin@emulate.dev");
   });
 
+  it("allows lookup by email with only users:read.email in strict mode", async () => {
+    store.setData("slack.strict_scopes", true);
+    tokenMap.set("xoxb-users-email-only-token", {
+      login: "U000000001",
+      id: 1,
+      scopes: ["users:read.email"],
+    });
+
+    const res = await app.request(`${base}/api/users.lookupByEmail`, {
+      method: "POST",
+      headers: { Authorization: "Bearer xoxb-users-email-only-token", "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "admin@emulate.dev" }),
+    });
+    const body = (await res.json()) as any;
+    expect(body.ok).toBe(true);
+    expect(body.user.profile.email).toBe("admin@emulate.dev");
+  });
+
   it("requires team and bot info scopes in strict mode", async () => {
     store.setData("slack.strict_scopes", true);
     getSlackStore(store).bots.insert({
