@@ -70,6 +70,7 @@ export async function startRuntime(options = {}) {
     cwd: spec.cwd,
     env: {
       ...env,
+      ...spec.processEnv,
       ...options.processEnv,
       FORCE_COLOR: "0",
       NO_COLOR: "1",
@@ -171,10 +172,10 @@ async function runtimeCommand(options) {
 }
 
 async function cliCommand(options) {
-  const cliPath =
-    options.cliPath ?? options.env.EMULATE_CLI ?? path.join(repoRoot, "packages/emulate/dist/index.js");
+  const cliPath = options.cliPath ?? options.env.EMULATE_CLI ?? path.join(repoRoot, "packages/emulate/dist/index.js");
   await assertExecutableFile(cliPath, "emulate CLI");
   const workingDirectory = await runtimeWorkingDirectory(options);
+  const localNativeBinary = options.env.EMULATE_NATIVE_BINARY ? null : await localNativeBinaryPath();
   return {
     args: [
       cliPath,
@@ -190,8 +191,20 @@ async function cliCommand(options) {
     cwd: workingDirectory.cwd,
     cleanup: workingDirectory.cleanup,
     label: "emulate CLI runtime",
+    processEnv: localNativeBinary ? { EMULATE_NATIVE_BINARY: localNativeBinary } : {},
     readinessPath: "/rate_limit",
   };
+}
+
+async function localNativeBinaryPath() {
+  const executable = process.platform === "win32" ? "emulate.exe" : "emulate";
+  const candidate = path.join(repoRoot, executable);
+  try {
+    await access(candidate);
+    return candidate;
+  } catch {
+    return null;
+  }
 }
 
 async function goCommand(options) {
@@ -266,13 +279,7 @@ function appendBounded(current, chunk, maxBytes) {
 }
 
 function formatRuntimeLogs(logs) {
-  return [
-    "stdout:",
-    logs.stdout.trimEnd() || "(empty)",
-    "",
-    "stderr:",
-    logs.stderr.trimEnd() || "(empty)",
-  ].join("\n");
+  return ["stdout:", logs.stdout.trimEnd() || "(empty)", "", "stderr:", logs.stderr.trimEnd() || "(empty)"].join("\n");
 }
 
 function waitForExit(child) {
