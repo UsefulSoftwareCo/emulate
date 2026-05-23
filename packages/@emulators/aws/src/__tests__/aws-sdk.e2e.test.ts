@@ -1,5 +1,21 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import {
+  ApiGatewayV2Client,
+  CreateApiCommand,
+  CreateIntegrationCommand,
+  CreateRouteCommand,
+  CreateStageCommand,
+  DeleteApiCommand,
+  DeleteIntegrationCommand,
+  DeleteRouteCommand,
+  DeleteStageCommand,
+  GetApiCommand,
+  GetApisCommand,
+  GetIntegrationsCommand,
+  GetRoutesCommand,
+  GetStagesCommand,
+} from "@aws-sdk/client-apigatewayv2";
+import {
   IAMClient,
   ListUsersCommand,
   GetUserCommand,
@@ -212,6 +228,7 @@ function awsQueryEncoded(value: string): string {
   return encodeURIComponent(value).replace(/[!'()*]/g, (char) => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
 }
 
+const describeExternalApiGatewayV2E2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalS3E2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalSqsE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalSnsE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
@@ -229,6 +246,84 @@ const lambdaEventBridgeTargetZipBase64 =
 
 const describeExternalSecretsManagerE2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
 const describeExternalSSME2E = process.env.AWS_EMULATOR_E2E_URL ? describe : describe.skip;
+
+describeExternalApiGatewayV2E2E("AWS native runtime - real @aws-sdk/client-apigatewayv2 E2E", () => {
+  let emulator: EmulatorHandle;
+  let apigatewayv2: ApiGatewayV2Client;
+
+  beforeAll(async () => {
+    emulator = await startEmulator();
+    apigatewayv2 = new ApiGatewayV2Client({
+      endpoint: `${emulator.url.replace(/\/$/, "")}/apigatewayv2`,
+      region: "us-east-1",
+      credentials: {
+        accessKeyId: "AKIAIOSFODNN7EXAMPLE",
+        secretAccessKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+      },
+    });
+  });
+
+  afterAll(async () => {
+    apigatewayv2.destroy();
+    await emulator.close();
+  });
+
+  it("creates HTTP API Lambda proxy metadata", async () => {
+    const suffix = Date.now().toString(36);
+    const apiName = `sdk-http-api-${suffix}`;
+
+    const created = await apigatewayv2.send(new CreateApiCommand({ Name: apiName, ProtocolType: "HTTP" }));
+    expect(created.ApiId).toBeTruthy();
+    expect(created.ApiEndpoint).toContain(`/_aws/apigatewayv2/${created.ApiId}`);
+
+    const got = await apigatewayv2.send(new GetApiCommand({ ApiId: created.ApiId }));
+    expect(got.Name).toBe(apiName);
+
+    const apis = await apigatewayv2.send(new GetApisCommand({}));
+    expect((apis.Items ?? []).map((item) => item.ApiId)).toContain(created.ApiId);
+
+    const integration = await apigatewayv2.send(
+      new CreateIntegrationCommand({
+        ApiId: created.ApiId,
+        IntegrationType: "AWS_PROXY",
+        IntegrationUri: `arn:aws:lambda:us-east-1:123456789012:function:sdk-apigw-${suffix}`,
+        IntegrationMethod: "POST",
+        PayloadFormatVersion: "2.0",
+      }),
+    );
+    expect(integration.IntegrationId).toBeTruthy();
+
+    const integrations = await apigatewayv2.send(new GetIntegrationsCommand({ ApiId: created.ApiId }));
+    expect((integrations.Items ?? []).map((item) => item.IntegrationId)).toContain(integration.IntegrationId);
+
+    const route = await apigatewayv2.send(
+      new CreateRouteCommand({
+        ApiId: created.ApiId,
+        RouteKey: "GET /hello",
+        Target: `integrations/${integration.IntegrationId}`,
+      }),
+    );
+    expect(route.RouteId).toBeTruthy();
+
+    const routes = await apigatewayv2.send(new GetRoutesCommand({ ApiId: created.ApiId }));
+    expect((routes.Items ?? []).map((item) => item.RouteKey)).toContain("GET /hello");
+
+    const stage = await apigatewayv2.send(
+      new CreateStageCommand({ ApiId: created.ApiId, StageName: "$default", AutoDeploy: true }),
+    );
+    expect(stage.StageName).toBe("$default");
+
+    const stages = await apigatewayv2.send(new GetStagesCommand({ ApiId: created.ApiId }));
+    expect((stages.Items ?? []).map((item) => item.StageName)).toContain("$default");
+
+    await apigatewayv2.send(new DeleteStageCommand({ ApiId: created.ApiId, StageName: "$default" }));
+    await apigatewayv2.send(new DeleteRouteCommand({ ApiId: created.ApiId, RouteId: route.RouteId }));
+    await apigatewayv2.send(
+      new DeleteIntegrationCommand({ ApiId: created.ApiId, IntegrationId: integration.IntegrationId }),
+    );
+    await apigatewayv2.send(new DeleteApiCommand({ ApiId: created.ApiId }));
+  });
+});
 
 describeExternalS3E2E("AWS native runtime - real @aws-sdk/client-s3 E2E", () => {
   let emulator: EmulatorHandle;

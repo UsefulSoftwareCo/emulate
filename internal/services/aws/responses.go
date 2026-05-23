@@ -77,6 +77,15 @@ func writeErrorResponse(c *corehttp.Context, response protocols.ErrorResponse) {
 	for key, value := range response.Headers {
 		c.Writer.Header().Set(key, value)
 	}
+	for key, values := range response.HeaderValues {
+		if len(values) == 0 {
+			continue
+		}
+		c.Writer.Header().Del(key)
+		for _, value := range values {
+			c.Writer.Header().Add(key, value)
+		}
+	}
 	c.Binary(response.StatusCode, response.ContentType, response.Body)
 }
 
@@ -99,6 +108,8 @@ func requestResource(ctx gateway.AwsRequestContext) string {
 
 func jsonErrorService(service string) string {
 	switch service {
+	case "apigatewayv2":
+		return "com.amazonaws.apigatewayv2"
 	case "dynamodb":
 		return "com.amazonaws.dynamodb.v20120810"
 	case "events":

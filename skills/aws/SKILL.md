@@ -1,12 +1,12 @@
 ---
 name: aws
-description: Emulated AWS cloud services (S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, KMS, Lambda, IAM, STS) for local development, testing, and native Vercel preview functions. Use when the user needs to interact with AWS API endpoints locally, test S3 bucket and object operations, emulate SQS queues and messages, test SNS topics and subscriptions, test EventBridge buses/rules/events, test DynamoDB tables and items, test CloudWatch log groups and log events, test Secrets Manager values and rotations, test SSM Parameter Store values and paths, test KMS keys/aliases/encrypt/decrypt/data keys, test Lambda function control-plane APIs, invoke stubs, and local Node.js handlers, manage IAM users/roles/access keys, test STS assume role, scaffold AWS through npx emulate vercel init, or work without hitting real AWS APIs. Triggers include "AWS emulator", "emulate AWS", "mock S3", "local SQS", "local SNS", "local EventBridge", "local DynamoDB", "local CloudWatch Logs", "local Secrets Manager", "local SSM", "local Parameter Store", "local KMS", "test KMS", "local Lambda", "test Lambda", "test IAM", "emulate S3", "AWS locally", "STS assume role", or any task requiring local AWS service emulation.
+description: Emulated AWS cloud services (S3, SQS, SNS, EventBridge, API Gateway v2, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, KMS, Lambda, IAM, STS) for local development, testing, and native Vercel preview functions. Use when the user needs to interact with AWS API endpoints locally, test S3 bucket and object operations, emulate SQS queues and messages, test SNS topics and subscriptions, test EventBridge buses/rules/events, test API Gateway v2 HTTP APIs and Lambda proxy routes, test DynamoDB tables and items, test CloudWatch log groups and log events, test Secrets Manager values and rotations, test SSM Parameter Store values and paths, test KMS keys/aliases/encrypt/decrypt/data keys, test Lambda function control-plane APIs, invoke stubs, and local Node.js handlers, manage IAM users/roles/access keys, test STS assume role, scaffold AWS through npx emulate vercel init, or work without hitting real AWS APIs. Triggers include "AWS emulator", "emulate AWS", "mock S3", "local SQS", "local SNS", "local EventBridge", "local API Gateway", "local DynamoDB", "local CloudWatch Logs", "local Secrets Manager", "local SSM", "local Parameter Store", "local KMS", "test KMS", "local Lambda", "test Lambda", "test IAM", "emulate S3", "AWS locally", "STS assume role", or any task requiring local AWS service emulation.
 allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # AWS Emulator
 
-S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, KMS, Lambda, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS, REST JSON endpoints for Lambda, and AWS Query endpoints for SNS/SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, KMS, Lambda, IAM, and STS; SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS use JSON target requests, Lambda uses REST JSON, and SNS/IAM/STS use AWS Query XML.
+S3, SQS, SNS, EventBridge, API Gateway v2, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, KMS, Lambda, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS, REST JSON endpoints for API Gateway v2 and Lambda, and AWS Query endpoints for SNS/SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, API Gateway v2, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, KMS, Lambda, IAM, and STS; SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS use JSON target requests, API Gateway v2 and Lambda use REST JSON, and SNS/IAM/STS use AWS Query XML.
 
 ## Vercel Preview
 
@@ -42,7 +42,7 @@ const aws = await createEmulator({ service: 'aws', port: 4006 })
 
 ## Auth
 
-Pass tokens as `Authorization: Bearer <token>`. Scoped permissions use `s3:*`, `sqs:*`, `sns:*`, `events:*`, `dynamodb:*`, `logs:*`, `secretsmanager:*`, `ssm:*`, `kms:*`, `lambda:*`, `iam:*`, `sts:*` patterns.
+Pass tokens as `Authorization: Bearer <token>`. Scoped permissions use `s3:*`, `sqs:*`, `sns:*`, `events:*`, `apigatewayv2:*`, `execute-api:*`, `dynamodb:*`, `logs:*`, `secretsmanager:*`, `ssm:*`, `kms:*`, `lambda:*`, `iam:*`, `sts:*` patterns.
 
 ```bash
 curl http://localhost:4000/ \
@@ -117,6 +117,21 @@ const eventbridge = new EventBridgeClient({
 ```
 
 The native Go runtime accepts the EventBridge SDK client's `X-Amz-Target: AWSEvents.<Action>` JSON requests to `/events` and can deliver matching events to SQS queues, SNS topics, and Lambda functions. Lambda targets create CloudWatch Logs entries; zipped Node.js handlers run only when `npx emulate` is started with `--allow-local-lambda` and the EventBridge request uses a direct localhost endpoint signed by a known AWS access key.
+
+```typescript
+import { ApiGatewayV2Client } from '@aws-sdk/client-apigatewayv2'
+
+const apigatewayv2 = new ApiGatewayV2Client({
+  endpoint: `${process.env.AWS_EMULATOR_URL}/apigatewayv2`,
+  region: 'us-east-1',
+  credentials: {
+    accessKeyId: 'AKIAIOSFODNN7EXAMPLE',
+    secretAccessKey: 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY',
+  },
+})
+```
+
+The native Go runtime accepts the API Gateway v2 SDK client's REST JSON requests to `/apigatewayv2/v2/apis`. Created HTTP APIs return local invoke URLs such as `${process.env.AWS_EMULATOR_URL}/_aws/apigatewayv2/<api-id>` for Lambda proxy route testing with payload format version `2.0`.
 
 ```typescript
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
@@ -444,6 +459,16 @@ curl -X POST http://localhost:4000/sqs/ \
   -H "Authorization: Bearer $TOKEN" \
   -d "Action=DeleteQueue&QueueUrl=<queue_url>"
 ```
+
+### API Gateway v2
+
+In the native Go runtime, `@aws-sdk/client-apigatewayv2` can use endpoint `${AWS_EMULATOR_URL}/apigatewayv2`. SDK responses are JSON. `CreateApi` returns an `ApiEndpoint` such as `${AWS_EMULATOR_URL}/_aws/apigatewayv2/<api-id>` for local HTTP API route invokes backed by Lambda proxy integrations using payload format version `2.0`. Local Node.js Lambda handlers run only when `npx emulate` is started with `--allow-local-lambda` and the route invoke uses a direct localhost endpoint signed by a known AWS access key; otherwise the Lambda deterministic stub payload path is used.
+
+- `CreateApi`, `GetApi`, `GetApis`, `DeleteApi`
+- `CreateIntegration`, `GetIntegration`, `GetIntegrations`, `DeleteIntegration` for `AWS_PROXY` Lambda integrations with payload format version `2.0`
+- `CreateRoute`, `GetRoute`, `GetRoutes`, `DeleteRoute` for exact HTTP routes, path parameter routes, `ANY` routes, greedy proxy routes, and `$default`
+- `CreateStage`, `GetStage`, `GetStages`, `DeleteStage` for local stages, including `$default`
+- Local route invokes under `/_aws/apigatewayv2/<api-id>/...`
 
 ### DynamoDB
 

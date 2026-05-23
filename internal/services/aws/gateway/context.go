@@ -155,6 +155,20 @@ func BuildContext(req *http.Request, rawBody []byte, options Options) (AwsReques
 		}
 	}
 
+	if shouldParseAPIGatewayV2REST(req.URL.Path, pathService, host.Service, credentials.Scope.Service) {
+		action, input, ok, err := parseAPIGatewayV2RESTRequest(req, rawBody, queryReq.Parameters)
+		if err != nil {
+			return AwsRequestContext{}, err
+		}
+		if ok {
+			ctx.Protocol = protocols.ProtocolRESTJSON
+			ctx.Service = "apigatewayv2"
+			ctx.Action = action
+			ctx.Input = input
+			return ctx, nil
+		}
+	}
+
 	if shouldTreatAsS3(req, host.Service, pathService, credentials.Scope.Service) {
 		s3Route, err := protocols.ParseS3RESTRequest(req)
 		if err != nil {
@@ -412,6 +426,152 @@ func shouldParseLambdaREST(pathValue string, pathService string, hostService str
 	return credentialService == "" && hostService == "" && isLambdaRESTPath(pathValue)
 }
 
+func shouldParseAPIGatewayV2REST(pathValue string, pathService string, hostService string, credentialService string) bool {
+	service := firstNonEmpty(pathService, hostService, credentialService)
+	if service == "apigatewayv2" || service == "apigateway" || service == "execute-api" {
+		return true
+	}
+	return isAPIGatewayV2RESTPath(pathValue) || isAPIGatewayV2InvokePath(pathValue)
+}
+
+func parseAPIGatewayV2RESTRequest(req *http.Request, rawBody []byte, query map[string]string) (string, map[string]any, bool, error) {
+	if isAPIGatewayV2InvokePath(req.URL.Path) {
+		return "InvokeRoute", lambdaRESTQueryInput(query), true, nil
+	}
+	if !isAPIGatewayV2RESTPath(req.URL.Path) {
+		return "", nil, false, nil
+	}
+	input := lambdaRESTQueryInput(query)
+	if req.Method == http.MethodPost || req.Method == http.MethodPut || req.Method == http.MethodPatch {
+		if len(bytes.TrimSpace(rawBody)) > 0 {
+			decoder := json.NewDecoder(bytes.NewReader(rawBody))
+			decoder.UseNumber()
+			body := map[string]any{}
+			if err := decoder.Decode(&body); err != nil {
+				return "", nil, false, fmt.Errorf("request body must be a valid JSON object: %w", err)
+			}
+			for key, value := range body {
+				input[key] = value
+			}
+		}
+	}
+	return apigatewayV2Action(req), input, true, nil
+}
+
+func apigatewayV2Action(req *http.Request) string {
+	segments := apigatewayV2Segments(req.URL.Path)
+	if len(segments) > 0 && (segments[0] == "apigatewayv2" || segments[0] == "apigateway") {
+		segments = segments[1:]
+	}
+	if len(segments) < 2 || segments[0] != "v2" || segments[1] != "apis" {
+		return ""
+	}
+	if len(segments) == 2 {
+		if req.Method == http.MethodPost {
+			return "CreateApi"
+		}
+		if req.Method == http.MethodGet {
+			return "GetApis"
+		}
+	}
+	if len(segments) == 3 {
+		switch req.Method {
+		case http.MethodGet:
+			return "GetApi"
+		case http.MethodDelete:
+			return "DeleteApi"
+		}
+	}
+	if len(segments) >= 4 {
+		switch segments[3] {
+		case "integrations":
+			if len(segments) == 4 {
+				if req.Method == http.MethodPost {
+					return "CreateIntegration"
+				}
+				if req.Method == http.MethodGet {
+					return "GetIntegrations"
+				}
+			}
+			if len(segments) == 5 {
+				if req.Method == http.MethodGet {
+					return "GetIntegration"
+				}
+				if req.Method == http.MethodDelete {
+					return "DeleteIntegration"
+				}
+			}
+		case "routes":
+			if len(segments) == 4 {
+				if req.Method == http.MethodPost {
+					return "CreateRoute"
+				}
+				if req.Method == http.MethodGet {
+					return "GetRoutes"
+				}
+			}
+			if len(segments) == 5 {
+				if req.Method == http.MethodGet {
+					return "GetRoute"
+				}
+				if req.Method == http.MethodDelete {
+					return "DeleteRoute"
+				}
+			}
+		case "stages":
+			if len(segments) == 4 {
+				if req.Method == http.MethodPost {
+					return "CreateStage"
+				}
+				if req.Method == http.MethodGet {
+					return "GetStages"
+				}
+			}
+			if len(segments) == 5 {
+				if req.Method == http.MethodGet {
+					return "GetStage"
+				}
+				if req.Method == http.MethodDelete {
+					return "DeleteStage"
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func isAPIGatewayV2RESTPath(pathValue string) bool {
+	segments := apigatewayV2Segments(pathValue)
+	if len(segments) > 0 && (segments[0] == "apigatewayv2" || segments[0] == "apigateway") {
+		segments = segments[1:]
+	}
+	return len(segments) >= 2 && segments[0] == "v2" && segments[1] == "apis"
+}
+
+func isAPIGatewayV2InvokePath(pathValue string) bool {
+	segments := apigatewayV2Segments(pathValue)
+	return len(segments) >= 3 && segments[0] == "_aws" && segments[1] == "apigatewayv2"
+}
+
+func apigatewayV2Segments(pathValue string) []string {
+	trimmed := strings.Trim(pathValue, "/")
+	if trimmed == "" {
+		return nil
+	}
+	parts := strings.Split(trimmed, "/")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part != "" {
+			decoded, err := url.PathUnescape(part)
+			if err != nil {
+				decoded = part
+			}
+			out = append(out, decoded)
+		}
+	}
+	return out
+}
+
 func parseLambdaRESTRequest(req *http.Request, rawBody []byte, query map[string]string) (string, map[string]any, bool, error) {
 	segments := lambdaRESTSegments(req.URL.Path)
 	if len(segments) > 0 && strings.EqualFold(segments[0], "lambda") {
@@ -651,6 +811,8 @@ func knownPathService(label string) string {
 }
 
 var knownServices = map[string]string{
+	"apigateway":     "apigatewayv2",
+	"apigatewayv2":   "apigatewayv2",
 	"cloudformation": "cloudformation",
 	"dynamodb":       "dynamodb",
 	"events":         "events",

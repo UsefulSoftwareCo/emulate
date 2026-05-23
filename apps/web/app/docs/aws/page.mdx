@@ -1,6 +1,6 @@
 # AWS
 
-S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, KMS, Lambda, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS, REST JSON endpoints for Lambda, and AWS Query endpoints for SNS/SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, KMS, Lambda, IAM, and STS; SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS use JSON target requests, Lambda uses REST JSON, and SNS/IAM/STS use AWS Query XML.
+S3, SQS, SNS, EventBridge, API Gateway v2, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, KMS, Lambda, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS, REST JSON endpoints for API Gateway v2 and Lambda, and AWS Query endpoints for SNS/SQS/IAM/STS. All state is in-memory. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, API Gateway v2, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, KMS, Lambda, IAM, and STS; SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS use JSON target requests, API Gateway v2 and Lambda use REST JSON, and SNS/IAM/STS use AWS Query XML.
 
 ## Vercel Preview
 
@@ -67,6 +67,16 @@ In the native Go runtime, `@aws-sdk/client-eventbridge` v3 can use the `/events/
 - `PutTargets` / `ListTargetsByRule` / `RemoveTargets` - SQS, SNS, and Lambda target management
 - `PutEvents` - publish events with rule pattern matching and target delivery
 - `TagResource` / `UntagResource` / `ListTagsForResource` - event bus and rule tags
+
+## API Gateway v2
+
+In the native Go runtime, `@aws-sdk/client-apigatewayv2` v3 can use the `/apigatewayv2/` endpoint directly. The SDK sends REST JSON requests under `/v2/apis` and receives JSON responses. `CreateApi` returns an `ApiEndpoint` such as `http://localhost:4000/_aws/apigatewayv2/<api-id>` for local HTTP API route invokes backed by Lambda proxy integrations using payload format version `2.0`. Local Node.js Lambda handlers run only when `npx emulate` is started with `--allow-local-lambda` and the route invoke uses a direct localhost endpoint signed by a known AWS access key; otherwise the Lambda deterministic stub payload path is used.
+
+- `CreateApi` / `GetApi` / `GetApis` / `DeleteApi` - HTTP API metadata
+- `CreateIntegration` / `GetIntegration` / `GetIntegrations` / `DeleteIntegration` - `AWS_PROXY` Lambda integrations with payload format version `2.0`
+- `CreateRoute` / `GetRoute` / `GetRoutes` / `DeleteRoute` - exact HTTP routes, path parameter routes, `ANY` routes, greedy proxy routes, and `$default`
+- `CreateStage` / `GetStage` / `GetStages` / `DeleteStage` - local stages, including `$default`
+- `GET`, `POST`, `PUT`, `PATCH`, `DELETE` under `/_aws/apigatewayv2/<api-id>/...` - local Lambda proxy route invokes
 
 ## DynamoDB
 

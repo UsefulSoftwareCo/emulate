@@ -7,6 +7,7 @@ import (
 	coreassets "github.com/vercel-labs/emulate/internal/core/assets"
 	corehttp "github.com/vercel-labs/emulate/internal/core/http"
 	corestore "github.com/vercel-labs/emulate/internal/core/store"
+	awsapigatewayv2 "github.com/vercel-labs/emulate/internal/services/aws/apigatewayv2"
 	"github.com/vercel-labs/emulate/internal/services/aws/auth"
 	awsdynamodb "github.com/vercel-labs/emulate/internal/services/aws/dynamodb"
 	awsevents "github.com/vercel-labs/emulate/internal/services/aws/eventbridge"
@@ -45,6 +46,7 @@ type Service struct {
 	authMode         auth.Mode
 	credentialStore  *auth.Store
 	s3PathFallback   bool
+	apigatewayv2     awsapigatewayv2.Handler
 	s3               awss3.Handler
 	sqs              awssqs.Handler
 	sns              awssns.Handler
@@ -111,6 +113,22 @@ func New(options Options) *Service {
 		authMode:         options.AuthMode,
 		credentialStore:  credentialStore,
 		s3PathFallback:   options.S3PathFallback,
+		apigatewayv2: awsapigatewayv2.Handler{
+			APIs:                     awsStore.APIGatewayV2APIs,
+			Integrations:             awsStore.APIGatewayV2Integrations,
+			Routes:                   awsStore.APIGatewayV2Routes,
+			Stages:                   awsStore.APIGatewayV2Stages,
+			LambdaFunctions:          awsStore.LambdaFunctions,
+			LambdaVersions:           awsStore.LambdaVersions,
+			LambdaAliases:            awsStore.LambdaAliases,
+			LogGroups:                awsStore.LogGroups,
+			LogStreams:               awsStore.LogStreams,
+			LogEvents:                awsStore.LogEvents,
+			BaseURL:                  options.BaseURL,
+			AccountID:                defaultAccountID,
+			Region:                   defaultRegion,
+			LambdaLocalCodeExecution: options.LambdaLocalCodeExecution,
+		},
 		s3: awss3.Handler{
 			Buckets: awsStore.S3Buckets,
 			Objects: awsStore.S3Objects,
@@ -239,6 +257,10 @@ func (s *Service) handleAWS(c *corehttp.Context) {
 		return
 	}
 
+	if ctx.Service == "apigatewayv2" && ctx.Protocol == protocols.ProtocolRESTJSON {
+		writeErrorResponse(c, s.apigatewayv2.Handle(c.Request, ctx))
+		return
+	}
 	if ctx.Service == "s3" && ctx.Protocol == protocols.ProtocolRESTXML {
 		writeErrorResponse(c, s.s3.Handle(c.Request, ctx))
 		return
@@ -311,6 +333,9 @@ func (s *Service) looksLikeAWSRequest(req *http.Request) bool {
 	if hasLambdaRESTEndpointPath(req.URL.Path) {
 		return true
 	}
+	if hasAPIGatewayV2EndpointPath(req.URL.Path) {
+		return true
+	}
 	return looksLikeS3RESTRequest(req, s.s3PathFallback)
 }
 
@@ -342,7 +367,7 @@ func hasKnownServiceEndpointPath(pathValue string) bool {
 		return false
 	}
 	switch first {
-	case "cloudformation", "dynamodb", "events", "iam", "kms", "lambda", "logs", "s3", "secretsmanager", "sns", "sqs", "ssm", "states", "sts":
+	case "apigateway", "apigatewayv2", "cloudformation", "dynamodb", "events", "iam", "kms", "lambda", "logs", "s3", "secretsmanager", "sns", "sqs", "ssm", "states", "sts":
 		return true
 	default:
 		return false
@@ -359,6 +384,24 @@ func hasLambdaRESTEndpointPath(pathValue string) bool {
 		return true
 	}
 	return first == "2017-03-31" && second == "tags"
+}
+
+func hasAPIGatewayV2EndpointPath(pathValue string) bool {
+	first, rest := splitFirstPathSegment(pathValue)
+	if first == "_aws" {
+		second, rest := splitFirstPathSegment(rest)
+		return second == "apigatewayv2" && rest != ""
+	}
+	if first == "v2" {
+		second, _ := splitFirstPathSegment(rest)
+		return second == "apis"
+	}
+	if first == "apigatewayv2" || first == "apigateway" {
+		second, rest := splitFirstPathSegment(rest)
+		third, _ := splitFirstPathSegment(rest)
+		return second == "v2" && third == "apis"
+	}
+	return false
 }
 
 func looksLikeS3RESTRequest(req *http.Request, pathFallback bool) bool {

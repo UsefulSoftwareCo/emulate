@@ -47,6 +47,18 @@ export interface CompatStoreSource {
   collection<T extends CompatEntity>(name: string, indexFields?: string[]): CompatCollection<T>;
 }
 
+export interface APIGatewayV2API extends CompatEntity {
+  [key: string]: unknown;
+}
+export interface APIGatewayV2Integration extends CompatEntity {
+  [key: string]: unknown;
+}
+export interface APIGatewayV2Route extends CompatEntity {
+  [key: string]: unknown;
+}
+export interface APIGatewayV2Stage extends CompatEntity {
+  [key: string]: unknown;
+}
 export interface S3Bucket extends CompatEntity {
   [key: string]: unknown;
 }
@@ -107,6 +119,10 @@ export interface AwsSeedConfig {
 }
 
 export interface AwsStore {
+  apiGatewayV2Apis: CompatCollection<APIGatewayV2API>;
+  apiGatewayV2Integrations: CompatCollection<APIGatewayV2Integration>;
+  apiGatewayV2Routes: CompatCollection<APIGatewayV2Route>;
+  apiGatewayV2Stages: CompatCollection<APIGatewayV2Stage>;
   s3Buckets: CompatCollection<S3Bucket>;
   s3Objects: CompatCollection<S3Object>;
   sqsQueues: CompatCollection<SqsQueue>;
@@ -137,6 +153,31 @@ function compatCollection<T extends CompatEntity>(
 
 export function getAwsStore(store: CompatStoreSource): AwsStore {
   return {
+    apiGatewayV2Apis: compatCollection<APIGatewayV2API>(store, "aws.apigatewayv2_apis", [
+      "account_id",
+      "region",
+      "api_id",
+      "name",
+    ]),
+    apiGatewayV2Integrations: compatCollection<APIGatewayV2Integration>(store, "aws.apigatewayv2_integrations", [
+      "account_id",
+      "region",
+      "api_id",
+      "integration_id",
+    ]),
+    apiGatewayV2Routes: compatCollection<APIGatewayV2Route>(store, "aws.apigatewayv2_routes", [
+      "account_id",
+      "region",
+      "api_id",
+      "route_id",
+      "route_key",
+    ]),
+    apiGatewayV2Stages: compatCollection<APIGatewayV2Stage>(store, "aws.apigatewayv2_stages", [
+      "account_id",
+      "region",
+      "api_id",
+      "stage_name",
+    ]),
     s3Buckets: compatCollection<S3Bucket>(store, "aws.s3_buckets", ["bucket_name"]),
     s3Objects: compatCollection<S3Object>(store, "aws.s3_objects", ["key", "bucket_name"]),
     sqsQueues: compatCollection<SqsQueue>(store, "aws.sqs_queues", ["queue_name", "queue_url"]),
@@ -211,6 +252,57 @@ export function getAwsStore(store: CompatStoreSource): AwsStore {
 }
 
 // Legacy public entity type augmentations.
+export interface APIGatewayV2API extends CompatEntity {
+  account_id: string;
+  region: string;
+  api_id: string;
+  name: string;
+  protocol_type: "HTTP" | "WEBSOCKET";
+  api_endpoint: string;
+  api_key_selection_expression: string;
+  route_selection_expression: string;
+  description: string;
+  cors_configuration: Record<string, unknown>;
+  created_date: string;
+  tags: Record<string, string>;
+}
+
+export interface APIGatewayV2Integration extends CompatEntity {
+  account_id: string;
+  region: string;
+  api_id: string;
+  integration_id: string;
+  integration_type: string;
+  integration_uri: string;
+  integration_method: string;
+  payload_format_version: string;
+  timeout_in_millis: number;
+  description: string;
+}
+
+export interface APIGatewayV2Route extends CompatEntity {
+  account_id: string;
+  region: string;
+  api_id: string;
+  route_id: string;
+  route_key: string;
+  target: string;
+  authorization_type: string;
+}
+
+export interface APIGatewayV2Stage extends CompatEntity {
+  account_id: string;
+  region: string;
+  api_id: string;
+  stage_name: string;
+  auto_deploy: boolean;
+  deployment_id: string;
+  description: string;
+  stage_variables: Record<string, string>;
+  created_date: string;
+  last_updated_date: string;
+}
+
 export interface S3Bucket extends CompatEntity {
   bucket_name: string;
   region: string;

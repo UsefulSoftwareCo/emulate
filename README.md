@@ -739,7 +739,7 @@ The native Go runtime implements the Clerk OIDC and management API routes below 
 
 ## AWS
 
-S3, SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, KMS, Lambda, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS, REST JSON endpoints for Lambda, and AWS Query endpoints for SNS/SQS/IAM/STS. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, KMS, Lambda, IAM, and STS; SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS use JSON target requests, Lambda uses REST JSON, and SNS/IAM/STS use AWS Query XML.
+S3, SQS, SNS, EventBridge, API Gateway v2, DynamoDB, CloudWatch Logs, Secrets Manager, SSM Parameter Store, KMS, Lambda, IAM, and STS emulation with AWS SDK-compatible S3 paths, AWS JSON RPC endpoints for SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS, REST JSON endpoints for API Gateway v2 and Lambda, and AWS Query endpoints for SNS/SQS/IAM/STS. Query and REST XML operations return AWS-compatible XML. The native Go runtime is verified against current AWS SDK v3 clients for SQS, SNS, EventBridge, API Gateway v2, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, KMS, Lambda, IAM, and STS; SQS, EventBridge, DynamoDB, CloudWatch Logs, Secrets Manager, SSM, and KMS use JSON target requests, API Gateway v2 and Lambda use REST JSON, and SNS/IAM/STS use AWS Query XML.
 
 To expose the native AWS emulator in a Vercel preview without separate infrastructure, run `npx emulate vercel init --service aws`. The generated route serves AWS at `/emulate/aws/*`.
 
@@ -785,6 +785,15 @@ In the native Go runtime, `@aws-sdk/client-eventbridge` v3 can use the `/events/
 - `PutTargets`, `ListTargetsByRule`, `RemoveTargets` for SQS, SNS, and Lambda targets
 - `PutEvents` with rule pattern matching and target delivery
 - `TagResource`, `UntagResource`, `ListTagsForResource`
+
+### API Gateway v2
+In the native Go runtime, `@aws-sdk/client-apigatewayv2` v3 can use the `/apigatewayv2/` endpoint directly. The SDK sends REST JSON requests under `/v2/apis` and receives JSON responses. `CreateApi` returns an `ApiEndpoint` such as `http://localhost:4000/_aws/apigatewayv2/<api-id>` for local HTTP API route invokes backed by Lambda proxy integrations using payload format version `2.0`. Local Node.js Lambda handlers run only when `npx emulate` is started with `--allow-local-lambda` and the route invoke uses a direct localhost endpoint signed by a known AWS access key; otherwise the Lambda deterministic stub payload path is used.
+
+- `CreateApi`, `GetApi`, `GetApis`, `DeleteApi` for HTTP API metadata
+- `CreateIntegration`, `GetIntegration`, `GetIntegrations`, `DeleteIntegration` for `AWS_PROXY` Lambda integrations with payload format version `2.0`
+- `CreateRoute`, `GetRoute`, `GetRoutes`, `DeleteRoute` for exact HTTP routes, path parameter routes, `ANY` routes, greedy proxy routes, and `$default`
+- `CreateStage`, `GetStage`, `GetStages`, `DeleteStage` for local stages, including `$default`
+- `GET`, `POST`, `PUT`, `PATCH`, `DELETE` under `/_aws/apigatewayv2/<api-id>/...` for local Lambda proxy route invokes
 
 ### DynamoDB
 In the native Go runtime, `@aws-sdk/client-dynamodb` v3 can use the `/dynamodb/` endpoint directly. The SDK sends `X-Amz-Target: DynamoDB_20120810.<Action>` JSON requests and receives JSON responses.
@@ -1031,4 +1040,4 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 
 **Microsoft**: OIDC authorization code flow with PKCE support. Also supports client credentials grants. Microsoft Graph `/v1.0/me` available.
 
-**AWS**: Bearer tokens or IAM access key credentials. Scoped permissions use `s3:*`, `sqs:*`, `sns:*`, `events:*`, `dynamodb:*`, `logs:*`, `secretsmanager:*`, `ssm:*`, `kms:*`, `lambda:*`, `iam:*`, `sts:*` patterns. Default key pair always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.
+**AWS**: Bearer tokens or IAM access key credentials. Scoped permissions use `s3:*`, `sqs:*`, `sns:*`, `events:*`, `apigatewayv2:*`, `execute-api:*`, `dynamodb:*`, `logs:*`, `secretsmanager:*`, `ssm:*`, `kms:*`, `lambda:*`, `iam:*`, `sts:*` patterns. Default key pair always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.

@@ -65,6 +65,14 @@ type EventSourceInvokeResult struct {
 	LogStreamName   string
 }
 
+type ProxyInvokeResult struct {
+	Payload         []byte
+	ExecutedVersion string
+	FunctionError   string
+	LocalExecuted   bool
+	LogStreamName   string
+}
+
 var fallbackIDCounter atomic.Uint64
 
 func (h *Handler) Handle(req *http.Request, ctx gateway.AwsRequestContext) protocols.ErrorResponse {
@@ -454,6 +462,42 @@ func (h *Handler) InvokeFromEventSource(req *http.Request, ctx gateway.AwsReques
 		}
 	}
 	h.recordInvocation(ctx, invoked, requestID, "Event", executedVersion, logStreamName, logLines)
+	return result, true
+}
+
+func (h *Handler) InvokeFromProxy(req *http.Request, ctx gateway.AwsRequestContext, targetARN string, payload []byte, requestID string, source string) (ProxyInvokeResult, bool) {
+	fn, ok := h.findFunction(ctx, targetARN)
+	if !ok {
+		return ProxyInvokeResult{}, false
+	}
+	parsed := parseFunctionIdentifier(targetARN)
+	invoked, executedVersion, _, ok := h.recordForQualifier(ctx, fn, parsed.Qualifier, requestID)
+	if !ok {
+		return ProxyInvokeResult{}, false
+	}
+	if len(strings.TrimSpace(string(payload))) == 0 {
+		payload = []byte("{}")
+	}
+	responsePayload := []byte(strings.TrimSpace(stringField(invoked, "invoke_payload")))
+	if len(responsePayload) == 0 {
+		responsePayload = []byte("{}")
+	}
+	logStreamName := h.lambdaLogStreamName(executedVersion)
+	source = strings.TrimSpace(source)
+	if source == "" {
+		source = "proxy"
+	}
+	logLines := []string{"Lambda " + source + " invoke accepted RequestId: " + requestID}
+	result := ProxyInvokeResult{Payload: responsePayload, ExecutedVersion: executedVersion, LogStreamName: logStreamName}
+	if h.localCodeExecutionAllowed(req, ctx) {
+		if local, ran := h.invokeLocalNode(ctx, invoked, executedVersion, invokedFunctionARN(fn, parsed.Qualifier), payload, requestID, logStreamName); ran {
+			result.Payload = local.Payload
+			result.FunctionError = local.FunctionError
+			result.LocalExecuted = true
+			logLines = local.Logs
+		}
+	}
+	h.recordInvocation(ctx, invoked, requestID, "RequestResponse", executedVersion, logStreamName, logLines)
 	return result, true
 }
 
