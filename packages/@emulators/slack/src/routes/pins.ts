@@ -121,6 +121,7 @@ export function pinsRoutes(ctx: RouteContext): void {
 
     const channel = ss().channels.findOneBy("channel_id", channelId);
     if (!channel) return slackError(c, "channel_not_found");
+    if (channel.is_archived) return slackError(c, "is_archived");
 
     const authSlackUser = getAuthSlackUser(authUser);
     const authUserId = getAuthUserId(authUser);

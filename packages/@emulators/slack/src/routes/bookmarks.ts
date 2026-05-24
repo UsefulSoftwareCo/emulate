@@ -77,6 +77,7 @@ export function bookmarksRoutes(ctx: RouteContext): void {
     const bookmarkId = stringField(body.bookmark_id);
     const channel = findBookmarkChannel(channelId);
     if (!channel) return slackError(c, "channel_not_found");
+    if (channel.is_archived) return slackError(c, "is_archived");
 
     const authSlackUser = getAuthSlackUser(authUser);
     const authUserId = getAuthUserId(authUser);
@@ -138,6 +139,7 @@ export function bookmarksRoutes(ctx: RouteContext): void {
     const bookmarkId = stringField(body.bookmark_id);
     const channel = findBookmarkChannel(channelId);
     if (!channel) return slackError(c, "channel_not_found");
+    if (channel.is_archived) return slackError(c, "is_archived");
 
     const authSlackUser = getAuthSlackUser(authUser);
     const authUserId = getAuthUserId(authUser);

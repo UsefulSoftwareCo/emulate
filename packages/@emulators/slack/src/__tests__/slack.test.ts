@@ -2317,7 +2317,7 @@ describe("Slack plugin - seedFromConfig", () => {
     expect(oauthApp?.user_scopes).toEqual(["users:read"]);
 
     const token = ss.tokens.findOneBy("token", "xoxb-seeded-slack-token");
-    expect(token?.user_id).toBe("alice");
+    expect(token?.user_id).toBe(alice?.user_id);
     expect(token?.scopes).toEqual(["chat:write"]);
     expect(ss.installations.findOneBy("app_id", "A000000001")).toMatchObject({
       client_id: "12345.67890",
@@ -2736,6 +2736,37 @@ describe("Slack plugin - scope modes", () => {
     const body = (await res.json()) as any;
     expect(body.ok).toBe(true);
     expect(body.message.user).toBe("U000000001");
+  });
+
+  it("normalizes seeded token user names to Slack user ids", async () => {
+    seedFromConfig(store, base, {
+      users: [{ name: "developer", real_name: "Developer", email: "dev@example.com" }],
+      tokens: [{ token: "xoxb-developer-token", user: "developer", scopes: ["chat:write", "reactions:write"] }],
+    });
+    store.setData("slack.strict_scopes", true);
+
+    const ss = getSlackStore(store);
+    const developer = ss.users.findOneBy("name", "developer")!;
+    const headers = { Authorization: "Bearer xoxb-developer-token", "Content-Type": "application/json" };
+
+    const postRes = await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ channel: "C000000001", text: "seeded named token" }),
+    });
+    const posted = (await postRes.json()) as any;
+    expect(posted.ok).toBe(true);
+    expect(posted.message.user).toBe(developer.user_id);
+
+    const reactionRes = await app.request(`${base}/api/reactions.add`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ channel: "C000000001", timestamp: posted.ts, name: "white_check_mark" }),
+    });
+    expect(((await reactionRes.json()) as any).ok).toBe(true);
+    expect(ss.messages.findOneBy("ts", posted.ts)?.reactions).toEqual([
+      { name: "white_check_mark", users: [developer.user_id], count: 1 },
+    ]);
   });
 });
 
@@ -3486,6 +3517,68 @@ describe("Slack plugin - pins and bookmarks", () => {
       body: JSON.stringify({ channel }),
     });
     expect(((await removedListRes.json()) as any).items).toEqual([]);
+  });
+
+  it("rejects pin and bookmark mutations on archived channels", async () => {
+    const ss = getSlackStore(store);
+    const createRes = await app.request(`${base}/api/conversations.create`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ name: "archived-pin-bookmark" }),
+    });
+    const channel = ((await createRes.json()) as any).channel.id;
+    const posted = await postPinnedMessage(channel, "archived pin target");
+
+    const pinAddRes = await app.request(`${base}/api/pins.add`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel, timestamp: posted.ts }),
+    });
+    expect((await pinAddRes.json()) as any).toMatchObject({ ok: true });
+
+    const bookmarkAddRes = await app.request(`${base}/api/bookmarks.add`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        channel_id: channel,
+        title: "Archived Runbook",
+        type: "link",
+        link: "https://example.com/archived",
+      }),
+    });
+    const bookmark = (await bookmarkAddRes.json()) as any;
+    expect(bookmark.ok).toBe(true);
+
+    const archiveRes = await app.request(`${base}/api/conversations.archive`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel }),
+    });
+    expect((await archiveRes.json()) as any).toMatchObject({ ok: true });
+
+    const pinRemoveRes = await app.request(`${base}/api/pins.remove`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel, timestamp: posted.ts }),
+    });
+    expect((await pinRemoveRes.json()) as any).toMatchObject({ ok: false, error: "is_archived" });
+    expect(ss.pins.findBy("message_ts", posted.ts)).toHaveLength(1);
+
+    const bookmarkEditRes = await app.request(`${base}/api/bookmarks.edit`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel_id: channel, bookmark_id: bookmark.bookmark.id, title: "Edited" }),
+    });
+    expect((await bookmarkEditRes.json()) as any).toMatchObject({ ok: false, error: "is_archived" });
+    expect(ss.bookmarks.findOneBy("bookmark_id", bookmark.bookmark.id)?.title).toBe("Archived Runbook");
+
+    const bookmarkRemoveRes = await app.request(`${base}/api/bookmarks.remove`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel_id: channel, bookmark_id: bookmark.bookmark.id }),
+    });
+    expect((await bookmarkRemoveRes.json()) as any).toMatchObject({ ok: false, error: "is_archived" });
+    expect(ss.bookmarks.findOneBy("bookmark_id", bookmark.bookmark.id)).toBeDefined();
   });
 
   it("removes message pins when the backing message is deleted", async () => {

@@ -8,6 +8,11 @@ export function reactionsRoutes(ctx: RouteContext): void {
   const ss = () => getSlackStore(store);
   const getAuthSlackUser = (authUser: { login: string }) =>
     ss().users.findOneBy("user_id", authUser.login) ?? ss().users.findOneBy("name", authUser.login);
+  const getAuthUserId = (authUser: { login: string }) => getAuthSlackUser(authUser)?.user_id ?? authUser.login;
+  const getAuthUserAliases = (authUser: { login: string }) => {
+    const user = getAuthSlackUser(authUser);
+    return new Set([authUser.login, user?.user_id, user?.name].filter((value): value is string => Boolean(value)));
+  };
   const isAuthChannelMember = (channel: SlackChannel, authUser: { login: string }) => {
     const user = getAuthSlackUser(authUser);
     const userId = user?.user_id ?? authUser.login;
@@ -40,14 +45,16 @@ export function reactionsRoutes(ctx: RouteContext): void {
 
     const reactions = [...msg.reactions];
     const existing = reactions.find((r) => r.name === name);
+    const authUserId = getAuthUserId(authUser);
+    const aliases = getAuthUserAliases(authUser);
     if (existing) {
-      if (existing.users.includes(authUser.login)) {
+      if (existing.users.some((user) => aliases.has(user))) {
         return slackError(c, "already_reacted");
       }
-      existing.users.push(authUser.login);
+      existing.users.push(authUserId);
       existing.count++;
     } else {
-      reactions.push({ name, users: [authUser.login], count: 1 });
+      reactions.push({ name, users: [authUserId], count: 1 });
     }
 
     ss().messages.update(msg.id, { reactions });
@@ -59,7 +66,7 @@ export function reactionsRoutes(ctx: RouteContext): void {
         type: "event_callback",
         event: {
           type: "reaction_added",
-          user: authUser.login,
+          user: authUserId,
           reaction: name,
           item: { type: "message", channel, ts: timestamp },
         },
@@ -94,12 +101,14 @@ export function reactionsRoutes(ctx: RouteContext): void {
 
     const reactions = [...msg.reactions];
     const existing = reactions.find((r) => r.name === name);
-    if (!existing || !existing.users.includes(authUser.login)) {
+    const authUserId = getAuthUserId(authUser);
+    const aliases = getAuthUserAliases(authUser);
+    if (!existing || !existing.users.some((user) => aliases.has(user))) {
       return slackError(c, "no_reaction");
     }
 
-    existing.users = existing.users.filter((u) => u !== authUser.login);
-    existing.count--;
+    existing.users = existing.users.filter((u) => !aliases.has(u));
+    existing.count = existing.users.length;
 
     const filtered = reactions.filter((r) => r.count > 0);
     ss().messages.update(msg.id, { reactions: filtered });
@@ -111,7 +120,7 @@ export function reactionsRoutes(ctx: RouteContext): void {
         type: "event_callback",
         event: {
           type: "reaction_removed",
-          user: authUser.login,
+          user: authUserId,
           reaction: name,
           item: { type: "message", channel, ts: timestamp },
         },

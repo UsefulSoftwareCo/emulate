@@ -314,7 +314,8 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: SlackSeed
       const value = token.token.trim();
       if (!value || ss.tokens.findOneBy("token", value)) continue;
 
-      const userId = token.user_id ?? token.user ?? ss.users.all()[0]?.user_id ?? "U000000001";
+      const userId =
+        resolveSeedTokenUserId(ss, token.user_id ?? token.user) ?? ss.users.all()[0]?.user_id ?? "U000000001";
       ss.tokens.insert({
         token: value,
         token_type: token.type ?? "test",
@@ -509,6 +510,11 @@ function seedOAuthInstallation(
       ...data,
     });
   }
+}
+
+function resolveSeedTokenUserId(ss: ReturnType<typeof getSlackStore>, userRef: string | undefined): string | undefined {
+  if (!userRef) return undefined;
+  return ss.users.findOneBy("user_id", userRef)?.user_id ?? ss.users.findOneBy("name", userRef)?.user_id ?? userRef;
 }
 
 function slugifySlackBotName(value: string): string {

@@ -209,6 +209,8 @@ export function conversationsRoutes(ctx: RouteContext): void {
     const team = ss().teams.all()[0];
     const channelId = generateSlackId("C");
     const now = Math.floor(Date.now() / 1000);
+    const authSlackUser = getAuthSlackUser(authUser);
+    const authUserId = getAuthUserId(authUser);
 
     const ch = ss().channels.insert({
       channel_id: channelId,
@@ -218,14 +220,12 @@ export function conversationsRoutes(ctx: RouteContext): void {
       is_private: isPrivate,
       is_archived: false,
       topic: { value: "", creator: "", last_set: 0 },
-      purpose: { value: "", creator: authUser.login, last_set: now },
-      members: [getAuthUserId(authUser)],
-      creator: getAuthUserId(authUser),
+      purpose: { value: "", creator: authUserId, last_set: now },
+      members: [authUserId],
+      creator: authUserId,
       num_members: 1,
     });
 
-    const authSlackUser = getAuthSlackUser(authUser);
-    const authUserId = getAuthUserId(authUser);
     return slackOk(c, { channel: formatChannel(ch, authUserId, authSlackUser?.name) });
   });
 
