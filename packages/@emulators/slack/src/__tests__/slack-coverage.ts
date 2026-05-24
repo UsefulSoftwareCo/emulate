@@ -474,7 +474,8 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     route: "GET /",
     status: "partial",
     testedBy: ["slack.test.ts"],
-    notes: "Shows channels, recent messages, scheduled messages, ephemeral messages, pins, and bookmarks.",
+    notes:
+      "Shows tabbed Slack state for conversations, messages, files, views, auth records, incoming webhooks, event subscriptions, and event deliveries.",
   },
   {
     family: "files",

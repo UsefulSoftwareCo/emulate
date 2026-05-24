@@ -621,6 +621,10 @@ Returns a Slack-style response:
 }
 ```
 
+### Inspector
+
+Open `GET /` in the Slack emulator to inspect conversations, messages, files, views, auth records, incoming webhooks, event subscriptions, and event deliveries.
+
 ## Event Dispatching
 
 When messages are posted, updated, deleted, reactions change, pins change, or files change, the emulator dispatches `event_callback` payloads to configured webhook URLs. These payloads match Slack's Events API format:

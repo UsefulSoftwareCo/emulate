@@ -3,7 +3,9 @@ import { Hono, Store, WebhookDispatcher } from "@emulators/core";
 import { slackPlugin, seedFromConfig, getSlackStore } from "../index.js";
 import {
   authHeaders,
+  captureFetchRequests,
   createSlackTestApp as createTestApp,
+  registerSlackEventSubscription,
   slackTestBaseUrl as base,
   type SlackTestApp,
 } from "./helpers.js";
@@ -4397,9 +4399,14 @@ describe("Slack plugin - views", () => {
 describe("Slack plugin - Message Inspector", () => {
   let app: SlackTestApp["app"];
   let store: Store;
+  let webhooks: WebhookDispatcher;
 
   beforeEach(() => {
-    ({ app, store } = createTestApp());
+    ({ app, store, webhooks } = createTestApp());
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("renders the message inspector page", async () => {
@@ -4534,5 +4541,104 @@ describe("Slack plugin - Message Inspector", () => {
     const html = await res.text();
     expect(html).toContain("random");
     expect(html).toContain("Random stuff");
+  });
+
+  it("shows channels and DMs in the inspector", async () => {
+    insertSlackTestUser(store, "U000000222", "inspector-peer");
+
+    await app.request(`${base}/api/conversations.open`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ users: "U000000222", return_im: true }),
+    });
+
+    const res = await app.request(`${base}/?tab=channels`);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("Channels");
+    expect(html).toContain("Direct Messages");
+    expect(html).toContain("inspector-peer");
+    expect(html).toContain("DM");
+  });
+
+  it("shows files, views, auth state, and event deliveries in inspector tabs", async () => {
+    const ss = getSlackStore(store);
+    const channel = ss.channels.findOneBy("name", "general")!.channel_id;
+    ss.files.insert({
+      file_id: "FINSPECT001",
+      team_id: "T000000001",
+      user: "U000000001",
+      name: "inspector-file.txt",
+      title: "Inspector File",
+      mimetype: "text/plain",
+      filetype: "text",
+      pretty_type: "Text",
+      mode: "hosted",
+      size: 14,
+      created: Math.floor(Date.now() / 1000),
+      timestamp: Math.floor(Date.now() / 1000),
+      url_private: `${base}/files-pri/FINSPECT001/inspector-file.txt`,
+      url_private_download: `${base}/files-pri/FINSPECT001/inspector-file.txt`,
+      permalink: `${base}/files/FINSPECT001`,
+      is_external: false,
+      external_type: "",
+      is_public: false,
+      public_url_shared: false,
+      display_as_bot: false,
+      editable: false,
+      deleted: false,
+      channels: [channel],
+      groups: [],
+      ims: [],
+      shares: {},
+    });
+    ss.tokens.insert({
+      token: "xoxb-inspector-token",
+      token_type: "bot",
+      team_id: "T000000001",
+      user_id: "U000000001",
+      scopes: ["chat:write", "files:read"],
+      app_id: "AINSPECT001",
+      bot_id: "BINSPECT001",
+    });
+
+    await app.request(`${base}/api/views.publish`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({
+        user_id: "U000000001",
+        view: {
+          type: "home",
+          blocks: [{ type: "section", text: { type: "plain_text", text: "Inspector App Home" } }],
+        },
+      }),
+    });
+
+    captureFetchRequests(500);
+    registerSlackEventSubscription(webhooks, ["message"]);
+    await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel, text: "Inspector event delivery" }),
+    });
+
+    const files = await app.request(`${base}/?tab=files`);
+    expect(await files.text()).toContain("Inspector File");
+
+    const views = await app.request(`${base}/?tab=views`);
+    expect(await views.text()).toContain("Inspector App Home");
+
+    const auth = await app.request(`${base}/?tab=auth`);
+    const authHtml = await auth.text();
+    expect(authHtml).toContain("Tokens");
+    expect(authHtml).toContain("xoxb-ins...oken");
+    expect(authHtml).toContain("Incoming Webhooks");
+
+    const events = await app.request(`${base}/?tab=events`);
+    const eventsHtml = await events.text();
+    expect(eventsHtml).toContain("Event Deliveries");
+    expect(eventsHtml).toContain("message");
+    expect(eventsHtml).toContain("500");
+    expect(eventsHtml).toContain("Last Errors");
   });
 });

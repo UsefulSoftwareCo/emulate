@@ -104,6 +104,10 @@ Modal opens and pushes require values from `/api/views.generateTriggerId`. Pass 
 - `GET /oauth/v2/authorize` - authorization endpoint (shows user picker)
 - `POST /api/oauth.v2.access` - token exchange
 
+## Inspector
+
+- `GET /` - tabbed local inspector for conversations, messages, files, views, auth records, incoming webhooks, event subscriptions, and event deliveries
+
 `oauth.v2.access` returns a bot token, `bot_user_id`, `app_id`, team details, and the `authed_user` object. When `user_scope` is requested, `authed_user` also includes a user token and granted user scopes.
 
 ## Event Dispatching
