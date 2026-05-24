@@ -676,6 +676,8 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 - `POST /api/views.push` - push a modal view onto the current modal stack
 - `POST /api/views.generateTriggerId` - local helper for tests that need a modal trigger id
 
+Modal opens and pushes require trigger ids from `/api/views.generateTriggerId`; generate push triggers with an existing `view_id` and use them within 3 seconds.
+
 ### Team, Bots & Webhooks
 - `POST /api/team.info` - workspace info
 - `POST /api/bots.info` - bot info

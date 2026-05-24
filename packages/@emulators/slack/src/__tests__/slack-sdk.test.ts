@@ -444,8 +444,11 @@ describe("Slack plugin - real @slack/web-api WebClient baseline", () => {
     expect(published.view.type).toBe("home");
     expect(published.view.blocks[0].text.text).toBe("SDK App Home");
 
+    const openTrigger = (await client.apiCall("views.generateTriggerId", {
+      user_id: "U000000001",
+    })) as any;
     const opened = (await client.views.open({
-      trigger_id: "12345.98765.sdkopen",
+      trigger_id: openTrigger.trigger_id,
       view: {
         type: "modal",
         title: { type: "plain_text", text: "SDK Modal" },
@@ -471,8 +474,11 @@ describe("Slack plugin - real @slack/web-api WebClient baseline", () => {
     expect(updated.view.id).toBe(opened.view.id);
     expect(updated.view.blocks[0].text.text).toBe("SDK modal update");
 
+    const pushTrigger = (await client.apiCall("views.generateTriggerId", {
+      view_id: opened.view.id,
+    })) as any;
     const pushed = (await client.views.push({
-      trigger_id: "12345.98765.sdkpush",
+      trigger_id: pushTrigger.trigger_id,
       view: {
         type: "modal",
         title: { type: "plain_text", text: "SDK Modal Pushed" },

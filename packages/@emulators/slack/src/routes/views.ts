@@ -22,6 +22,9 @@ interface ConsumedTrigger {
   view_id?: string;
 }
 
+const VIEW_TRIGGER_TTL_SECONDS = 3;
+const MAX_MODAL_STACK_DEPTH = 3;
+
 export function viewsRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
   const ss = () => getSlackStore(store);
@@ -85,7 +88,7 @@ export function viewsRoutes(ctx: RouteContext): void {
 
     const trigger = consumeTrigger(stringField(body.trigger_id));
     if (trigger.error) return slackError(c, trigger.error);
-    const userId = trigger.value?.user_id ?? resolveUserId(stringField(body.user_id)) ?? authUser.login;
+    const userId = trigger.value!.user_id!;
     if (!resolveUserId(userId)) return slackError(c, "user_not_found");
     if (findDuplicateExternalId(viewPayload.external_id)) return slackError(c, "duplicate_external_id");
 
@@ -135,14 +138,14 @@ export function viewsRoutes(ctx: RouteContext): void {
 
     const trigger = consumeTrigger(stringField(body.trigger_id));
     if (trigger.error) return slackError(c, trigger.error);
-    const userId = trigger.value?.user_id ?? resolveUserId(stringField(body.user_id)) ?? authUser.login;
+    const userId = trigger.value!.user_id!;
     if (!resolveUserId(userId)) return slackError(c, "user_not_found");
     if (findDuplicateExternalId(viewPayload.external_id)) return slackError(c, "duplicate_external_id");
 
-    const parent =
-      (trigger.value?.view_id ? ss().views.findOneBy("view_id", trigger.value.view_id) : undefined) ??
-      (stringField(body.view_id) ? ss().views.findOneBy("view_id", stringField(body.view_id)) : undefined) ??
-      latestModalView(userId);
+    const parent = trigger.value?.view_id ? ss().views.findOneBy("view_id", trigger.value.view_id) : undefined;
+    if (!parent || parent.type !== "modal" || parent.user_id !== userId) return slackError(c, "view_not_found");
+    if (modalStackDepth(parent) >= MAX_MODAL_STACK_DEPTH) return slackError(c, "push_limit_reached");
+
     const actor = viewActor(c);
     const view = createView(viewPayload, {
       user_id: userId,
@@ -168,7 +171,7 @@ export function viewsRoutes(ctx: RouteContext): void {
     if (!resolveUserId(userId)) return slackError(c, "user_not_found");
 
     const triggerId = generateTriggerId();
-    const expiresAt = nowSeconds() + 180;
+    const expiresAt = nowSeconds() + VIEW_TRIGGER_TTL_SECONDS;
     ss().viewTriggers.insert({
       trigger_id: triggerId,
       team_id: teamId(),
@@ -213,13 +216,6 @@ export function viewsRoutes(ctx: RouteContext): void {
     return undefined;
   }
 
-  function latestModalView(userId: string): SlackView | undefined {
-    return ss()
-      .views.all()
-      .filter((view) => view.type === "modal" && view.user_id === userId)
-      .sort((a, b) => b.updated - a.updated || b.id - a.id)[0];
-  }
-
   function findDuplicateExternalId(externalId: string, currentViewId?: string): SlackView | undefined {
     if (!externalId) return undefined;
     return ss()
@@ -230,6 +226,13 @@ export function viewsRoutes(ctx: RouteContext): void {
   function resolveUserId(value: string): string | undefined {
     if (!value) return undefined;
     return ss().users.findOneBy("user_id", value)?.user_id ?? ss().users.findOneBy("name", value)?.user_id;
+  }
+
+  function modalStackDepth(view: SlackView): number {
+    const rootViewId = view.root_view_id || view.view_id;
+    return ss()
+      .views.all()
+      .filter((candidate) => candidate.type === "modal" && candidate.root_view_id === rootViewId).length;
   }
 
   function viewActor(c: Context): { app_id: string; bot_id: string } {
@@ -245,11 +248,11 @@ export function viewsRoutes(ctx: RouteContext): void {
   }
 
   function consumeTrigger(triggerId: string): { value?: ConsumedTrigger; error?: string } {
-    if (!triggerId) return {};
+    if (!triggerId) return { error: "invalid_trigger_id" };
     const trigger = ss().viewTriggers.findOneBy("trigger_id", triggerId);
-    if (!trigger) return {};
+    if (!trigger) return { error: "invalid_trigger_id" };
     if (trigger.used) return { error: "exchanged_trigger_id" };
-    if (trigger.expires_at < nowSeconds()) return { error: "expired_trigger_id" };
+    if (trigger.expires_at <= nowSeconds()) return { error: "expired_trigger_id" };
     const updated = ss().viewTriggers.update(trigger.id, { used: true }) ?? trigger;
     return { value: { user_id: updated.user_id, view_id: updated.view_id } };
   }
@@ -273,6 +276,7 @@ export function viewsRoutes(ctx: RouteContext): void {
     const close = optionalObject(view.close);
     const state = optionalObject(view.state) ?? { values: {} };
     if (title === false || submit === false || close === false || state === false) return { error: "invalid_view" };
+    if (expectedType === "modal" && title === null) return { error: "invalid_view" };
 
     return {
       view: {

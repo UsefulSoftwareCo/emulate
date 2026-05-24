@@ -510,11 +510,11 @@ curl -X POST http://localhost:4003/api/views.generateTriggerId \
   -H "Content-Type: application/json" \
   -d '{"user_id": "U000000001"}'
 
-# Open a modal view
+# Open a modal view with the returned trigger_id within 3 seconds
 curl -X POST http://localhost:4003/api/views.open \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"trigger_id": "12345.98765.local", "view": {"type": "modal", "title": {"type": "plain_text", "text": "Local Modal"}, "blocks": [{"type": "section", "text": {"type": "plain_text", "text": "Modal body"}}]}}'
+  -d '{"trigger_id": "<trigger_id from views.generateTriggerId>", "view": {"type": "modal", "title": {"type": "plain_text", "text": "Local Modal"}, "blocks": [{"type": "section", "text": {"type": "plain_text", "text": "Modal body"}}]}}'
 
 # Update a view
 curl -X POST http://localhost:4003/api/views.update \
@@ -522,11 +522,17 @@ curl -X POST http://localhost:4003/api/views.update \
   -H "Content-Type: application/json" \
   -d '{"view_id": "V000000001", "view": {"type": "modal", "title": {"type": "plain_text", "text": "Updated Modal"}, "blocks": [{"type": "section", "text": {"type": "plain_text", "text": "Updated body"}}]}}'
 
-# Push a modal view onto the current stack
+# Generate a push trigger tied to an existing modal view
+curl -X POST http://localhost:4003/api/views.generateTriggerId \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"view_id": "V000000001"}'
+
+# Push a modal view onto the current stack with the returned trigger_id
 curl -X POST http://localhost:4003/api/views.push \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"trigger_id": "12345.98765.local", "view": {"type": "modal", "title": {"type": "plain_text", "text": "Next Modal"}, "blocks": []}}'
+  -d '{"trigger_id": "<trigger_id from views.generateTriggerId>", "view": {"type": "modal", "title": {"type": "plain_text", "text": "Next Modal"}, "blocks": []}}'
 ```
 
 ### Reactions
