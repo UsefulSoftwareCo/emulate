@@ -193,7 +193,7 @@ export function filesRoutes(ctx: RouteContext): void {
 
     const body = await parseSlackBody(c);
     const requestedFiles = parseCompleteFiles(body.files);
-    if (requestedFiles.length === 0) return slackError(c, "invalid_arguments");
+    if (!requestedFiles || requestedFiles.length === 0) return slackError(c, "invalid_arguments");
     if (new Set(requestedFiles.map((file) => file.id)).size !== requestedFiles.length) {
       return slackError(c, "invalid_arguments");
     }
@@ -201,8 +201,8 @@ export function filesRoutes(ctx: RouteContext): void {
     const authUserId = getAuthUserId(authUser);
     const initialComment = typeof body.initial_comment === "string" ? body.initial_comment : "";
     const threadTs = typeof body.thread_ts === "string" ? body.thread_ts : undefined;
-    const blocks = parseBlocks(body.blocks);
-    if (body.blocks !== undefined && blocks === undefined) return slackError(c, "invalid_blocks");
+    const blocks = initialComment ? undefined : parseBlocks(body.blocks);
+    if (!initialComment && body.blocks !== undefined && blocks === undefined) return slackError(c, "invalid_blocks");
 
     const requestedSessions: SlackFileUploadSession[] = [];
     for (const requestedFile of requestedFiles) {
@@ -477,36 +477,59 @@ async function readUploadBytes(c: Context): Promise<Buffer | undefined> {
   }
 
   const body = await c.req.parseBody();
-  const value = firstFormValue(body.body);
-  if (value === undefined) return undefined;
-  return formValueToBuffer(value);
+  const values = orderedUploadFormValues(body);
+  for (const value of values) {
+    const data = await formValueToBuffer(value, "file");
+    if (data) return data;
+  }
+  for (const value of values) {
+    const data = await formValueToBuffer(value, "string");
+    if (data) return data;
+  }
+  return undefined;
 }
 
-function firstFormValue(value: unknown): unknown {
-  return Array.isArray(value) ? value[0] : value;
+function orderedUploadFormValues(body: Record<string, unknown>): unknown[] {
+  const preferredFields = new Set(["filename", "file", "body"]);
+  const values = [...preferredFields].flatMap((field) => formValues(body[field]));
+  const fallbackValues = Object.entries(body)
+    .filter(([field]) => !preferredFields.has(field))
+    .flatMap(([, value]) => formValues(value));
+  return [...values, ...fallbackValues];
 }
 
-async function formValueToBuffer(value: unknown): Promise<Buffer | undefined> {
-  if (typeof value === "string") return Buffer.from(value);
-  if (value && typeof value === "object" && "arrayBuffer" in value) {
+function formValues(value: unknown): unknown[] {
+  if (value === undefined) return [];
+  return Array.isArray(value) ? value : [value];
+}
+
+async function formValueToBuffer(value: unknown, kind: "file" | "string"): Promise<Buffer | undefined> {
+  if (kind === "string" && typeof value === "string") return Buffer.from(value);
+  if (kind === "file" && value && typeof value === "object" && "arrayBuffer" in value) {
     const arrayBuffer = (value as { arrayBuffer: () => Promise<ArrayBuffer> }).arrayBuffer;
     if (typeof arrayBuffer === "function") return Buffer.from(await arrayBuffer.call(value));
   }
   return undefined;
 }
 
-function parseCompleteFiles(value: unknown): Array<{ id: string; title?: string; highlight_type?: string }> {
+function parseCompleteFiles(value: unknown): Array<{ id: string; title?: string; highlight_type?: string }> | undefined {
   const parsed = parseJsonMaybe(value);
-  if (!Array.isArray(parsed)) return [];
-  return parsed
-    .map((entry) => (entry && typeof entry === "object" ? (entry as Record<string, unknown>) : undefined))
-    .filter((entry): entry is Record<string, unknown> => Boolean(entry))
-    .map((entry) => ({
-      id: typeof entry.id === "string" ? entry.id : "",
-      title: typeof entry.title === "string" ? entry.title : undefined,
-      highlight_type: typeof entry.highlight_type === "string" ? entry.highlight_type : undefined,
-    }))
-    .filter((entry) => entry.id);
+  if (!Array.isArray(parsed)) return undefined;
+
+  const files: Array<{ id: string; title?: string; highlight_type?: string }> = [];
+  for (const entry of parsed) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) return undefined;
+    const record = entry as Record<string, unknown>;
+    if (typeof record.id !== "string" || !record.id) return undefined;
+    if (record.title !== undefined && typeof record.title !== "string") return undefined;
+    if (record.highlight_type !== undefined && typeof record.highlight_type !== "string") return undefined;
+    files.push({
+      id: record.id,
+      title: record.title,
+      highlight_type: record.highlight_type,
+    });
+  }
+  return files;
 }
 
 function parseDestinationChannels(channelId: unknown, channels: unknown): string[] {

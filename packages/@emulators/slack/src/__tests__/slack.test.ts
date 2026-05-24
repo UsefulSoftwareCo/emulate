@@ -3011,7 +3011,35 @@ describe("Slack plugin - files", () => {
     );
   });
 
-  it("preserves blocks when completing a file upload with an initial comment", async () => {
+  it("accepts multipart uploads with the documented filename field", async () => {
+    const content = "multipart upload";
+    const urlRes = await app.request(`${base}/api/files.getUploadURLExternal`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ filename: "multipart.txt", length: Buffer.byteLength(content) }),
+    });
+    const upload = (await urlRes.json()) as any;
+
+    const form = new FormData();
+    form.append("filename", new Blob([content], { type: "text/plain" }), "multipart.txt");
+    const bytesRes = await app.request(upload.upload_url, {
+      method: "POST",
+      body: form,
+    });
+    expect(bytesRes.status).toBe(200);
+
+    const completeRes = await app.request(`${base}/api/files.completeUploadExternal`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ files: [{ id: upload.file_id, title: "Multipart" }] }),
+    });
+    expect(((await completeRes.json()) as any).ok).toBe(true);
+
+    const stored = getSlackStore(store).files.findOneBy("file_id", upload.file_id)!;
+    expect(Buffer.from(stored.content_base64!, "base64").toString("utf8")).toBe(content);
+  });
+
+  it("ignores blocks when completing a file upload with an initial comment", async () => {
     const channel = getSlackStore(store).channels.findOneBy("name", "general")!.channel_id;
     const blocks = [{ type: "section", text: { type: "mrkdwn", text: "Block detail" } }];
 
@@ -3038,7 +3066,7 @@ describe("Slack plugin - files", () => {
 
     const message = getSlackStore(store).messages.findBy("channel_id", channel)[0];
     expect(message.text).toBe("Comment with blocks");
-    expect(message.blocks).toEqual(blocks);
+    expect(message.blocks).toBeUndefined();
   });
 
   it("supports private completion without sharing to a channel", async () => {
@@ -3285,6 +3313,30 @@ describe("Slack plugin - files", () => {
     const ss = getSlackStore(store);
     expect(ss.files.findOneBy("file_id", firstUpload.file_id)).toBeUndefined();
     expect(ss.fileUploadSessions.findOneBy("file_id", firstUpload.file_id)?.completed).toBe(false);
+    expect(ss.messages.all()).toHaveLength(0);
+  });
+
+  it("rejects malformed complete upload file entries without completing valid uploads", async () => {
+    const uploadRes = await app.request(`${base}/api/files.getUploadURLExternal`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ filename: "malformed.txt", length: 9 }),
+    });
+    const upload = (await uploadRes.json()) as any;
+    await app.request(upload.upload_url, { method: "POST", body: "malformed" });
+
+    const completeRes = await app.request(`${base}/api/files.completeUploadExternal`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ files: [{ id: upload.file_id, title: "Valid" }, {}] }),
+    });
+    const completed = (await completeRes.json()) as any;
+    expect(completed.ok).toBe(false);
+    expect(completed.error).toBe("invalid_arguments");
+
+    const ss = getSlackStore(store);
+    expect(ss.files.findOneBy("file_id", upload.file_id)).toBeUndefined();
+    expect(ss.fileUploadSessions.findOneBy("file_id", upload.file_id)?.completed).toBe(false);
     expect(ss.messages.all()).toHaveLength(0);
   });
 
