@@ -148,6 +148,16 @@ function channelKind(ch: SlackChannel): string {
   return "Public";
 }
 
+function openStateLabel(ch: SlackChannel, users: Map<string, string>): string {
+  if (ch.is_open_by_user) {
+    const openUsers = Object.entries(ch.is_open_by_user)
+      .filter(([, isOpen]) => isOpen === true)
+      .map(([userId]) => userLabel(users, userId));
+    return openUsers.length > 0 ? openUsers.join(", ") : "closed";
+  }
+  return ch.is_open ? "open" : "closed";
+}
+
 function maskToken(value: string): string {
   if (value.length <= 10) return value;
   return `${value.slice(0, 8)}...${value.slice(-4)}`;
@@ -324,7 +334,7 @@ export function inspectorRoutes(ctx: RouteContext): void {
             linkCell(`/?tab=messages&channel=${encodeURIComponent(ch.channel_id)}`, channelLabel(ch)),
             escapeHtml(channelKind(ch)),
             escapeHtml(ch.members.map((member) => userLabel(users, member)).join(", ")),
-            escapeHtml(ch.is_open_by_user ? Object.keys(ch.is_open_by_user).join(", ") : String(ch.is_open ?? false)),
+            escapeHtml(openStateLabel(ch, users)),
           ]),
           "No DMs or MPIMs in the emulator store.",
         ),
@@ -407,12 +417,12 @@ export function inspectorRoutes(ctx: RouteContext): void {
   function renderEventsView(): string {
     const subscriptions = webhooks.getSubscriptions("slack");
     const slackHookIds = new Set(subscriptions.map((subscription) => subscription.id));
-    const deliveries = webhooks
+    const allDeliveries = webhooks
       .getDeliveries()
       .filter((delivery) => slackHookIds.has(delivery.hook_id))
-      .sort((a, b) => b.id - a.id)
-      .slice(0, 100);
-    const failed = deliveries.filter((delivery) => !delivery.success);
+      .sort((a, b) => b.id - a.id);
+    const deliveries = allDeliveries.slice(0, 100);
+    const failed = allDeliveries.filter((delivery) => !delivery.success).slice(0, 100);
 
     return [
       renderSection("Event Subscriptions", renderSubscriptionsTable(subscriptions)),

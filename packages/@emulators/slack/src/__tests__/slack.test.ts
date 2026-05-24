@@ -4546,10 +4546,16 @@ describe("Slack plugin - Message Inspector", () => {
   it("shows channels and DMs in the inspector", async () => {
     insertSlackTestUser(store, "U000000222", "inspector-peer");
 
-    await app.request(`${base}/api/conversations.open`, {
+    const openRes = await app.request(`${base}/api/conversations.open`, {
       method: "POST",
       headers: authHeaders(),
       body: JSON.stringify({ users: "U000000222", return_im: true }),
+    });
+    const opened = (await openRes.json()) as any;
+    await app.request(`${base}/api/conversations.close`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: opened.channel.id }),
     });
 
     const res = await app.request(`${base}/?tab=channels`);
@@ -4559,6 +4565,8 @@ describe("Slack plugin - Message Inspector", () => {
     expect(html).toContain("Direct Messages");
     expect(html).toContain("inspector-peer");
     expect(html).toContain("DM");
+    expect(html).toContain(">closed<");
+    expect(html).not.toContain("<td>U000000001</td>");
   });
 
   it("shows files, views, auth state, and event deliveries in inspector tabs", async () => {
@@ -4621,6 +4629,14 @@ describe("Slack plugin - Message Inspector", () => {
       headers: authHeaders(),
       body: JSON.stringify({ channel, text: "Inspector event delivery" }),
     });
+    captureFetchRequests(200);
+    for (let index = 0; index < 100; index++) {
+      await app.request(`${base}/api/chat.postMessage`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ channel, text: `Inspector success event delivery ${index}` }),
+      });
+    }
 
     const files = await app.request(`${base}/?tab=files`);
     expect(await files.text()).toContain("Inspector File");
