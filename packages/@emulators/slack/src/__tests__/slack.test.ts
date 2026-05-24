@@ -4436,6 +4436,30 @@ describe("Slack plugin - Message Inspector", () => {
     expect(html).toContain("Inspector test message");
   });
 
+  it("shows message reactions in the inspector", async () => {
+    const ss = getSlackStore(store);
+    const ch = ss.channels.all()[0];
+
+    const postRes = await app.request(`${base}/api/chat.postMessage`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id, text: "Inspector reaction message" }),
+    });
+    const posted = (await postRes.json()) as any;
+
+    await app.request(`${base}/api/reactions.add`, {
+      method: "POST",
+      headers: authHeaders(),
+      body: JSON.stringify({ channel: ch.channel_id, timestamp: posted.ts, name: "wave" }),
+    });
+
+    const res = await app.request(`${base}/?channel=${ch.channel_id}`);
+    expect(res.status).toBe(200);
+    const html = await res.text();
+    expect(html).toContain("Reactions");
+    expect(html).toContain(":wave: 1");
+  });
+
   it("shows pins and bookmarks in the inspector", async () => {
     const ss = getSlackStore(store);
     const ch = ss.channels.all()[0];

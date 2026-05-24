@@ -121,6 +121,11 @@ function badge(label: string, tone: "granted" | "requested" | "denied" = "reques
   return `<span class="badge badge-${tone}">${escapeHtml(label)}</span>`;
 }
 
+function renderReactionBadges(reactions: Array<{ name: string; count: number }>): string {
+  if (reactions.length === 0) return "";
+  return reactions.map((reaction) => badge(`:${reaction.name}: ${reaction.count}`, "granted")).join(" ");
+}
+
 function linkCell(href: string, label: string): string {
   return `<a href="${escapeAttr(href)}">${escapeHtml(label)}</a>`;
 }
@@ -437,7 +442,7 @@ export function inspectorRoutes(ctx: RouteContext): void {
 
 function renderMessagesTable(messages: SlackMessage[], users: Map<string, string>, empty: string): string {
   return renderTable(
-    ["Time", "User", "Message", "TS"],
+    ["Time", "User", "Message", "Reactions", "TS"],
     messages.map((msg) => {
       const isBot = msg.subtype === "bot_message";
       const richBadge =
@@ -456,6 +461,7 @@ function renderMessagesTable(messages: SlackMessage[], users: Map<string, string
         escapeHtml(timeAgo(msg.created_at)),
         `${escapeHtml(userLabel(users, msg.user))}${isBot ? ` ${badge("bot", "granted")}` : ""}`,
         `${threadIndicator}${escapeHtml(richMessagePreview(msg))}${richBadge}${fileBadge}${threadBadge}`,
+        renderReactionBadges(msg.reactions),
         escapeHtml(msg.ts),
       ];
     }),
