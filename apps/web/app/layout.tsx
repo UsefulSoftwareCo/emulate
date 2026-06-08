@@ -8,7 +8,7 @@ import { getStarCount } from "@/lib/github";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://emulate.dev"),
+  metadataBase: new URL("https://emulate.rhys.dev"),
   title: {
     default: "emulate | Local API Emulation for CI & Sandboxes",
     template: "%s | emulate",
@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     locale: "en_US",
-    url: "https://emulate.dev",
+    url: "https://emulate.rhys.dev",
     siteName: "emulate",
     title: "emulate | Local API Emulation for CI & Sandboxes",
     description:
@@ -81,7 +81,7 @@ function Header({ stars }: { stars?: string }) {
             Docs
           </Link>
           <a
-            href="https://github.com/vercel-labs/emulate"
+            href="https://github.com/UsefulSoftwareCo/emulate"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-900 transition-colors dark:text-neutral-400 dark:hover:text-neutral-100"

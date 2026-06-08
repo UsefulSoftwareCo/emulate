@@ -25,6 +25,9 @@ const oldDocsSlugs = [
 const nextConfig = {
   pageExtensions: ["ts", "tsx", "md", "mdx"],
   serverExternalPackages: ["just-bash", "bash-tool"],
+  images: {
+    unoptimized: true,
+  },
   async redirects() {
     return oldDocsSlugs.map((slug) => ({
       source: `/${slug}`,

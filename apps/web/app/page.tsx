@@ -23,7 +23,7 @@ export default function LandingPage() {
             Get started
           </Link>
           <a
-            href="https://github.com/vercel-labs/emulate"
+            href="https://github.com/UsefulSoftwareCo/emulate"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex h-9 items-center gap-2 rounded-md border border-neutral-200 px-4 text-sm text-neutral-700 hover:border-neutral-300 dark:border-neutral-800 dark:text-neutral-300 dark:hover:border-neutral-700"
@@ -182,7 +182,7 @@ afterAll(() => github.close())`}</code>
               Docs
             </Link>
             <a
-              href="https://github.com/vercel-labs/emulate"
+              href="https://github.com/UsefulSoftwareCo/emulate"
               target="_blank"
               rel="noopener noreferrer"
               className="hover:text-neutral-900 dark:hover:text-neutral-300 transition-colors"

@@ -2,11 +2,13 @@ minimumReleaseAge: 2880
 
 allowBuilds:
   "@mongodb-js/zstd@7.0.0": false
+  esbuild: true
   "esbuild@0.27.4": false
   "msw@2.12.13": false
   "node-liblzma@2.2.0": false
   "sharp@0.34.5": false
   "unrs-resolver@1.11.1": false
+  workerd: true
 
 packages:
   - "packages/*"
