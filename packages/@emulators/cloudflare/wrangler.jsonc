@@ -1,0 +1,27 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "emulate",
+  "main": "dist/worker.js",
+  "compatibility_date": "2026-06-08",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "EMULATOR",
+        "class_name": "EmulatorDurableObject"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["EmulatorDurableObject"]
+    }
+  ],
+  "routes": [
+    {
+      "pattern": "emulate.rhys.dev",
+      "custom_domain": true
+    }
+  ]
+}
