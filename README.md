@@ -1,5 +1,9 @@
 # emulate
 
+This repository is forked from Vercel Labs' `emulate` project. Useful Software
+Co maintains this fork to support deployable emulator surfaces and product
+testing flows for our own development and agent-driven use cases.
+
 Local drop-in replacement services for CI and no-network sandboxes. Fully stateful, production-fidelity API emulation. Not mocks.
 
 ## Quick Start

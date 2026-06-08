@@ -1,0 +1,24 @@
+{
+  "name": "@emulators/console",
+  "version": "0.6.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "dev": "vite",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "react-router-dom": "^7.9.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.0.0",
+    "typescript": "^5.7",
+    "vite": "^7.0.0",
+    "vite-plugin-singlefile": "^2.2.0"
+  }
+}

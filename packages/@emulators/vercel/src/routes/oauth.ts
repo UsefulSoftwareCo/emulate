@@ -42,7 +42,7 @@ function isPendingCodeExpired(p: PendingCode): boolean {
 
 const SERVICE_LABEL = "Vercel";
 
-export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
+export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): void {
   const vs = getVercelStore(store);
 
   // ---------- OAuth authorize page ----------
@@ -94,7 +94,7 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
           login: u.username,
           name: u.name ?? undefined,
           email: u.email,
-          formAction: "/oauth/authorize/callback",
+          formAction: `${baseUrl}/oauth/authorize/callback`,
           hiddenFields: {
             username: u.username,
             redirect_uri,

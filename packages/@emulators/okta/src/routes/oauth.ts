@@ -412,7 +412,8 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     }
 
     const users = oktaStore.users.all();
-    const callbackPath = `${buildOAuthBasePath(authServerId)}/authorize/callback`;
+    // baseUrl-prefixed so the POST survives path-prefix serving (CF /okta/<id>).
+    const callbackPath = `${baseUrl}${buildOAuthBasePath(authServerId)}/authorize/callback`;
     const buttons = users
       .map((user) =>
         renderUserButton({

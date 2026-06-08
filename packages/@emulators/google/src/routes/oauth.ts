@@ -127,6 +127,39 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     return c.json({ keys: [] });
   });
 
+  // ---------- Google API Discovery (the REAL spec, pointed at this instance) ---
+  // Mirrors Google's discovery service (`/discovery/v1/apis/:api/:version/rest`):
+  // fetches Google's ACTUAL discovery document and rewrites its base URLs to this
+  // emulator instance, so Executor's real `googleDiscovery` source path ingests
+  // the genuine Google API surface but calls the emulator. Cached per instance.
+  app.get("/discovery/v1/apis/:api/:version/rest", async (c) => {
+    const api = c.req.param("api");
+    const version = c.req.param("version");
+    const cache = (() => {
+      let m = store.getData<Map<string, unknown>>("google.discoveryCache");
+      if (!m) {
+        m = new Map();
+        store.setData("google.discoveryCache", m);
+      }
+      return m;
+    })();
+    const key = `${api}/${version}`;
+    let doc = cache.get(key) as Record<string, unknown> | undefined;
+    if (!doc) {
+      const upstream = `https://www.googleapis.com/discovery/v1/apis/${api}/${version}/rest`;
+      const res = await fetch(upstream);
+      if (!res.ok) return c.json({ error: "discovery_fetch_failed", api, version, status: res.status }, 502);
+      doc = (await res.json()) as Record<string, unknown>;
+      // Point the API surface at this emulator instance.
+      const root = `${baseUrl}/`;
+      doc.rootUrl = root;
+      doc.baseUrl = root;
+      if (doc.mtlsRootUrl) doc.mtlsRootUrl = root;
+      cache.set(key, doc);
+    }
+    return c.json(doc);
+  });
+
   // ---------- Authorization page ----------
 
   app.get("/o/oauth2/v2/auth", (c) => {
@@ -173,7 +206,9 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
           login: user.email,
           name: user.name,
           email: user.email,
-          formAction: "/o/oauth2/v2/auth/callback",
+          // Absolute (baseUrl-prefixed) so the POST keeps the instance path when
+          // the emulator is served under a path prefix (e.g. CF /google/<id>).
+          formAction: `${baseUrl}/o/oauth2/v2/auth/callback`,
           hiddenFields: {
             email: user.email,
             redirect_uri,

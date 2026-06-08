@@ -5,6 +5,7 @@ import { getGitHubStore } from "./store.js";
 import type { GitHubStore } from "./store.js";
 import type { GitHubAppInstallation } from "./entities.js";
 import { generateNodeId, generateSha } from "./helpers.js";
+import { graphqlRoutes } from "./routes/graphql.js";
 import { usersRoutes } from "./routes/users.js";
 import { reposRoutes } from "./routes/repos.js";
 import { issuesRoutes } from "./routes/issues.js";
@@ -23,6 +24,7 @@ import { rateLimitRoutes } from "./routes/rate-limit.js";
 import { metaRoutes } from "./routes/meta.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { appsRoutes } from "./routes/apps.js";
+import { openapiRoutes } from "./routes/openapi.js";
 
 export { getGitHubStore, type GitHubStore } from "./store.js";
 export * from "./entities.js";
@@ -475,6 +477,7 @@ export const githubPlugin: ServicePlugin = {
     };
 
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
+    graphqlRoutes(ctx);
     usersRoutes(ctx);
     reposRoutes(ctx);
     issuesRoutes(ctx);
@@ -493,6 +496,7 @@ export const githubPlugin: ServicePlugin = {
     metaRoutes(ctx);
     oauthRoutes(ctx);
     appsRoutes(ctx);
+    openapiRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);

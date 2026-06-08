@@ -1,5 +1,5 @@
 {
-  "name": "@emulators/github",
+  "name": "@emulators/cloudflare",
   "version": "0.6.0",
   "license": "Apache-2.0",
   "type": "module",
@@ -9,16 +9,10 @@
     ".": {
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
+    },
+    "./worker": {
+      "import": "./dist/worker.js"
     }
-  },
-  "homepage": "https://emulate.dev",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/vercel-labs/emulate.git",
-    "directory": "packages/@emulators/github"
-  },
-  "bugs": {
-    "url": "https://github.com/vercel-labs/emulate/issues"
   },
   "publishConfig": {
     "access": "public"
@@ -27,20 +21,25 @@
     "dist"
   ],
   "scripts": {
+    "gen:console": "node scripts/gen-console.mjs",
     "build": "tsup --clean",
     "dev": "tsup --watch",
-    "test": "vitest run",
     "clean": "rm -rf dist .turbo",
     "type-check": "tsc --noEmit",
     "lint": "eslint src"
   },
   "dependencies": {
     "@emulators/core": "workspace:*",
-    "graphql": "^16.9.0"
+    "@emulators/github": "workspace:*",
+    "@emulators/vercel": "workspace:*",
+    "@emulators/google": "workspace:*",
+    "@emulators/okta": "workspace:*",
+    "@emulators/microsoft": "workspace:*",
+    "@emulators/mcp": "workspace:*",
+    "@emulators/spotify": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8",
-    "typescript": "^5.7",
-    "vitest": "^4.1.0"
+    "typescript": "^5.7"
   }
 }

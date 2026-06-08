@@ -139,7 +139,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
           login: full.login,
           name: full.name ?? undefined,
           email: full.email ?? undefined,
-          formAction: "/login/oauth/callback",
+          formAction: `${baseUrl}/login/oauth/callback`,
           hiddenFields: {
             login: u.login,
             redirect_uri,

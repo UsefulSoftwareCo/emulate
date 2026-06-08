@@ -3,6 +3,8 @@ dist/
 *.tsbuildinfo
 .turbo/
 .pnpm-store/
+.alchemy/
+.wrangler/
 emulate.config.yaml
 emulate.config.yml
 .env*

@@ -213,7 +213,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
           login: user.email,
           name: user.name,
           email: user.email,
-          formAction: "/oauth2/v2.0/authorize/callback",
+          formAction: `${baseUrl}/oauth2/v2.0/authorize/callback`,
           hiddenFields: {
             email: user.email,
             redirect_uri,
