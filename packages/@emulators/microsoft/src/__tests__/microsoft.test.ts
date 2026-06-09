@@ -122,6 +122,49 @@ describe("Microsoft plugin integration", () => {
     tokenMap = testApp.tokenMap;
   });
 
+  // --- OpenAPI ---
+
+  it("GET /openapi.json returns a Microsoft Graph subset with delegated OAuth endpoints", async () => {
+    const res = await app.request(`${base}/openapi.json`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      openapi: string;
+      servers: Array<{ url: string }>;
+      components: {
+        securitySchemes: {
+          azureAdDelegated: {
+            type: string;
+            flows: {
+              authorizationCode: {
+                authorizationUrl: string;
+                tokenUrl: string;
+                scopes: Record<string, string>;
+              };
+            };
+          };
+        };
+      };
+      paths: Record<string, unknown>;
+    };
+
+    expect(body.openapi).toBe("3.0.3");
+    expect(body.servers).toEqual([{ url: base }]);
+    expect(body.components.securitySchemes.azureAdDelegated.type).toBe("oauth2");
+    expect(body.components.securitySchemes.azureAdDelegated.flows.authorizationCode.authorizationUrl).toBe(
+      `${base}/oauth2/v2.0/authorize`,
+    );
+    expect(body.components.securitySchemes.azureAdDelegated.flows.authorizationCode.tokenUrl).toBe(
+      `${base}/oauth2/v2.0/token`,
+    );
+    expect(body.components.securitySchemes.azureAdDelegated.flows.authorizationCode.scopes).toMatchObject({
+      openid: expect.any(String),
+      offline_access: expect.any(String),
+      "User.Read": expect.any(String),
+    });
+    expect(body.paths).toHaveProperty("/v1.0/me");
+    expect(body.paths).toHaveProperty("/v1.0/users/{id}");
+  });
+
   // --- OIDC Discovery ---
 
   it("GET /.well-known/openid-configuration returns Microsoft OIDC discovery document", async () => {

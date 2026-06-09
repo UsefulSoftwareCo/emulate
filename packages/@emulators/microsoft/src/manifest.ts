@@ -29,6 +29,23 @@ export const manifest: ServiceManifest = {
   ],
   specs: [
     {
+      kind: "openapi",
+      title: "Microsoft Graph v1.0 subset",
+      coverage: "hand-authored",
+      url: "/openapi.json",
+      operations: [
+        { operationId: "graphUser_GetMyProfile", method: "GET", path: "/v1.0/me", status: "hand-authored" },
+        { operationId: "graphUser_GetById", method: "GET", path: "/v1.0/users/:id", status: "hand-authored" },
+        { operationId: "graphUser_List", method: "GET", path: "/v1.0/users", status: "unsupported" },
+        {
+          operationId: "message_List",
+          method: "GET",
+          path: "/v1.0/me/messages",
+          status: "unsupported",
+        },
+      ],
+    },
+    {
       kind: "oauth-metadata",
       title: "Microsoft OIDC metadata",
       coverage: "hand-authored",
