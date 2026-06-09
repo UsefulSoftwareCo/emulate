@@ -84,6 +84,81 @@ describe("createEmulator", () => {
     await slack.close();
   });
 
+  it("creates GitHub bearer credentials through the control plane", async () => {
+    const github = await createEmulator({ service: "github", port: 14040 });
+
+    const credentialRes = await fetch(`${github.url}/_emulate/credentials`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "bearer-token", login: "agent-user", scopes: ["repo", "user"] }),
+    });
+    expect(credentialRes.status).toBe(200);
+    const credentialBody = (await credentialRes.json()) as { credential: { token: string } };
+
+    const userRes = await fetch(`${github.url}/user`, {
+      headers: { Authorization: `Bearer ${credentialBody.credential.token}` },
+    });
+    expect(userRes.status).toBe(200);
+    const user = (await userRes.json()) as { login: string };
+    expect(user.login).toBe("agent-user");
+
+    await github.close();
+  });
+
+  it("creates Spotify client credentials and exchanges them for an app token", async () => {
+    const spotify = await createEmulator({ service: "spotify", port: 14050 });
+
+    const credentialRes = await fetch(`${spotify.url}/_emulate/credentials`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "oauth-client-credentials", name: "Catalog Test" }),
+    });
+    expect(credentialRes.status).toBe(200);
+    const credentialBody = (await credentialRes.json()) as {
+      credential: { client_id: string; client_secret: string; token_url: string };
+    };
+
+    const basic = Buffer.from(
+      `${credentialBody.credential.client_id}:${credentialBody.credential.client_secret}`,
+    ).toString("base64");
+    const tokenRes = await fetch(credentialBody.credential.token_url, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${basic}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: "grant_type=client_credentials",
+    });
+    expect(tokenRes.status).toBe(200);
+    const token = (await tokenRes.json()) as { access_token: string; token_type: string };
+    expect(token.access_token).toBeTruthy();
+    expect(token.token_type).toBe("Bearer");
+
+    await spotify.close();
+  });
+
+  it("creates AWS-style access keys through the control plane", async () => {
+    const aws = await createEmulator({ service: "aws", port: 14060 });
+
+    const credentialRes = await fetch(`${aws.url}/_emulate/credentials`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ login: "ci-user" }),
+    });
+    expect(credentialRes.status).toBe(200);
+    const credentialBody = (await credentialRes.json()) as {
+      credential: { type: string; access_key_id: string; secret_access_key: string; region: string };
+    };
+    expect(credentialBody.credential).toMatchObject({
+      type: "provider-specific",
+      region: "us-east-1",
+    });
+    expect(credentialBody.credential.access_key_id).toMatch(/^AKIA/);
+    expect(credentialBody.credential.secret_access_key).toBeTruthy();
+
+    await aws.close();
+  });
+
   it("throws on unknown service", async () => {
     // @ts-expect-error testing invalid service name
     await expect(createEmulator({ service: "unknown-svc" })).rejects.toThrow("Unknown service");

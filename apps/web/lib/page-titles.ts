@@ -14,7 +14,12 @@ export const PAGE_TITLES: Record<string, string> = {
   mongoatlas: "MongoDB Atlas",
   resend: "Resend",
   stripe: "Stripe",
+  clerk: "Clerk",
+  spotify: "Spotify",
   authentication: "Authentication",
+  manifest: "Service Manifest",
+  ledger: "Request Ledger",
+  deployment: "Deployment",
   architecture: "Architecture",
 };
 

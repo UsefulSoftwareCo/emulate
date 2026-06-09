@@ -1,136 +1,80 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import { api, base, loadInstance, randomInstance, saveInstance } from "../api";
-import { serviceById } from "../services";
-import { Icon } from "../App";
+import {
+  api,
+  controlBase,
+  fetchCoverage,
+  fetchManifest,
+  fetchState,
+  loadInstance,
+  postControl,
+  saveInstance,
+} from "../api";
+import type { CoverageReport, ManifestResponse, ResolvedConnection } from "../types";
+import { ServiceIcon } from "../App";
 import InstanceBar from "../components/InstanceBar";
-import SpecPanel from "../components/SpecPanel";
+import Ledger from "../components/Ledger";
 
-type LogEntry = { cls: "req" | "okc" | "errc" | "note"; text: string };
+const copy = (t: string) => navigator.clipboard?.writeText(t);
 
-interface Flow {
-  links: string[];
-  run: (call: Call) => Promise<void>;
-  note?: (call: Call) => Promise<void>;
-  noteLabel?: string;
-}
+export default function Service({
+  serviceOverride,
+  instanceOverride,
+}: {
+  serviceOverride?: string;
+  instanceOverride?: string;
+} = {}) {
+  const params = useParams();
+  const service = serviceOverride ?? params.service ?? "";
+  const pinned = Boolean(instanceOverride);
+  const [instance, setInstance] = useState(() => instanceOverride ?? loadInstance(service));
+  const [data, setData] = useState<ManifestResponse | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState("overview");
 
-type Call = (
-  method: string,
-  path: string,
-  opts?: { headers?: Record<string, string>; body?: string | object },
-) => Promise<unknown>;
+  const load = useCallback(() => {
+    setData(null);
+    setError(null);
+    fetchManifest(service, instance)
+      .then(setData)
+      .catch((e) => setError(String(e)));
+  }, [service, instance]);
 
-// Per-service representative flows, ported from the live emulator routes.
-const FLOWS: Record<string, Flow> = {
-  github: {
-    links: ["/__token", "/repos/octocat/hello-world", "/graphql", "/user"],
-    run: async (call) => {
-      await call("POST", "/__seed", {
-        body: {
-          github: {
-            users: [{ login: "octocat", name: "The Octocat" }],
-            repos: [{ owner: "octocat", name: "hello-world", description: "demo" }],
-          },
-        },
-      });
-      const tok = ((await call("POST", "/__token", { body: { login: "octocat", scopes: ["repo"] } })) as { token?: string })?.token;
-      await call("GET", "/repos/octocat/hello-world", { headers: { Authorization: `Bearer ${tok}` } });
-      await call("POST", "/graphql", {
-        headers: { Authorization: `Bearer ${tok}`, "user-agent": "console" },
-        body: { query: '{viewer{login} repository(owner:"octocat",name:"hello-world"){nameWithOwner}}' },
-      });
-    },
-  },
-  vercel: {
-    links: ["/v11/projects", "/v9/projects/acme-web/domains"],
-    run: async (call) => {
-      await call("POST", "/__seed", { body: { strict: false } });
-      await call("POST", "/v11/projects", { headers: { Authorization: "Bearer dev" }, body: { name: "acme-web" } });
-      for (const n of ["acme.com", "www.acme.com"]) {
-        await call("POST", "/v10/projects/acme-web/domains", { headers: { Authorization: "Bearer dev" }, body: { name: n } });
-      }
-      await call("GET", "/v9/projects/acme-web/domains", { headers: { Authorization: "Bearer dev" } });
-    },
-  },
-  google: {
-    links: ["/.well-known/openid-configuration", "/discovery/v1/apis/gmail/v1/rest", "/o/oauth2/v2/auth (consent)"],
-    run: async (call) => {
-      await call("POST", "/__seed", {
-        body: {
-          google: {
-            users: [{ email: "dev@example.com", name: "Dev" }],
-            oauth_clients: [{ client_id: "c", client_secret: "s", redirect_uris: ["https://example.com/cb"] }],
-          },
-        },
-      });
-      await call("GET", "/.well-known/openid-configuration");
-      await call("GET", "/discovery/v1/apis/gmail/v1/rest");
-    },
-  },
-};
-
-export default function Service() {
-  const { service = "" } = useParams();
-  const svc = serviceById(service);
-  const flow = FLOWS[service];
-  const [instance, setInstance] = useState(() => loadInstance(service));
-  const [log, setLog] = useState<LogEntry[]>([]);
-  const [busy, setBusy] = useState(false);
-  const b = base(service, instance);
-
-  // Re-sync when navigating between services (the route component is reused).
   useEffect(() => {
-    setInstance(loadInstance(service));
-    setLog([]);
-  }, [service]);
+    setInstance(instanceOverride ?? loadInstance(service));
+  }, [service, instanceOverride]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
 
   const changeInstance = (v: string) => {
     setInstance(v);
-    saveInstance(service, v);
-    setLog([]);
+    if (!pinned) saveInstance(service, v);
   };
 
-  const add = (cls: LogEntry["cls"], text: string) => setLog((l) => [{ cls, text }, ...l]);
+  const manifest = data?.manifest;
+  const tabs = manifest?.inspectorTabs ?? [{ id: "overview", title: "Overview", kind: "landing" as const }];
 
-  const call: Call = async (method, path, opts = {}) => {
-    const url = `${b}${path}`;
-    const hasObjBody = opts.body !== undefined && typeof opts.body !== "string";
-    const bodyStr = opts.body === undefined ? undefined : typeof opts.body === "string" ? opts.body : JSON.stringify(opts.body);
-    add("req", `${method} ${url}${bodyStr ? `\n${bodyStr}` : ""}`);
-    const headers: Record<string, string> = {
-      "content-type": hasObjBody ? "application/json" : opts.headers?.["content-type"] ?? "application/x-www-form-urlencoded",
-      ...opts.headers,
-    };
-    const r = await api(url, { method, headers, body: bodyStr });
-    let pretty = r.text;
-    try {
-      pretty = JSON.stringify(JSON.parse(r.text), null, 2);
-    } catch {
-      /* keep text */
-    }
-    add(r.ok ? "okc" : "errc", `${r.status}\n${pretty.slice(0, 1400)}`);
-    return r.json;
-  };
-
-  async function runFlow() {
-    if (!flow) return;
-    setBusy(true);
-    add("note", `── ${svc?.name ?? service} flow ──`);
-    try {
-      await flow.run(call);
-    } catch (e) {
-      add("errc", String(e));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  if (!svc) {
+  if (error) {
     return (
       <>
-        <h1>Unknown service</h1>
-        <p className="lead">No emulator named “{service}”.</p>
+        <h1 style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <ServiceIcon src={`/_emulate/icons/${service}`} name={service} /> {service}
+        </h1>
+        <div className="empty">Could not load this emulator ({error}). The instance is created on first use.</div>
+        <InstanceBar service={service} instance={instance} pinned={pinned} onChange={changeInstance} />
+      </>
+    );
+  }
+
+  if (!manifest) {
+    return (
+      <>
+        <h1 style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <ServiceIcon src={`/_emulate/icons/${service}`} name={service} /> {service}
+        </h1>
+        <div className="empty">Loading manifest...</div>
       </>
     );
   }
@@ -138,47 +82,382 @@ export default function Service() {
   return (
     <>
       <h1 style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <Icon s={svc} size={26} /> {svc.name}
+        <ServiceIcon src={`/_emulate/icons/${service}`} name={manifest.name} /> {manifest.name}
       </h1>
-      <p className="lead">{svc.blurb}</p>
+      <p className="lead">{manifest.description}</p>
 
-      <InstanceBar service={service} instance={instance} onChange={changeInstance} onRegenerate={() => changeInstance(randomInstance())} />
+      <InstanceBar service={service} instance={instance} pinned={pinned} onChange={changeInstance} />
 
-      <SpecPanel svc={svc} instance={instance} />
-
-      <div className="panel">
-        <div className="ph spread">
-          <h2>Flow</h2>
-          <button className="go" onClick={runFlow} disabled={busy || !flow}>
-            {busy ? "running…" : "▶ run flow"}
+      <div className="tabs">
+        {tabs.map((t) => (
+          <button key={t.id} className={`tab ${tab === t.id ? "on" : ""}`} onClick={() => setTab(t.id)}>
+            {t.title}
           </button>
-        </div>
-        {flow && (
-          <div className="links" style={{ fontFamily: "ui-monospace, monospace", fontSize: 12.5 }}>
-            {flow.links.map((l) => {
-              const path = l.split(" ")[0];
-              return (
-                <a key={l} href={`${b}${path}`} target="_blank" rel="noopener" style={{ display: "block", color: "var(--muted)", padding: "1px 0" }}>
-                  {l}
-                </a>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      <div className="panel">
-        <div className="ph spread">
-          <h2>Request log</h2>
-          {log.length > 0 && <button className="sm" onClick={() => setLog([])}>clear</button>}
-        </div>
-        {log.length === 0 && <div className="empty">Run the flow to see live requests and responses.</div>}
-        {log.map((e, i) => (
-          <pre key={i} className={`json ${e.cls === "req" ? "req" : e.cls === "okc" ? "okc" : e.cls === "errc" ? "errc" : "muted"}`} style={{ marginBottom: 8 }}>
-            {e.text}
-          </pre>
         ))}
       </div>
+
+      {tab === "overview" && <Overview data={data!} />}
+      {tab === "ledger" && <Ledger service={service} instance={instance} />}
+      {tab === "state" && <StateTab service={service} instance={instance} />}
+      {tab === "credentials" && <CredentialsTab manifest={manifest} service={service} instance={instance} />}
+      {tab === "seed" && <SeedTab manifest={manifest} service={service} instance={instance} onSeeded={load} />}
+      {tab === "spec" && <SpecTab service={service} instance={instance} />}
+      {tab === "logs" && <LogsTab service={service} instance={instance} />}
     </>
+  );
+}
+
+function Overview({ data }: { data: ManifestResponse }) {
+  const { manifest, instance, connections } = data;
+  return (
+    <>
+      <div className="panel">
+        <div className="ph">
+          <h2>Surfaces</h2>
+        </div>
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Surface</th>
+              <th>Status</th>
+              <th>Path</th>
+            </tr>
+          </thead>
+          <tbody>
+            {manifest.surfaces.map((s) => (
+              <tr key={s.id}>
+                <td>{s.title}</td>
+                <td>
+                  <span className={`tag ${s.status === "supported" ? "ok" : ""}`}>{s.status}</span>
+                </td>
+                <td className="mono">{s.basePath ?? ""}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="panel">
+        <div className="ph">
+          <h2>Auth capabilities</h2>
+        </div>
+        <table className="data-table">
+          <tbody>
+            {manifest.auth.map((a) => (
+              <tr key={a.id}>
+                <td>{a.title}</td>
+                <td className="mono muted">{a.type}</td>
+                <td>
+                  <span className={`tag ${a.status === "supported" ? "ok" : ""}`}>{a.status}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <Connections connections={connections} instance={instance} />
+    </>
+  );
+}
+
+function Connections({
+  connections,
+  instance,
+}: {
+  connections: ResolvedConnection[];
+  instance: ManifestResponse["instance"];
+}) {
+  if (!connections.length) return null;
+  return (
+    <div className="panel">
+      <div className="ph">
+        <h2>Connect</h2>
+      </div>
+      {instance && (
+        <div className="kv" style={{ marginBottom: 12 }}>
+          <b>provider</b> {instance.providerBaseUrl}
+        </div>
+      )}
+      {connections.map((c) => (
+        <div key={c.id} style={{ marginBottom: 14 }}>
+          <div className="row spread">
+            <span className="muted" style={{ fontSize: 13 }}>
+              {c.title}
+              {c.language ? ` · ${c.language}` : ""}
+            </span>
+            <button className="sm copy" onClick={() => copy(c.body)}>
+              copy
+            </button>
+          </div>
+          {c.description && (
+            <p className="muted" style={{ fontSize: 12, margin: "2px 0 6px" }}>
+              {c.description}
+            </p>
+          )}
+          <pre className="json">{c.body}</pre>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StateTab({ service, instance }: { service: string; instance: string }) {
+  const [state, setState] = useState<unknown>(null);
+  const [error, setError] = useState<string | null>(null);
+  const reload = useCallback(() => {
+    fetchState(service, instance)
+      .then(setState)
+      .catch((e) => setError(String(e)));
+  }, [service, instance]);
+  useEffect(() => {
+    reload();
+  }, [reload]);
+  return (
+    <div className="panel">
+      <div className="ph spread">
+        <h2>State</h2>
+        <button className="sm" onClick={reload}>
+          refresh
+        </button>
+      </div>
+      {error && <div className="empty">{error}</div>}
+      <pre className="json">{state ? JSON.stringify(state, null, 2) : "..."}</pre>
+    </div>
+  );
+}
+
+function CredentialsTab({
+  manifest,
+  service,
+  instance,
+}: {
+  manifest: ManifestResponse["manifest"];
+  service: string;
+  instance: string;
+}) {
+  const types = useMemo(() => Array.from(new Set(manifest.auth.map((a) => a.type))), [manifest]);
+  const [type, setType] = useState(types[0] ?? "bearer-token");
+  const [login, setLogin] = useState("admin");
+  const [result, setResult] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const mint = async () => {
+    setBusy(true);
+    setResult(null);
+    const body: Record<string, unknown> = { type };
+    if (type === "bearer-token" || type === "api-key") body.login = login;
+    const r = await postControl(service, instance, "/credentials", body);
+    setResult(JSON.stringify(r.json, null, 2));
+    setBusy(false);
+  };
+
+  return (
+    <div className="panel">
+      <div className="ph">
+        <h2>Create a credential</h2>
+      </div>
+      <div className="row" style={{ marginBottom: 10 }}>
+        <select value={type} onChange={(e) => setType(e.target.value)}>
+          {types.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+        {(type === "bearer-token" || type === "api-key") && (
+          <input className="mono" value={login} onChange={(e) => setLogin(e.target.value)} placeholder="login" />
+        )}
+        <button className="go" onClick={mint} disabled={busy}>
+          {busy ? "..." : "mint"}
+        </button>
+      </div>
+      {result && (
+        <>
+          <div className="row spread">
+            <span className="muted" style={{ fontSize: 12 }}>
+              result
+            </span>
+            <button className="sm copy" onClick={() => copy(result)}>
+              copy
+            </button>
+          </div>
+          <pre className="json okc">{result}</pre>
+        </>
+      )}
+    </div>
+  );
+}
+
+function SeedTab({
+  manifest,
+  service,
+  instance,
+  onSeeded,
+}: {
+  manifest: ManifestResponse["manifest"];
+  service: string;
+  instance: string;
+  onSeeded: () => void;
+}) {
+  const example = manifest.seedSchema?.example;
+  const [body, setBody] = useState(() => (example ? JSON.stringify(example, null, 2) : "{}"));
+  const [result, setResult] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const run = async (path: "/seed" | "/reset") => {
+    setBusy(true);
+    setResult(null);
+    let payload: unknown = undefined;
+    if (path === "/seed") {
+      try {
+        payload = JSON.parse(body);
+      } catch (e) {
+        setResult(`Invalid JSON: ${String(e)}`);
+        setBusy(false);
+        return;
+      }
+    }
+    const r = await postControl(service, instance, path, payload);
+    setResult(`${r.status}\n${r.text}`);
+    setBusy(false);
+    onSeeded();
+  };
+
+  return (
+    <div className="panel">
+      <div className="ph spread">
+        <h2>Seed state</h2>
+        <button className="sm" onClick={() => run("/reset")} disabled={busy}>
+          reset instance
+        </button>
+      </div>
+      {manifest.seedSchema?.description && (
+        <p className="muted" style={{ fontSize: 13, marginTop: 0 }}>
+          {manifest.seedSchema.description}
+        </p>
+      )}
+      <textarea
+        className="mono"
+        style={{ width: "100%", minHeight: 220, resize: "vertical" }}
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+      />
+      <div className="row" style={{ marginTop: 10 }}>
+        <button className="go" onClick={() => run("/seed")} disabled={busy}>
+          {busy ? "..." : "seed"}
+        </button>
+      </div>
+      {result && <pre className="json">{result}</pre>}
+    </div>
+  );
+}
+
+function SpecTab({ service, instance }: { service: string; instance: string }) {
+  const [coverage, setCoverage] = useState<CoverageReport | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  useEffect(() => {
+    fetchCoverage(service, instance)
+      .then(setCoverage)
+      .catch((e) => setError(String(e)));
+  }, [service, instance]);
+
+  if (error) return <div className="empty">{error}</div>;
+  if (!coverage) return <div className="empty">Loading coverage...</div>;
+
+  return (
+    <>
+      <div className="panel">
+        <div className="ph">
+          <h2>Spec coverage</h2>
+        </div>
+        <div className="row" style={{ gap: 14, marginBottom: 12 }}>
+          {Object.entries(coverage.summary).map(([k, v]) => (
+            <span key={k} className="tag">
+              {k}: {v}
+            </span>
+          ))}
+        </div>
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Spec</th>
+              <th>Kind</th>
+              <th>Coverage</th>
+              <th>Operations</th>
+            </tr>
+          </thead>
+          <tbody>
+            {coverage.specs.map((s, i) => (
+              <tr key={i}>
+                <td>{s.title}</td>
+                <td className="mono muted">{s.kind}</td>
+                <td>
+                  <span className="tag">{s.coverage}</span>
+                </td>
+                <td>{s.operationCount}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {coverage.operations.length > 0 && (
+        <div className="panel">
+          <div className="ph">
+            <h2>Operations</h2>
+          </div>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Operation</th>
+                <th>Method</th>
+                <th>Path</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {coverage.operations.map((o, i) => (
+                <tr key={i}>
+                  <td className="mono">{o.operationId}</td>
+                  <td className="mono muted">{o.method ?? ""}</td>
+                  <td className="mono muted">{o.path ?? ""}</td>
+                  <td>
+                    <span className={`tag ${o.status === "hand-authored" ? "ok" : ""}`}>{o.status}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
+function LogsTab({ service, instance }: { service: string; instance: string }) {
+  const [logs, setLogs] = useState<{ webhooks: unknown[] } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const reload = useCallback(() => {
+    api(`${controlBase(service, instance)}/logs`)
+      .then((r) => setLogs(r.json as { webhooks: unknown[] }))
+      .catch((e) => setError(String(e)));
+  }, [service, instance]);
+  useEffect(() => {
+    reload();
+  }, [reload]);
+
+  return (
+    <div className="panel">
+      <div className="ph spread">
+        <h2>Webhook deliveries</h2>
+        <button className="sm" onClick={reload}>
+          refresh
+        </button>
+      </div>
+      {error && <div className="empty">{error}</div>}
+      {logs && (logs.webhooks?.length ?? 0) === 0 && <div className="empty">No webhook deliveries yet.</div>}
+      {logs && (logs.webhooks?.length ?? 0) > 0 && <pre className="json">{JSON.stringify(logs.webhooks, null, 2)}</pre>}
+    </div>
   );
 }

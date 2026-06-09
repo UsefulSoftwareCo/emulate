@@ -7,6 +7,7 @@ import { adminRoutes } from "./routes/admin.js";
 
 export { getMongoAtlasStore, type MongoAtlasStore } from "./store.js";
 export * from "./entities.js";
+export { manifest } from "./manifest.js";
 
 export interface MongoAtlasSeedConfig {
   port?: number;

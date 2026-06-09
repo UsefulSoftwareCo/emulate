@@ -6,6 +6,7 @@ import { oauthRoutes } from "./routes/oauth.js";
 
 export { getAppleStore, type AppleStore } from "./store.js";
 export * from "./entities.js";
+export { manifest } from "./manifest.js";
 
 export interface AppleSeedConfig {
   users?: Array<{

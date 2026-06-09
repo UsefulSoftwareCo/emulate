@@ -2,7 +2,7 @@ import type { RouteContext } from "@emulators/core";
 
 // OpenAPI 3.1 document for this GitHub emulator instance, pointed at itself, with
 // an HTTP bearer (personal access token) security scheme. Mint a token via
-// POST /__token and bind it as the source's bearer. Ingestable by Executor.
+// POST /__token and use it as the client's bearer credential.
 export function openapiRoutes({ app, baseUrl }: RouteContext): void {
   app.get("/openapi.json", (c) => c.json(buildSpec(baseUrl)));
 }
@@ -32,7 +32,11 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
     security: [{ githubToken: [] }],
     paths: {
       "/user": {
-        get: { operationId: "getAuthenticatedUser", summary: "Get the authenticated user", responses: { "200": ok("User object.") } },
+        get: {
+          operationId: "getAuthenticatedUser",
+          summary: "Get the authenticated user",
+          responses: { "200": ok("User object.") },
+        },
       },
       "/users/{username}": {
         get: {
@@ -50,7 +54,12 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
         },
       },
       "/repos/{owner}/{repo}": {
-        get: { operationId: "getRepo", summary: "Get a repository", parameters: [owner, repo], responses: { "200": ok("Repository object.") } },
+        get: {
+          operationId: "getRepo",
+          summary: "Get a repository",
+          parameters: [owner, repo],
+          responses: { "200": ok("Repository object.") },
+        },
       },
       "/repos/{owner}/{repo}/issues": {
         get: {

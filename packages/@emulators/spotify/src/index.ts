@@ -6,6 +6,7 @@ import { openapiRoutes } from "./routes/openapi.js";
 
 export { getSpotifyStore, type SpotifyStore } from "./store.js";
 export * from "./entities.js";
+export { manifest } from "./manifest.js";
 
 export interface SpotifySeedConfig {
   clients?: Array<{ client_id: string; client_secret: string; name?: string }>;
@@ -74,8 +75,36 @@ export const spotifyPlugin: ServicePlugin = {
     seedFromConfig(store, baseUrl, {
       clients: [{ client_id: "demo-client-id", client_secret: "demo-client-secret", name: "Demo App" }],
       artists: [
-        { name: "Daft Punk", genres: ["electronic", "french house"], popularity: 88, followers: 9_000_000, albums: [{ name: "Discovery", release_date: "2001-03-12", tracks: [{ name: "One More Time" }, { name: "Harder, Better, Faster, Stronger" }, { name: "Digital Love" }] }] },
-        { name: "Tame Impala", genres: ["psychedelic rock"], popularity: 85, followers: 6_000_000, albums: [{ name: "Currents", release_date: "2015-07-17", tracks: [{ name: "Let It Happen" }, { name: "The Less I Know the Better" }] }] },
+        {
+          name: "Daft Punk",
+          genres: ["electronic", "french house"],
+          popularity: 88,
+          followers: 9_000_000,
+          albums: [
+            {
+              name: "Discovery",
+              release_date: "2001-03-12",
+              tracks: [
+                { name: "One More Time" },
+                { name: "Harder, Better, Faster, Stronger" },
+                { name: "Digital Love" },
+              ],
+            },
+          ],
+        },
+        {
+          name: "Tame Impala",
+          genres: ["psychedelic rock"],
+          popularity: 85,
+          followers: 6_000_000,
+          albums: [
+            {
+              name: "Currents",
+              release_date: "2015-07-17",
+              tracks: [{ name: "Let It Happen" }, { name: "The Less I Know the Better" }],
+            },
+          ],
+        },
       ],
     });
   },

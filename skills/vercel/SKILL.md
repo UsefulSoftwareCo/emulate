@@ -427,3 +427,19 @@ curl "http://localhost:4000/v10/projects?teamId=team_abc123" \
 curl "http://localhost:4000/v10/projects?slug=my-team" \
   -H "Authorization: Bearer $TOKEN"
 ```
+
+## Discovery
+
+When using a running emulator URL, inspect `GET /_emulate/manifest` first to confirm supported surfaces (REST, OAuth integrations), auth capabilities, and per-operation spec coverage. Use `GET /_emulate/connections` for copyable SDK, CLI, env, and curl snippets and `GET /_emulate/quickstart` for setup notes.
+
+Mint credentials with `POST /_emulate/credentials`, the canonical, uniform way to create a credential for any service (here a bearer token or an OAuth integration):
+
+```bash
+curl -X POST "$VERCEL_EMULATOR_URL/_emulate/credentials" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"oauth-authorization-code","redirect_uris":["http://localhost:3000/api/auth/callback/vercel"]}'
+```
+
+Inspect calls with `GET /_emulate/ledger`: each entry includes a correlation id (set `X-Correlation-Id` on a request to trace it), the matched route and operation id, sanitized headers and body, authenticated identity, response status, side effects, and webhook deliveries. Use `POST /_emulate/seed` to add runtime seed data and `POST /_emulate/reset` to replay seeds.
+
+Hosted Vercel is at `https://vercel.emulators.dev` (the bare service host is useful without an instance) with instance hosts of the form `vercel.<instance>.emulators.dev`. The apex `https://emulators.dev` is a links-out catalog of every emulator; discover the same catalog machine-readably at `GET /_emulate/services` from any host. Per-service docs live at `https://docs.emulators.dev/vercel`.

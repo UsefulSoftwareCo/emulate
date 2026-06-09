@@ -1,9 +1,30 @@
-import type { ServicePlugin, Store, AppKeyResolver, AuthFallback, WebhookDispatcher } from "@emulators/core";
+import type {
+  ServicePlugin,
+  Store,
+  AppKeyResolver,
+  AuthFallback,
+  WebhookDispatcher,
+  ServiceManifest,
+  CredentialRequest,
+  IssuedCredential,
+  TokenMap,
+} from "@emulators/core";
 
 export interface LoadedService {
   plugin: ServicePlugin;
+  // Each plugin owns its manifest (the single source of truth). load() resolves
+  // it lazily alongside the plugin so the CLI never eager-loads every service.
+  manifest: ServiceManifest;
   seedFromConfig?(store: Store, baseUrl: string, config: unknown, webhooks?: WebhookDispatcher): void;
   createAppKeyResolver?(store: Store): AppKeyResolver;
+  ensureUser?(store: Store, baseUrl: string, login: string): number;
+  issueCredential?(
+    store: Store,
+    baseUrl: string,
+    tokenMap: TokenMap,
+    request: CredentialRequest,
+    webhooks?: WebhookDispatcher,
+  ): IssuedCredential;
 }
 
 export interface ServiceEntry {
@@ -27,9 +48,202 @@ const SERVICE_NAME_LIST = [
   "stripe",
   "mongoatlas",
   "clerk",
+  "spotify",
+  "x",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
+
+export function issueServiceCredential(
+  service: ServiceName,
+  loaded: LoadedService,
+  store: Store,
+  baseUrl: string,
+  tokenMap: TokenMap,
+  request: CredentialRequest,
+  webhooks?: WebhookDispatcher,
+): IssuedCredential {
+  if (loaded.issueCredential) {
+    return loaded.issueCredential(store, baseUrl, tokenMap, request, webhooks);
+  }
+  const type = request.type ?? loaded.manifest.auth[0]?.type ?? "bearer-token";
+  if (type === "bearer-token" || type === "api-key") {
+    const login = request.login ?? "admin";
+    const scopes = Array.isArray(request.scopes)
+      ? request.scopes.filter((s): s is string => typeof s === "string")
+      : [];
+    const id = loaded.ensureUser?.(store, baseUrl, login) ?? Date.now();
+    const token =
+      typeof request.token === "string" && request.token.length > 0 ? request.token : defaultToken(service, type);
+    tokenMap.set(token, { login, id, scopes });
+    return { type, token, login, scopes };
+  }
+
+  if (
+    type === "oauth-authorization-code" ||
+    type === "oauth-client-credentials" ||
+    type === "dynamic-client-registration"
+  ) {
+    if (!loaded.seedFromConfig) throw new Error(`Credential type ${type} is not supported by ${service}`);
+    const clientId = request.client_id ?? defaultClientId(service);
+    const clientSecret = request.client_secret ?? defaultClientSecret(service);
+    const redirectUris = normalizeRedirectUris(request.redirect_uris);
+    const name = request.name ?? `${SERVICE_REGISTRY[service].label.replace(/ emulator$/i, "")} Client`;
+    const seed = credentialSeed(service, { clientId, clientSecret, redirectUris, name, request });
+    if (!seed) throw new Error(`Credential type ${type} is not supported by ${service}`);
+    loaded.seedFromConfig(store, baseUrl, seed, webhooks);
+    return {
+      type,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uris: redirectUris,
+      authorization_url: authorizationUrlFor(service, baseUrl),
+      token_url: tokenUrlFor(service, baseUrl),
+    };
+  }
+
+  throw new Error(`Credential type ${type} is not supported by ${service}`);
+}
+
+function defaultToken(service: ServiceName, type: string): string {
+  const prefix = type === "api-key" ? apiKeyPrefix(service) : `emu_${service}`;
+  return `${prefix}_${randomId()}`;
+}
+
+function apiKeyPrefix(service: ServiceName): string {
+  if (service === "stripe") return "sk_test";
+  if (service === "resend") return "re";
+  if (service === "clerk") return "sk_test";
+  return `emu_${service}`;
+}
+
+function defaultClientId(service: ServiceName): string {
+  if (service === "spotify") return `app_${randomId().slice(0, 18)}`;
+  if (service === "github") return `Iv1.${randomId().slice(0, 16)}`;
+  if (service === "google") return `${randomId().slice(0, 24)}.apps.googleusercontent.com`;
+  return `${service}_${randomId().slice(0, 18)}`;
+}
+
+function defaultClientSecret(service: ServiceName): string {
+  if (service === "google") return `GOCSPX-${randomId().slice(0, 24)}`;
+  return `secret_${randomId()}`;
+}
+
+function normalizeRedirectUris(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    const uris = value.filter((uri): uri is string => typeof uri === "string" && uri.length > 0);
+    if (uris.length > 0) return uris;
+  }
+  return ["http://localhost:3000/callback"];
+}
+
+function credentialSeed(
+  service: ServiceName,
+  args: {
+    clientId: string;
+    clientSecret: string;
+    redirectUris: string[];
+    name: string;
+    request: CredentialRequest;
+  },
+): unknown | null {
+  const { clientId, clientSecret, redirectUris, name, request } = args;
+  if (service === "github") {
+    return { oauth_apps: [{ client_id: clientId, client_secret: clientSecret, name, redirect_uris: redirectUris }] };
+  }
+  if (service === "google" || service === "apple" || service === "microsoft") {
+    return { oauth_clients: [{ client_id: clientId, client_secret: clientSecret, name, redirect_uris: redirectUris }] };
+  }
+  if (service === "okta") {
+    return {
+      oauth_clients: [
+        {
+          client_id: clientId,
+          client_secret: clientSecret,
+          name,
+          redirect_uris: redirectUris,
+          auth_server_id: typeof request.auth_server_id === "string" ? request.auth_server_id : "default",
+        },
+      ],
+    };
+  }
+  if (service === "slack") {
+    return {
+      oauth_apps: [
+        {
+          client_id: clientId,
+          client_secret: clientSecret,
+          name,
+          redirect_uris: redirectUris,
+          scopes: Array.isArray(request.scopes) ? request.scopes : ["chat:write", "channels:read", "users:read"],
+          user_scopes: Array.isArray(request.user_scopes) ? request.user_scopes : [],
+        },
+      ],
+    };
+  }
+  if (service === "vercel") {
+    return { integrations: [{ client_id: clientId, client_secret: clientSecret, name, redirect_uris: redirectUris }] };
+  }
+  if (service === "spotify") {
+    return { clients: [{ client_id: clientId, client_secret: clientSecret, name }] };
+  }
+  if (service === "clerk") {
+    return {
+      oauth_applications: [{ client_id: clientId, client_secret: clientSecret, name, redirect_uris: redirectUris }],
+    };
+  }
+  if (service === "x") {
+    return {
+      oauth_clients: [
+        {
+          client_id: clientId,
+          client_secret: clientSecret,
+          client_type: "confidential",
+          name,
+          redirect_uris: redirectUris,
+        },
+      ],
+    };
+  }
+  return null;
+}
+
+function tokenUrlFor(service: ServiceName, baseUrl: string): string | undefined {
+  const paths: Partial<Record<ServiceName, string>> = {
+    github: "/login/oauth/access_token",
+    google: "/token",
+    apple: "/auth/token",
+    microsoft: "/oauth2/v2.0/token",
+    okta: "/oauth2/default/v1/token",
+    slack: "/api/oauth.v2.access",
+    vercel: "/v2/oauth/access_token",
+    spotify: "/api/token",
+    clerk: "/oauth/token",
+    x: "/2/oauth2/token",
+  };
+  const path = paths[service];
+  return path ? `${baseUrl}${path}` : undefined;
+}
+
+function authorizationUrlFor(service: ServiceName, baseUrl: string): string | undefined {
+  const paths: Partial<Record<ServiceName, string>> = {
+    github: "/login/oauth/authorize",
+    google: "/o/oauth2/v2/auth",
+    apple: "/auth/authorize",
+    microsoft: "/oauth2/v2.0/authorize",
+    okta: "/oauth2/default/v1/authorize",
+    slack: "/oauth/v2/authorize",
+    vercel: "/integrations/oauth/authorize",
+    clerk: "/oauth/authorize",
+    x: "/2/oauth2/authorize",
+  };
+  const path = paths[service];
+  return path ? `${baseUrl}${path}` : undefined;
+}
+
+function randomId(): string {
+  return crypto.randomUUID().replace(/-/g, "");
+}
 
 export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   vercel: {
@@ -37,7 +251,15 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
     endpoints: "projects, deployments, domains, env vars, users, teams, file uploads, protection bypass",
     async load() {
       const mod = await import("@emulators/vercel");
-      return { plugin: mod.vercelPlugin, seedFromConfig: mod.seedFromConfig };
+      return {
+        plugin: mod.vercelPlugin,
+        manifest: mod.manifest,
+        seedFromConfig: mod.seedFromConfig,
+        ensureUser(store: Store, baseUrl: string, login: string): number {
+          mod.seedFromConfig(store, baseUrl, { users: [{ username: login }] });
+          return mod.getVercelStore(store).users.findOneBy("username", login)?.id ?? 1;
+        },
+      };
     },
     defaultFallback(cfg) {
       const firstLogin = (cfg?.users as Array<{ username?: string }> | undefined)?.[0]?.username ?? "admin";
@@ -68,6 +290,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       const mod = await import("@emulators/github");
       return {
         plugin: mod.githubPlugin,
+        manifest: mod.manifest,
         seedFromConfig: mod.seedFromConfig,
         createAppKeyResolver(store: Store): AppKeyResolver {
           return (appId: number) => {
@@ -80,6 +303,10 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
               return null;
             }
           };
+        },
+        ensureUser(store: Store, baseUrl: string, login: string): number {
+          mod.seedFromConfig(store, baseUrl, { users: [{ login }] });
+          return mod.getGitHubStore(store).users.findOneBy("login", login)?.id ?? 1;
         },
       };
     },
@@ -135,7 +362,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       "OAuth authorize, token exchange, userinfo, OIDC discovery, token revocation, Gmail messages/drafts/threads/labels/history/settings, Calendar lists/events/freebusy, Drive files/uploads",
     async load() {
       const mod = await import("@emulators/google");
-      return { plugin: mod.googlePlugin, seedFromConfig: mod.seedFromConfig };
+      return { plugin: mod.googlePlugin, manifest: mod.manifest, seedFromConfig: mod.seedFromConfig };
     },
     defaultFallback(cfg) {
       const firstEmail = (cfg?.users as Array<{ email?: string }> | undefined)?.[0]?.email ?? "testuser@gmail.com";
@@ -219,7 +446,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       "auth, chat, conversations, users, profiles, presence, files, pins, bookmarks, views, reactions, team, OAuth, incoming webhooks, inspector",
     async load() {
       const mod = await import("@emulators/slack");
-      return { plugin: mod.slackPlugin, seedFromConfig: mod.seedFromConfig };
+      return { plugin: mod.slackPlugin, manifest: mod.manifest, seedFromConfig: mod.seedFromConfig };
     },
     defaultFallback() {
       return {
@@ -301,7 +528,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
     endpoints: "OAuth authorize, token exchange, JWKS",
     async load() {
       const mod = await import("@emulators/apple");
-      return { plugin: mod.applePlugin, seedFromConfig: mod.seedFromConfig };
+      return { plugin: mod.applePlugin, manifest: mod.manifest, seedFromConfig: mod.seedFromConfig };
     },
     defaultFallback(cfg) {
       const firstEmail = (cfg?.users as Array<{ email?: string }> | undefined)?.[0]?.email ?? "testuser@icloud.com";
@@ -327,7 +554,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
     endpoints: "OAuth authorize, token exchange, userinfo, OIDC discovery, Graph /me, logout, token revocation",
     async load() {
       const mod = await import("@emulators/microsoft");
-      return { plugin: mod.microsoftPlugin, seedFromConfig: mod.seedFromConfig };
+      return { plugin: mod.microsoftPlugin, manifest: mod.manifest, seedFromConfig: mod.seedFromConfig };
     },
     defaultFallback(cfg) {
       const firstEmail = (cfg?.users as Array<{ email?: string }> | undefined)?.[0]?.email ?? "testuser@outlook.com";
@@ -354,7 +581,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       "OIDC discovery, JWKS, OAuth authorize/token/userinfo/introspect/revoke/logout, users, groups, apps, authorization servers",
     async load() {
       const mod = await import("@emulators/okta");
-      return { plugin: mod.oktaPlugin, seedFromConfig: mod.seedFromConfig };
+      return { plugin: mod.oktaPlugin, manifest: mod.manifest, seedFromConfig: mod.seedFromConfig };
     },
     defaultFallback(cfg) {
       const firstLogin =
@@ -387,7 +614,31 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       "S3 (buckets, objects), SQS (queues, messages), IAM (users, roles, access keys), STS (assume role, caller identity)",
     async load() {
       const mod = await import("@emulators/aws");
-      return { plugin: mod.awsPlugin, seedFromConfig: mod.seedFromConfig };
+      return {
+        plugin: mod.awsPlugin,
+        manifest: mod.manifest,
+        seedFromConfig: mod.seedFromConfig,
+        issueCredential(
+          store: Store,
+          baseUrl: string,
+          _tokenMap: TokenMap,
+          request: CredentialRequest,
+        ): IssuedCredential {
+          const userName = request.login ?? "developer";
+          mod.seedFromConfig(store, baseUrl, { iam: { users: [{ user_name: userName, create_access_key: true }] } });
+          const user = mod.getAwsStore(store).iamUsers.findOneBy("user_name", userName);
+          const key = user?.access_keys.find((candidate) => candidate.status === "Active");
+          if (!user || !key) throw new Error("Failed to create AWS access key");
+          return {
+            type: "provider-specific",
+            provider: "aws",
+            user_name: user.user_name,
+            access_key_id: key.access_key_id,
+            secret_access_key: key.secret_access_key,
+            region: "us-east-1",
+          };
+        },
+      };
     },
     defaultFallback() {
       return { login: "admin", id: 1, scopes: ["s3:*", "sqs:*", "iam:*", "sts:*"] };
@@ -409,7 +660,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
     endpoints: "emails, domains, contacts, API keys, inbox UI",
     async load() {
       const mod = await import("@emulators/resend");
-      return { plugin: mod.resendPlugin, seedFromConfig: mod.seedFromConfig };
+      return { plugin: mod.resendPlugin, manifest: mod.manifest, seedFromConfig: mod.seedFromConfig };
     },
     defaultFallback() {
       return { login: "re_test_admin", id: 1, scopes: [] };
@@ -427,7 +678,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       "customers, payment methods, customer sessions, payment intents, charges, products, prices, checkout sessions, webhooks",
     async load() {
       const mod = await import("@emulators/stripe");
-      return { plugin: mod.stripePlugin, seedFromConfig: mod.seedFromConfig };
+      return { plugin: mod.stripePlugin, manifest: mod.manifest, seedFromConfig: mod.seedFromConfig };
     },
     defaultFallback() {
       return { login: "sk_test_admin", id: 1, scopes: [] };
@@ -446,7 +697,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       "Atlas Admin API v2 (projects, clusters, database users, databases, collections), Atlas Data API v1 (findOne, find, insertOne, insertMany, updateOne, updateMany, deleteOne, deleteMany, aggregate)",
     async load() {
       const mod = await import("@emulators/mongoatlas");
-      return { plugin: mod.mongoatlasPlugin, seedFromConfig: mod.seedFromConfig };
+      return { plugin: mod.mongoatlasPlugin, manifest: mod.manifest, seedFromConfig: mod.seedFromConfig };
     },
     defaultFallback() {
       return { login: "admin", id: 1, scopes: [] };
@@ -466,7 +717,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       "OIDC discovery, JWKS, OAuth authorize/token/userinfo, users, email addresses, organizations, memberships, invitations, sessions",
     async load() {
       const mod = await import("@emulators/clerk");
-      return { plugin: mod.clerkPlugin, seedFromConfig: mod.seedFromConfig };
+      return { plugin: mod.clerkPlugin, manifest: mod.manifest, seedFromConfig: mod.seedFromConfig };
     },
     defaultFallback(cfg) {
       const firstEmail =
@@ -499,6 +750,73 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
             redirect_uris: ["http://localhost:3000/api/auth/callback/clerk"],
           },
         ],
+      },
+    },
+  },
+  spotify: {
+    label: "Spotify Web API emulator",
+    endpoints: "client credentials token endpoint, catalog search, artists, albums, and tracks",
+    async load() {
+      const mod = await import("@emulators/spotify");
+      return { plugin: mod.spotifyPlugin, manifest: mod.manifest, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback() {
+      return { login: "spotify-app", id: 1, scopes: [] };
+    },
+    initConfig: {
+      spotify: {
+        clients: [{ client_id: "demo-client-id", client_secret: "demo-client-secret", name: "Demo App" }],
+      },
+    },
+  },
+  x: {
+    label: "X (Twitter) API v2 emulator",
+    endpoints:
+      "OAuth 2.0 authorize/token/revoke (Authorization Code with PKCE + app-only client credentials), users, tweets",
+    async load() {
+      const mod = await import("@emulators/x");
+      return {
+        plugin: mod.xPlugin,
+        manifest: mod.manifest,
+        seedFromConfig: mod.seedFromConfig,
+        ensureUser(store: Store, baseUrl: string, login: string): number {
+          mod.seedFromConfig(store, baseUrl, { users: [{ username: login }] });
+          return mod.getXStore(store).users.findOneBy("username", login.toLowerCase().replace(/^@/, ""))?.id ?? 1;
+        },
+      };
+    },
+    defaultFallback(cfg) {
+      const firstUsername = (cfg?.users as Array<{ username?: string }> | undefined)?.[0]?.username ?? "developer";
+      return { login: firstUsername, id: 1, scopes: ["tweet.read", "users.read"] };
+    },
+    initConfig: {
+      x: {
+        users: [
+          {
+            username: "developer",
+            name: "Developer",
+            description: "Building with the X API v2 emulator.",
+            verified: true,
+            followers_count: 1200,
+            following_count: 320,
+          },
+        ],
+        oauth_clients: [
+          {
+            client_id: "x-confidential-client",
+            client_secret: "x-confidential-secret",
+            client_type: "confidential",
+            name: "My X App (confidential)",
+            redirect_uris: ["http://localhost:3000/api/auth/callback/twitter"],
+          },
+          {
+            client_id: "x-public-client",
+            client_type: "public",
+            name: "My X App (public)",
+            redirect_uris: ["http://localhost:3000/api/auth/callback/twitter"],
+          },
+        ],
+        tweets: [{ text: "Hello from the X API v2 emulator.", author: "developer", like_count: 42, retweet_count: 7 }],
       },
     },
   },

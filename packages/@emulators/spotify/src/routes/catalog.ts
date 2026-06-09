@@ -67,9 +67,27 @@ export function catalogRoutes({ app, store, baseUrl }: RouteContext): void {
     const types = (c.req.query("type") ?? "artist,album,track").split(",").map((s) => s.trim());
     const m = (name: string) => (q ? name.toLowerCase().includes(q) : true);
     const out: Record<string, unknown> = {};
-    if (types.includes("artist")) out.artists = { items: ss.artists.all().filter((a) => m(a.name)).map(artistObj) };
-    if (types.includes("album")) out.albums = { items: ss.albums.all().filter((a) => m(a.name)).map(albumObj) };
-    if (types.includes("track")) out.tracks = { items: ss.tracks.all().filter((t) => m(t.name)).map(trackObj) };
+    if (types.includes("artist"))
+      out.artists = {
+        items: ss.artists
+          .all()
+          .filter((a) => m(a.name))
+          .map(artistObj),
+      };
+    if (types.includes("album"))
+      out.albums = {
+        items: ss.albums
+          .all()
+          .filter((a) => m(a.name))
+          .map(albumObj),
+      };
+    if (types.includes("track"))
+      out.tracks = {
+        items: ss.tracks
+          .all()
+          .filter((t) => m(t.name))
+          .map(trackObj),
+      };
     return c.json(out);
   });
 
@@ -103,7 +121,12 @@ export function catalogRoutes({ app, store, baseUrl }: RouteContext): void {
   app.get("/v1/me", (c) => {
     if (!authed(c)) return unauthorized(c);
     return c.json(
-      { error: { status: 403, message: "This endpoint requires a user-authorized token; a client-credentials token has no user." } },
+      {
+        error: {
+          status: 403,
+          message: "This endpoint requires a user-authorized token; a client-credentials token has no user.",
+        },
+      },
       403,
     );
   });

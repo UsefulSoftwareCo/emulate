@@ -12,6 +12,7 @@ import { getClerkStore } from "./store.js";
 
 export { getClerkStore, type ClerkStore } from "./store.js";
 export * from "./entities.js";
+export { manifest } from "./manifest.js";
 
 export interface ClerkSeedConfig {
   users?: Array<{

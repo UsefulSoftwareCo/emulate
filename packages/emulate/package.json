@@ -15,7 +15,7 @@
   },
   "main": "./dist/api.js",
   "types": "./dist/api.d.ts",
-  "homepage": "https://emulate.dev",
+  "homepage": "https://emulators.dev",
   "repository": {
     "type": "git",
     "url": "https://github.com/vercel-labs/emulate.git",
@@ -70,6 +70,8 @@
     "@emulators/resend": "workspace:*",
     "@emulators/stripe": "workspace:*",
     "@emulators/clerk": "workspace:*",
+    "@emulators/spotify": "workspace:*",
+    "@emulators/x": "workspace:*",
     "tsup": "^8",
     "typescript": "^5.7"
   }

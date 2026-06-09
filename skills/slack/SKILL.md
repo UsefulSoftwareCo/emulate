@@ -727,3 +727,19 @@ curl -X POST http://localhost:4003/services/T000000001/B000000001/X000000001 \
   -H "Content-Type: application/json" \
   -d '{"text": "Build passed on main"}'
 ```
+
+## Discovery
+
+When using a running emulator URL, inspect `GET /_emulate/manifest` first to confirm supported surfaces (Web API, OAuth v2, incoming webhooks, event subscriptions), auth capabilities, and per-operation spec coverage. Use `GET /_emulate/connections` for copyable SDK, CLI, env, and curl snippets and `GET /_emulate/quickstart` for setup notes.
+
+Mint credentials with `POST /_emulate/credentials`, the canonical, uniform way to create a credential for any service (here a Slack OAuth app):
+
+```bash
+curl -X POST "$SLACK_EMULATOR_URL/_emulate/credentials" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"oauth-authorization-code","redirect_uris":["http://localhost:3000/api/auth/callback/slack"]}'
+```
+
+Inspect calls with `GET /_emulate/ledger`: each entry includes a correlation id (set `X-Correlation-Id` on a request to trace it), the matched route and operation id, sanitized headers and body, authenticated identity, response status, side effects, and webhook deliveries (the `event_callback` payloads dispatched on state changes). Use `POST /_emulate/seed` to add runtime seed data and `POST /_emulate/reset` to replay seeds.
+
+Hosted Slack is at `https://slack.emulators.dev` (the bare service host is useful without an instance) with instance hosts of the form `slack.<instance>.emulators.dev`. The apex `https://emulators.dev` is a links-out catalog of every emulator; discover the same catalog machine-readably at `GET /_emulate/services` from any host. Per-service docs live at `https://docs.emulators.dev/slack`.

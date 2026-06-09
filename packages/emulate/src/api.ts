@@ -1,5 +1,5 @@
-import { createServer, serve, type AppKeyResolver, type Store } from "@emulators/core";
-import { SERVICE_REGISTRY } from "./registry.js";
+import { createServer, serve, type AppKeyResolver } from "@emulators/core";
+import { SERVICE_REGISTRY, issueServiceCredential } from "./registry.js";
 export type { ServiceName } from "./registry.js";
 import type { ServiceName } from "./registry.js";
 import { resolveBaseUrl } from "./base-url.js";
@@ -55,14 +55,38 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
 
   const fallbackUser = entry.defaultFallback(svcSeedConfig);
 
-  const { app, store, webhooks } = createServer(loaded.plugin, { port, baseUrl, tokens, appKeyResolver, fallbackUser });
+  let resetService = () => {};
+  let applyRuntimeSeed = (_seed: unknown) => {};
+  const { app, store, webhooks, ledger, tokenMap } = createServer(loaded.plugin, {
+    port,
+    baseUrl,
+    tokens,
+    appKeyResolver,
+    fallbackUser,
+    manifest: loaded.manifest,
+    instance: service,
+    reset: () => resetService(),
+    seed: (seed) => applyRuntimeSeed(seed),
+    issueCredential: (request) => issueServiceCredential(service, loaded, store, baseUrl, tokenMap, request, webhooks),
+  });
   cachedResolver = loaded.createAppKeyResolver?.(store);
 
   const seed = () => {
+    webhooks.clear();
+    ledger.clear();
     loaded.plugin.seed?.(store, baseUrl);
     if (svcSeedConfig && loaded.seedFromConfig) {
       loaded.seedFromConfig(store, baseUrl, svcSeedConfig, webhooks);
     }
+  };
+  applyRuntimeSeed = (seed) => {
+    if (seed && loaded.seedFromConfig) {
+      loaded.seedFromConfig(store, baseUrl, seed, webhooks);
+    }
+  };
+  resetService = () => {
+    store.reset();
+    seed();
   };
   seed();
 

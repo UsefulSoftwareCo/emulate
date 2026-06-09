@@ -19,6 +19,7 @@ import { inspectorRoutes } from "./routes/inspector.js";
 
 export { getSlackStore, type SlackStore } from "./store.js";
 export * from "./entities.js";
+export { manifest } from "./manifest.js";
 
 export interface SlackSeedConfig {
   port?: number;

@@ -8,7 +8,7 @@ import { getStarCount } from "@/lib/github";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://emulate.rhys.dev"),
+  metadataBase: new URL("https://emulators.dev"),
   title: {
     default: "emulate | Local API Emulation for CI & Sandboxes",
     template: "%s | emulate",
@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: "website",
     locale: "en_US",
-    url: "https://emulate.rhys.dev",
+    url: "https://emulators.dev",
     siteName: "emulate",
     title: "emulate | Local API Emulation for CI & Sandboxes",
     description:

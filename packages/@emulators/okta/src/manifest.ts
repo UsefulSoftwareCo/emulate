@@ -1,0 +1,246 @@
+import type { ServiceManifest } from "@emulators/core";
+
+/**
+ * Okta's machine-readable service manifest. This is the single source of truth
+ * for Okta's surfaces, auth, specs, seed shape, and copyable connection
+ * snippets, consumed by the CLI registry, the Cloudflare host, and the console.
+ */
+export const manifest: ServiceManifest = {
+  id: "okta",
+  name: "Okta",
+  description: "Stateful Okta OAuth, OpenID Connect, users, groups, apps, and authorization server emulator.",
+  docsUrl: "https://docs.emulators.dev/okta",
+  surfaces: [
+    { id: "rest", kind: "rest", title: "Management API", status: "partial", basePath: "/api/v1" },
+    { id: "oauth", kind: "oauth", title: "Okta OAuth 2.0", status: "supported", basePath: "/oauth2" },
+    { id: "oidc", kind: "oidc", title: "OpenID Connect", status: "supported", basePath: "/.well-known" },
+  ],
+  auth: [
+    { id: "oauth-code", title: "OAuth authorization code", type: "oauth-authorization-code", status: "supported" },
+    {
+      id: "client-credentials",
+      title: "OAuth client credentials",
+      type: "oauth-client-credentials",
+      status: "supported",
+    },
+    { id: "oidc", title: "OIDC identity tokens", type: "oidc", status: "supported" },
+  ],
+  specs: [
+    {
+      kind: "oauth-metadata",
+      title: "Okta OIDC metadata",
+      coverage: "hand-authored",
+      operations: [
+        {
+          operationId: "oidc/discovery",
+          method: "GET",
+          path: "/.well-known/openid-configuration",
+          status: "hand-authored",
+        },
+        {
+          operationId: "oidc/authServerDiscovery",
+          method: "GET",
+          path: "/oauth2/:authServerId/.well-known/openid-configuration",
+          status: "hand-authored",
+        },
+        { operationId: "oidc/jwks", method: "GET", path: "/oauth2/v1/keys", status: "hand-authored" },
+        { operationId: "oauth/authorize", method: "GET", path: "/oauth2/v1/authorize", status: "hand-authored" },
+        { operationId: "oauth/token", method: "POST", path: "/oauth2/v1/token", status: "hand-authored" },
+        { operationId: "oauth/userinfo", method: "GET", path: "/oauth2/v1/userinfo", status: "hand-authored" },
+        { operationId: "oauth/introspect", method: "POST", path: "/oauth2/v1/introspect", status: "hand-authored" },
+        { operationId: "oauth/revoke", method: "POST", path: "/oauth2/v1/revoke", status: "hand-authored" },
+        { operationId: "oauth/logout", method: "GET", path: "/oauth2/v1/logout", status: "hand-authored" },
+      ],
+    },
+    {
+      kind: "manual",
+      title: "Okta management API behavior",
+      coverage: "partial",
+      operations: [
+        { operationId: "users/list", method: "GET", path: "/api/v1/users", status: "hand-authored" },
+        { operationId: "users/create", method: "POST", path: "/api/v1/users", status: "hand-authored" },
+        { operationId: "users/getCurrent", method: "GET", path: "/api/v1/users/me", status: "hand-authored" },
+        { operationId: "users/get", method: "GET", path: "/api/v1/users/:userId", status: "hand-authored" },
+        { operationId: "users/update", method: "PUT", path: "/api/v1/users/:userId", status: "hand-authored" },
+        { operationId: "users/delete", method: "DELETE", path: "/api/v1/users/:userId", status: "hand-authored" },
+        {
+          operationId: "users/listGroups",
+          method: "GET",
+          path: "/api/v1/users/:userId/groups",
+          status: "hand-authored",
+        },
+        {
+          operationId: "users/activate",
+          method: "POST",
+          path: "/api/v1/users/:userId/lifecycle/activate",
+          status: "hand-authored",
+        },
+        {
+          operationId: "users/deactivate",
+          method: "POST",
+          path: "/api/v1/users/:userId/lifecycle/deactivate",
+          status: "hand-authored",
+        },
+        { operationId: "groups/list", method: "GET", path: "/api/v1/groups", status: "hand-authored" },
+        { operationId: "groups/create", method: "POST", path: "/api/v1/groups", status: "hand-authored" },
+        { operationId: "groups/get", method: "GET", path: "/api/v1/groups/:groupId", status: "hand-authored" },
+        {
+          operationId: "groups/listUsers",
+          method: "GET",
+          path: "/api/v1/groups/:groupId/users",
+          status: "hand-authored",
+        },
+        {
+          operationId: "groups/addUser",
+          method: "PUT",
+          path: "/api/v1/groups/:groupId/users/:userId",
+          status: "hand-authored",
+        },
+        {
+          operationId: "groups/removeUser",
+          method: "DELETE",
+          path: "/api/v1/groups/:groupId/users/:userId",
+          status: "hand-authored",
+        },
+        { operationId: "apps/list", method: "GET", path: "/api/v1/apps", status: "hand-authored" },
+        { operationId: "apps/create", method: "POST", path: "/api/v1/apps", status: "hand-authored" },
+        { operationId: "apps/get", method: "GET", path: "/api/v1/apps/:appId", status: "hand-authored" },
+        {
+          operationId: "apps/assignUser",
+          method: "PUT",
+          path: "/api/v1/apps/:appId/users/:userId",
+          status: "hand-authored",
+        },
+        {
+          operationId: "authorizationServers/list",
+          method: "GET",
+          path: "/api/v1/authorizationServers",
+          status: "hand-authored",
+        },
+        {
+          operationId: "authorizationServers/create",
+          method: "POST",
+          path: "/api/v1/authorizationServers",
+          status: "hand-authored",
+        },
+        {
+          operationId: "authorizationServers/get",
+          method: "GET",
+          path: "/api/v1/authorizationServers/:authServerId",
+          status: "hand-authored",
+        },
+      ],
+    },
+  ],
+  seedSchema: {
+    description: "Seed users, groups, apps, OAuth clients, and authorization servers.",
+    fields: [
+      {
+        key: "users",
+        title: "Users",
+        description: "Directory users addressable by login.",
+        example: [
+          { login: "testuser@okta.local", email: "testuser@okta.local", first_name: "Test", last_name: "User" },
+        ],
+      },
+      {
+        key: "groups",
+        title: "Groups",
+        description: "Directory groups for membership assignment.",
+        example: [{ name: "Everyone", description: "All users", type: "BUILT_IN", okta_id: "00g_everyone" }],
+      },
+      {
+        key: "apps",
+        title: "Applications",
+        description: "Okta application integrations.",
+        example: [{ name: "My App", label: "My App", sign_on_mode: "OPENID_CONNECT", status: "ACTIVE" }],
+      },
+      {
+        key: "oauth_clients",
+        title: "OAuth clients",
+        description: "OIDC clients usable in OAuth flows.",
+        example: [
+          {
+            client_id: "okta-test-client",
+            client_secret: "okta-test-secret",
+            name: "Sample OIDC Client",
+            redirect_uris: ["http://localhost:3000/callback"],
+            auth_server_id: "default",
+          },
+        ],
+      },
+      {
+        key: "authorization_servers",
+        title: "Authorization servers",
+        description: "Custom authorization servers that issue access tokens.",
+        example: [{ id: "default", name: "default", audiences: ["api://default"] }],
+      },
+      {
+        key: "group_memberships",
+        title: "Group memberships",
+        description: "Links between users and groups by Okta id.",
+        example: [{ group_okta_id: "00g_everyone", user_okta_id: "00u_example" }],
+      },
+      {
+        key: "app_assignments",
+        title: "App assignments",
+        description: "Links between users and applications by Okta id.",
+        example: [{ app_okta_id: "0oa_example", user_okta_id: "00u_example" }],
+      },
+    ],
+    example: {
+      users: [{ login: "testuser@okta.local", email: "testuser@okta.local", first_name: "Test", last_name: "User" }],
+      groups: [{ name: "Everyone", description: "All users", type: "BUILT_IN", okta_id: "00g_everyone" }],
+      authorization_servers: [{ id: "default", name: "default", audiences: ["api://default"] }],
+      oauth_clients: [
+        {
+          client_id: "okta-test-client",
+          client_secret: "okta-test-secret",
+          name: "Sample OIDC Client",
+          redirect_uris: ["http://localhost:3000/callback"],
+          auth_server_id: "default",
+        },
+      ],
+    },
+  },
+  stateModel: {
+    description: "Entities mutated by Okta provider calls.",
+    collections: [
+      { name: "users" },
+      { name: "groups" },
+      { name: "apps" },
+      { name: "oauth_clients" },
+      { name: "auth_servers" },
+      { name: "group_memberships" },
+      { name: "app_assignments" },
+    ],
+  },
+  connections: [
+    {
+      id: "okta-auth-js",
+      title: "Okta Auth JS (TypeScript)",
+      kind: "sdk",
+      language: "typescript",
+      description: "Point the Okta Auth JS SDK at the emulator instance.",
+      template:
+        'import { OktaAuth } from "@okta/okta-auth-js";\n\nconst authClient = new OktaAuth({\n  issuer: "{{baseUrl}}/oauth2/default",\n  clientId: "{{clientId}}",\n  redirectUri: "http://localhost:3000/callback",\n  scopes: ["openid", "profile", "email"],\n});',
+    },
+    {
+      id: "okta-env",
+      title: "Okta issuer (env)",
+      kind: "env",
+      language: "bash",
+      description: "Point Okta SDKs and the management API at the emulator.",
+      template:
+        "OKTA_ORG_URL={{baseUrl}}\nOKTA_ISSUER={{baseUrl}}/oauth2/default\nOKTA_CLIENT_ID={{clientId}}\nOKTA_CLIENT_SECRET={{clientSecret}}\nOKTA_API_TOKEN={{token}}",
+    },
+    {
+      id: "curl",
+      title: "curl",
+      kind: "curl",
+      language: "bash",
+      description: "Read the OIDC discovery document.",
+      template: "curl -s {{baseUrl}}/oauth2/default/.well-known/openid-configuration",
+    },
+  ],
+};

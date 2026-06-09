@@ -6,9 +6,27 @@ import { defineConfig } from "tsup";
 // EXTERNAL import so Cloudflare's nodejs_compat resolves them (and esbuild doesn't
 // try to bundle them). platform:neutral so no Node shims are injected.
 const NODE_BUILTINS = new Set([
-  "assert", "buffer", "crypto", "events", "fs", "fs/promises", "http", "https",
-  "net", "os", "path", "querystring", "stream", "string_decoder", "tls", "url",
-  "util", "zlib", "module", "async_hooks", "perf_hooks",
+  "assert",
+  "buffer",
+  "crypto",
+  "events",
+  "fs",
+  "fs/promises",
+  "http",
+  "https",
+  "net",
+  "os",
+  "path",
+  "querystring",
+  "stream",
+  "string_decoder",
+  "tls",
+  "url",
+  "util",
+  "zlib",
+  "module",
+  "async_hooks",
+  "perf_hooks",
 ]);
 
 export default defineConfig({

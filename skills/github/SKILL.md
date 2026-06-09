@@ -558,3 +558,19 @@ curl $BASE/repos/my-org/org-repo \
 3. Emulator redirects back with `?code=...&state=...`
 4. Exchange code for token via `POST /login/oauth/access_token`
 5. Use token to call API endpoints
+
+## Discovery
+
+When using a running emulator URL, inspect `GET /_emulate/manifest` first to confirm supported surfaces (REST, OAuth app flows, GitHub App auth, webhooks), auth capabilities, and per-operation spec coverage. Use `GET /_emulate/connections` for copyable SDK, CLI, env, and curl snippets and `GET /_emulate/quickstart` for setup notes.
+
+Mint credentials with `POST /_emulate/credentials`, the canonical, uniform way to create a credential for any service (here a bearer token or an OAuth app):
+
+```bash
+curl -X POST "$GITHUB_EMULATOR_URL/_emulate/credentials" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"oauth-authorization-code","redirect_uris":["http://localhost:3000/api/auth/callback/github"]}'
+```
+
+Inspect calls with `GET /_emulate/ledger`: each entry includes a correlation id (set `X-Correlation-Id` on a request to trace it), the matched route and operation id, sanitized headers and body, authenticated identity, response status, side effects, and webhook deliveries. Use `POST /_emulate/seed` to add runtime seed data and `POST /_emulate/reset` to replay seeds.
+
+Hosted GitHub is at `https://github.emulators.dev` (the bare service host is useful without an instance) with instance hosts of the form `github.<instance>.emulators.dev`. The apex `https://emulators.dev` is a links-out catalog of every emulator; discover the same catalog machine-readably at `GET /_emulate/services` from any host. Per-service docs live at `https://docs.emulators.dev/github`.

@@ -127,11 +127,11 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     return c.json({ keys: [] });
   });
 
-  // ---------- Google API Discovery (the REAL spec, pointed at this instance) ---
+  // Google API Discovery document, pointed at this instance.
   // Mirrors Google's discovery service (`/discovery/v1/apis/:api/:version/rest`):
-  // fetches Google's ACTUAL discovery document and rewrites its base URLs to this
-  // emulator instance, so Executor's real `googleDiscovery` source path ingests
-  // the genuine Google API surface but calls the emulator. Cached per instance.
+  // fetches Google's discovery document and rewrites its base URLs to this
+  // emulator instance, so tools can ingest the real Google API surface while
+  // calling the emulator. Cached per instance.
   app.get("/discovery/v1/apis/:api/:version/rest", async (c) => {
     const api = c.req.param("api");
     const version = c.req.param("version");

@@ -176,3 +176,11 @@ interface PersistenceAdapter {
 ```
 
 The built-in `filePersistence(path)` from `@emulators/core` provides a file-based adapter for local development.
+
+## Discovery
+
+Each embedded service exposes the same `/_emulate` control plane on the Next.js origin (for example `/api/emulate/github/_emulate/manifest`, depending on how the adapter is mounted). Inspect `GET /_emulate/manifest` first to confirm supported surfaces, auth capabilities, and per-operation spec coverage. Use `GET /_emulate/connections` for copyable SDK, CLI, env, and curl snippets and `GET /_emulate/quickstart` for setup notes.
+
+Mint credentials with `POST /_emulate/credentials`, the canonical, uniform way to create a credential for any service (a bearer token, API key, or OAuth client depending on the service's auth capabilities). Inspect calls with `GET /_emulate/ledger`: each entry includes a correlation id (set `X-Correlation-Id` on a request to trace it), the matched route and operation id, sanitized headers and body, authenticated identity, response status, side effects, and webhook deliveries. Use `POST /_emulate/seed` to add runtime seed data and `POST /_emulate/reset` to replay seeds.
+
+The same emulators are also hosted on `*.emulators.dev`. The apex `https://emulators.dev` is a links-out catalog of every emulator; discover the same catalog machine-readably at `GET /_emulate/services` from any host. Per-service docs live at `https://docs.emulators.dev/<service>`.

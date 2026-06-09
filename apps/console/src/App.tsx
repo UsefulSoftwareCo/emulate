@@ -1,44 +1,65 @@
-import { Link, NavLink, Route, Routes } from "react-router-dom";
-import { SERVICES, type Svc } from "./services";
+import { useState } from "react";
+import { Link, Route, Routes } from "react-router-dom";
+import { DEFAULT_INSTANCE, hostRoute } from "./api";
 import Home from "./views/Home";
-import Spotify from "./views/Spotify";
-import Vercel from "./views/Vercel";
-import Mcp from "./views/Mcp";
 import Service from "./views/Service";
 
-export function Icon({ s, size = 16 }: { s: Svc; size?: number }) {
-  return s.icon.startsWith("http") ? (
-    <img src={s.icon} alt="" style={{ width: size, height: size }} />
-  ) : (
-    <span style={{ fontSize: size, lineHeight: `${size}px` }}>{s.icon}</span>
+export function Monogram({ name, size = 26 }: { name: string; size?: number }) {
+  const letter = (name || "?").trim().charAt(0).toUpperCase();
+  return (
+    <span
+      className="mono-badge"
+      style={{ width: size, height: size, fontSize: Math.round(size * 0.5), lineHeight: `${size}px` }}
+    >
+      {letter}
+    </span>
+  );
+}
+
+// The real provider brand icon (served by the worker at /_emulate/icons/<id>),
+// falling back to a monogram if the icon is missing or fails to load.
+export function ServiceIcon({ src, name, size = 26 }: { src?: string; name: string; size?: number }) {
+  const [failed, setFailed] = useState(false);
+  if (!src || failed) return <Monogram name={name} size={size} />;
+  return (
+    <img
+      src={src}
+      alt=""
+      width={size}
+      height={size}
+      style={{ objectFit: "contain", display: "block" }}
+      onError={() => setFailed(true)}
+    />
   );
 }
 
 export default function App() {
+  const route = hostRoute();
+
   return (
     <>
       <div className="topbar">
         <div className="shell">
           <div className="row">
             <Link to="/" className="brand">
-              <span className="dot" /> Executor Emulators
+              <span className="dot" /> Emulate
             </Link>
-            <nav className="nav">
-              {SERVICES.map((s) => (
-                <NavLink key={s.id} to={`/${s.id}`} className={({ isActive }) => (isActive ? "on" : "")}>
-                  <Icon s={s} /> {s.name}
-                </NavLink>
-              ))}
-            </nav>
+            <nav className="nav">{route.service && <a href="https://emulators.dev">All emulators</a>}</nav>
           </div>
         </div>
       </div>
       <div className="shell content">
         <Routes>
-          <Route path="/" element={<Home />} />
-          <Route path="/spotify" element={<Spotify />} />
-          <Route path="/vercel" element={<Vercel />} />
-          <Route path="/mcp" element={<Mcp />} />
+          <Route
+            path="/"
+            element={
+              route.service ? (
+                <Service serviceOverride={route.service} instanceOverride={route.instance ?? DEFAULT_INSTANCE} />
+              ) : (
+                <Home />
+              )
+            }
+          />
           <Route path="/:service" element={<Service />} />
         </Routes>
       </div>

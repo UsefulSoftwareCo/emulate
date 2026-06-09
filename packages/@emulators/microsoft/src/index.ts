@@ -6,6 +6,7 @@ import { oauthRoutes } from "./routes/oauth.js";
 
 export { getMicrosoftStore, type MicrosoftStore } from "./store.js";
 export * from "./entities.js";
+export { manifest } from "./manifest.js";
 
 export interface MicrosoftSeedConfig {
   users?: Array<{

@@ -2,7 +2,7 @@ import type { RouteContext } from "@emulators/core";
 
 // OpenAPI 3.1 document for this Vercel emulator instance, pointed at itself, with
 // an OAuth2 authorization-code security scheme bound to the emulator's own
-// authorize + token endpoints. Ingestable by Executor as an OpenAPI source.
+// authorize and token endpoints for OpenAPI-aware clients and test tools.
 export function openapiRoutes({ app, baseUrl }: RouteContext): void {
   app.get("/openapi.json", (c) => c.json(buildSpec(baseUrl)));
 }
@@ -45,7 +45,11 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
     security: [{ vercelOAuth: ["user:read", "projects:read", "projects:write"] }],
     paths: {
       "/v2/user": {
-        get: { operationId: "getCurrentUser", summary: "Get the authenticated user", responses: { "200": ok("User object.") } },
+        get: {
+          operationId: "getCurrentUser",
+          summary: "Get the authenticated user",
+          responses: { "200": ok("User object.") },
+        },
       },
       "/v10/projects": {
         get: {

@@ -1,0 +1,44 @@
+{
+  "$schema": "../../../node_modules/wrangler/config-schema.json",
+  // This worker IS emulators.dev: the apex serves the catalog landing that links
+  // out to every emulator, and each subdomain serves a service or instance host.
+  // Docs live on the separate emulate-docs worker at docs.emulators.dev (a more
+  // specific route, so it wins for that host).
+  "name": "emulate-hosts",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-06-08",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "routes": [
+    {
+      // Apex: the service catalog / links-out landing page.
+      "pattern": "emulators.dev/*",
+      "zone_name": "emulators.dev"
+    },
+    {
+      // Service + instance hosts: github.emulators.dev, github.my-run.emulators.dev,
+      // stripe.ci-48291.emulators.dev.
+      "pattern": "*.emulators.dev/*",
+      "zone_name": "emulators.dev"
+    }
+  ],
+  "vars": {
+    "EMULATE_HOST_SUFFIX": "emulators.dev"
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "EMULATOR",
+        "class_name": "EmulatorDurableObject"
+      }
+    ]
+  },
+  // Required to deploy the Durable Object class. It uses key-value storage
+  // (state.storage.get/put), so it is a classic (non-SQLite) Durable Object.
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_classes": ["EmulatorDurableObject"]
+    }
+  ]
+}

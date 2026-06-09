@@ -18,6 +18,8 @@ tokens:
       - user
 ```
 
+Seed data is replayed by `reset()` in the programmatic API and by `POST /_emulate/reset` on a running emulator instance. The request ledger at `/_emulate/ledger` is also cleared during reset.
+
 ## Vercel Seed Config
 
 ```yaml

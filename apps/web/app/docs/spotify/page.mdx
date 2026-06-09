@@ -1,0 +1,39 @@
+# Spotify
+
+Spotify Web API emulation focused on OAuth 2.0 Client Credentials and catalog APIs.
+
+## Authentication
+
+Spotify uses app-level OAuth for this emulator. Create an app credential through the control plane:
+
+```bash
+curl -X POST http://localhost:4012/_emulate/credentials \
+  -H "Content-Type: application/json" \
+  -d '{"type":"oauth-client-credentials","name":"Catalog Test"}'
+```
+
+Exchange the returned `client_id` and `client_secret` at `/api/token`:
+
+```bash
+curl -X POST http://localhost:4012/api/token \
+  -u "$SPOTIFY_CLIENT_ID:$SPOTIFY_CLIENT_SECRET" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "grant_type=client_credentials"
+```
+
+## Catalog
+
+- `GET /v1/search` — search artists, albums, and tracks
+- `GET /v1/artists/:id` — retrieve artist
+- `GET /v1/artists/:id/albums` — list artist albums
+- `GET /v1/albums/:id` — retrieve album
+- `GET /v1/tracks/:id` — retrieve track
+
+## Specs
+
+- `GET /openapi.json` — hand-authored OpenAPI subset
+- `GET /_emulate/openapi` — redirect to the instance OpenAPI document
+
+## Validation
+
+Use `/_emulate/ledger` to inspect catalog calls and token exchanges with sensitive fields redacted.

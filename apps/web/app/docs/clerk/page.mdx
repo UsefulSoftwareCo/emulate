@@ -1,0 +1,40 @@
+# Clerk
+
+Clerk authentication and user management emulation with secret-key API calls, OAuth/OIDC, users, email addresses, organizations, memberships, invitations, and sessions.
+
+## Authentication
+
+Use a secret key for management API calls:
+
+```bash
+curl -X POST http://localhost:4011/_emulate/credentials \
+  -H "Content-Type: application/json" \
+  -d '{"type":"api-key","login":"admin"}'
+```
+
+Create OAuth clients through the control plane:
+
+```bash
+curl -X POST http://localhost:4011/_emulate/credentials \
+  -H "Content-Type: application/json" \
+  -d '{"type":"oauth-authorization-code","redirect_uris":["http://localhost:3000/callback"]}'
+```
+
+## OAuth / OIDC
+
+- `GET /.well-known/openid-configuration` — OIDC discovery
+- `GET /oauth/authorize` — authorization endpoint
+- `POST /oauth/token` — token endpoint
+- `GET /oauth/userinfo` — user info
+
+## Management API
+
+- `GET /v1/users` — list users
+- `POST /v1/users` — create user
+- `GET /v1/organizations` — list organizations
+- `POST /v1/organizations` — create organization
+- `GET /v1/sessions` — list sessions
+
+## Validation
+
+Use `/_emulate/ledger` to inspect API calls with secret keys, client secrets, and tokens redacted.

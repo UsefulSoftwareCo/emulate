@@ -1,6 +1,6 @@
 ---
 name: emulate
-description: Local drop-in API emulator for Vercel, GitHub, Google, Slack, Apple, Microsoft, and AWS. Use when the user needs to start emulated services, configure seed data, write tests against local APIs, set up CI without network access, or work with the emulate CLI or programmatic API. Triggers include "start the emulator", "emulate services", "mock API locally", "create emulator config", "test against local API", "npx emulate", or any task requiring local service emulation.
+description: Local drop-in API emulator for Vercel, GitHub, Google, Slack, Apple, Microsoft, Okta, AWS, Resend, Stripe, MongoDB Atlas, Clerk, and Spotify. Use when the user needs to start emulated services, configure seed data, write tests against local APIs, set up CI without network access, or work with the emulate CLI or programmatic API. Triggers include "start the emulator", "emulate services", "mock API locally", "create emulator config", "test against local API", "npx emulate", or any task requiring local service emulation.
 allowed-tools: Bash(npx emulate:*), Bash(emulate:*)
 ---
 
@@ -24,7 +24,99 @@ All services start with sensible defaults:
 | Slack     | 4003        |
 | Apple     | 4004        |
 | Microsoft | 4005        |
-| AWS       | 4006        |
+| Okta      | 4006        |
+| AWS       | 4007        |
+| Resend    | 4008        |
+| Stripe    | 4009        |
+| MongoDB Atlas | 4010   |
+| Clerk     | 4011        |
+| Spotify   | 4012        |
+
+## Control Plane
+
+Provider traffic and control-plane traffic are separate. Provider routes stay faithful to the real service; every Emulate-specific control lives under the reserved `/_emulate` namespace. Each running instance exposes:
+
+| Route | Purpose |
+|-------|---------|
+| `GET /_emulate` | Human-readable landing page for the instance |
+| `GET /_emulate/manifest` | Machine-readable manifest (the single source of truth): identity, surfaces, auth capabilities, specs with per-operation coverage, scenarios, seed schema, state model, reset behavior, inspector tabs, ledger capabilities, and copyable connections |
+| `GET /_emulate/quickstart` | Plain-text setup notes for humans and agents |
+| `GET /_emulate/specs` | Advertised specs and protocol surfaces |
+| `GET /_emulate/coverage` | Per-operation coverage (generated, hand-authored, partial, unsupported) with a summary by status |
+| `GET /_emulate/connections` | Copyable SDK, CLI, env, and curl connection snippets resolved against the instance (optional `?token=`, `?client_id=`, `?client_secret=` overrides) |
+| `GET /_emulate/openapi` | Redirect to OpenAPI when advertised |
+| `GET /_emulate/graphql` | Return the GraphQL endpoint when advertised |
+| `GET /_emulate/mcp` | Return the MCP endpoint when advertised |
+| `GET /_emulate/state` | Current emulator store snapshot |
+| `GET /_emulate/ledger` | Recent API calls with sensitive fields redacted (optional `?limit=`) |
+| `DELETE /_emulate/ledger` | Clear the request ledger |
+| `GET /_emulate/logs` | Webhook deliveries plus recent requests |
+| `POST /_emulate/instances` | Return URLs for a lazily created hosted instance |
+| `POST /_emulate/seed` | Add runtime seed data using the service seed schema |
+| `POST /_emulate/reset` | Reset state, webhooks, and request logs, then replay seed data |
+| `POST /_emulate/credentials` | Mint a credential for the service (the canonical, uniform way) |
+
+There is also a global, host-level catalog:
+
+| Route | Purpose |
+|-------|---------|
+| `GET /_emulate/services` | Machine-readable catalog of every hosted service: id, name, description, service host, instance host pattern, path form, and manifest URL |
+
+When given an unknown emulator URL, inspect `GET /_emulate/manifest` first, then use `GET /_emulate/connections` for copyable setup, `GET /_emulate/quickstart` for notes, and `GET /_emulate/ledger` to verify calls. To discover what is deployed at all, fetch `GET /_emulate/services`. Do not assume every service has OpenAPI, GraphQL, MCP, or the same OAuth mode. Use only the surfaces advertised by the manifest.
+
+### Minting credentials
+
+`POST /_emulate/credentials` is the canonical, uniform way to mint a credential for any service. The request body's `type` selects what to mint based on the service's auth capabilities (advertised in the manifest):
+
+```bash
+# Bearer token / API key (services with token or API-key auth)
+curl -X POST "$EMULATOR_URL/_emulate/credentials" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"api-key","login":"admin"}'
+
+# OAuth client (services with authorization-code auth)
+curl -X POST "$EMULATOR_URL/_emulate/credentials" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"oauth-authorization-code","redirect_uris":["http://localhost:3000/callback"]}'
+
+# OAuth client-credentials app (e.g. Spotify)
+curl -X POST "$EMULATOR_URL/_emulate/credentials" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"oauth-client-credentials","name":"My App"}'
+```
+
+Prefer this over any service-specific or legacy credential endpoints. Check the manifest's auth capabilities to see which credential types a service supports; minting an unsupported type returns a `501`.
+
+### Inspecting requests with the ledger
+
+The request ledger is a core feature, not a debug afterthought. `GET /_emulate/ledger` returns recent calls with sensitive fields redacted. Each entry records:
+
+- `correlationId` (honored from an inbound `X-Correlation-Id` or `X-Request-Id` header and echoed back in the `X-Correlation-Id` response header, otherwise generated)
+- matched route and `operationId`
+- `method`, `host`, `path`, and query
+- sanitized request headers and body
+- authenticated identity
+- response status and a one-line summary
+- `sideEffects` and `webhookDeliveries`
+- `durationMs`
+
+Send `X-Correlation-Id` on a request to trace it end to end, then read it back from the matching ledger entry. Use `sideEffects` and `webhookDeliveries` to assert what an application's call actually did.
+
+## Host-Based Routing (Deployed Emulators)
+
+Hosted emulators are reachable on `*.emulators.dev`. All services are available:
+`vercel`, `github`, `google`, `slack`, `apple`, `microsoft`, `okta`, `aws`, `resend`, `stripe`, `mongoatlas`, `clerk`, `spotify`.
+
+| Form | Example | Notes |
+|------|---------|-------|
+| Apex catalog | `https://emulators.dev` | The apex is a links-out catalog landing page listing every emulator and linking to each one's host. `GET /_emulate/services` returns the same catalog machine-readably |
+| Service host | `https://github.emulators.dev` | Useful without an instance: serves `/_emulate`, `/_emulate/manifest`, `/_emulate/quickstart`, `/_emulate/specs`, `/_emulate/coverage`, `/_emulate/connections`, `/_emulate/openapi`, and `POST /_emulate/instances` |
+| Instance host | `https://github.my-run.emulators.dev` | One stateful instance: `<service>.<instance>.emulators.dev` (e.g. `stripe.ci-48291.emulators.dev`). State and the ledger persist across eviction |
+| Local / path form | `http://localhost:4001/github/my-run` | `<origin>/<service>/<instance>` |
+
+A human or agent landing on a service host can learn what the service is and create an instance via `POST /_emulate/instances` without any repository context. Discover the full catalog at `GET /_emulate/services` from any host.
+
+Docs are a separate site at `https://docs.emulators.dev`, with per-service docs at `https://docs.emulators.dev/<service>` (the `docsUrl` convention each manifest advertises). The apex `emulators.dev` is the catalog, not the docs.
 
 ## CLI
 
@@ -90,7 +182,7 @@ await vercel.close()
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, or `'aws'` |
+| `service` | *(required)* | `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, or `'spotify'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -307,7 +399,13 @@ GOOGLE_EMULATOR_URL=http://localhost:4002
 SLACK_EMULATOR_URL=http://localhost:4003
 APPLE_EMULATOR_URL=http://localhost:4004
 MICROSOFT_EMULATOR_URL=http://localhost:4005
-AWS_EMULATOR_URL=http://localhost:4006
+OKTA_EMULATOR_URL=http://localhost:4006
+AWS_EMULATOR_URL=http://localhost:4007
+RESEND_EMULATOR_URL=http://localhost:4008
+STRIPE_EMULATOR_URL=http://localhost:4009
+MONGOATLAS_EMULATOR_URL=http://localhost:4010
+CLERK_EMULATOR_URL=http://localhost:4011
+SPOTIFY_EMULATOR_URL=http://localhost:4012
 ```
 
 Then use these in your app to construct API and OAuth URLs. See each service's skill for SDK-specific override instructions.
@@ -356,7 +454,13 @@ packages/
     slack/           # Slack Web API, OAuth, incoming webhooks plugin
     apple/           # Sign in with Apple / OIDC plugin
     microsoft/       # Microsoft Entra ID OAuth 2.0 / OIDC plugin
+    okta/            # Okta OAuth 2.0 / OIDC + management APIs plugin
     aws/             # AWS S3, SQS, IAM, STS plugin
+    resend/          # Resend email API plugin
+    stripe/          # Stripe REST, hosted checkout, webhooks plugin
+    mongoatlas/      # MongoDB Atlas Admin API + Data API plugin
+    clerk/           # Clerk auth, users, orgs, OAuth/OIDC plugin
+    spotify/         # Spotify Web API + Client Credentials OAuth plugin
 ```
 
 The core provides a generic `Store` with typed `Collection<T>` instances supporting CRUD, indexing, filtering, and pagination. Each service plugin registers routes with the shared internal app and uses the store for state.

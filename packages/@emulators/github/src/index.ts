@@ -27,6 +27,7 @@ import { appsRoutes } from "./routes/apps.js";
 import { openapiRoutes } from "./routes/openapi.js";
 
 export { getGitHubStore, type GitHubStore } from "./store.js";
+export { manifest } from "./manifest.js";
 export * from "./entities.js";
 
 export interface GitHubSeedConfig {

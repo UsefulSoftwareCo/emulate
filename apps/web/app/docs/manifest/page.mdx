@@ -1,0 +1,155 @@
+# Service Manifest
+
+The service manifest is the single source of truth for what an emulator supports. Each service plugin owns its manifest, and the control plane serves it at `/_emulate/manifest`. Consoles, agents, SDK generators, and tests all read the same manifest, so nothing can claim a capability the emulator does not actually provide.
+
+```bash
+# The manifest plus the resolved instance and copyable connection snippets
+curl -s http://localhost:4001/_emulate/manifest
+
+# The manifest on a service host, before any instance exists
+curl -s https://github.emulators.dev/_emulate/manifest
+```
+
+The manifest advertises only the surfaces that match the real service. OpenAPI, GraphQL schemas, MCP manifests, OAuth metadata, and Google discovery documents are useful inputs, but they are not treated as proof that a protocol exists. A curated subset with honest coverage is preferred over a broad fake that quietly lies. See [Architecture](/docs/architecture).
+
+## Response shape
+
+`GET /_emulate/manifest` returns the manifest alongside the resolved instance and connection snippets:
+
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>manifest</code></td>
+      <td>The service manifest described below</td>
+    </tr>
+    <tr>
+      <td><code>instance</code></td>
+      <td>The resolved instance: <code>service</code>, <code>instance</code>, <code>baseUrl</code>, <code>controlBaseUrl</code>, <code>providerBaseUrl</code>. On a service host with no instance this is <code>null</code> and a <code>sampleInstance</code> is shown instead</td>
+    </tr>
+    <tr>
+      <td><code>connections</code></td>
+      <td>Connection snippets resolved against the instance, ready to copy. See <a href="#connections">Connections</a></td>
+    </tr>
+  </tbody>
+</table>
+
+## Manifest fields
+
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>id</code>, <code>name</code>, <code>description</code></td>
+      <td>Service identity, display name, and short description</td>
+    </tr>
+    <tr>
+      <td><code>surfaces</code></td>
+      <td>Supported surfaces such as REST, OAuth, OIDC, GraphQL, MCP, webhooks, UI, and provider-specific, each with a status of <code>supported</code>, <code>partial</code>, or <code>unsupported</code></td>
+    </tr>
+    <tr>
+      <td><code>auth</code></td>
+      <td>Auth capabilities: API keys, bearer tokens, OAuth client credentials, OAuth authorization code, OIDC, JWT app auth, dynamic client registration, and webhook secrets</td>
+    </tr>
+    <tr>
+      <td><code>specs</code></td>
+      <td>Spec sources with per-operation coverage. Each spec lists its <code>kind</code>, <code>title</code>, optional <code>url</code>, an overall <code>coverage</code> label, and an <code>operations</code> array marking each operation as <code>generated</code>, <code>hand-authored</code>, <code>partial</code>, or <code>unsupported</code>. <code>GET /_emulate/coverage</code> reports these with a summary by status</td>
+    </tr>
+    <tr>
+      <td><code>scenarios</code></td>
+      <td>Named scenarios the instance can load</td>
+    </tr>
+    <tr>
+      <td><code>seedSchema</code></td>
+      <td>The seedable areas of the instance plus an example body that can be POSTed to <code>/_emulate/seed</code></td>
+    </tr>
+    <tr>
+      <td><code>stateModel</code></td>
+      <td>The collections the instance keeps in state</td>
+    </tr>
+    <tr>
+      <td><code>resetBehavior</code></td>
+      <td>What <code>POST /_emulate/reset</code> does: whether it reseeds and clears the ledger and webhooks</td>
+    </tr>
+    <tr>
+      <td><code>inspectorTabs</code></td>
+      <td>The console tabs this service exposes, such as Overview, Ledger, State, Credentials, Seed, Spec, and Webhooks</td>
+    </tr>
+    <tr>
+      <td><code>ledger</code></td>
+      <td>Request ledger capabilities: recorded fields, redaction, correlation ids, side effects, webhook deliveries, and whether the ledger is persistent on this host. See <a href="/docs/ledger">Request Ledger</a></td>
+    </tr>
+    <tr>
+      <td><code>connections</code></td>
+      <td>Copyable SDK, CLI, env, curl, config, and MCP snippets, as templates the control plane resolves against the live instance</td>
+    </tr>
+    <tr>
+      <td><code>docsUrl</code></td>
+      <td>The human docs for the service, at <code>https://docs.emulators.dev/&lt;service&gt;</code></td>
+    </tr>
+  </tbody>
+</table>
+
+## Connections
+
+Connection snippets are templates with `{{placeholders}}` that the control plane resolves against the live instance, including `{{baseUrl}}`, `{{controlBaseUrl}}`, `{{service}}`, `{{instance}}`, `{{token}}`, `{{clientId}}`, and `{{clientSecret}}`. Fetch the resolved snippets directly from `GET /_emulate/connections`, and pass `?token=`, `?client_id=`, or `?client_secret=` to inject a real credential. This is how a human or agent copies ready-to-run SDK, CLI, or app config without repository context.
+
+## Example
+
+```json
+{
+  "manifest": {
+    "id": "github",
+    "name": "GitHub",
+    "description": "Stateful GitHub API emulator.",
+    "surfaces": [
+      { "id": "rest", "kind": "rest", "title": "REST API", "basePath": "/", "status": "supported" },
+      { "id": "oauth", "kind": "oauth", "title": "OAuth app flow", "status": "supported" },
+      { "id": "webhooks", "kind": "webhooks", "title": "Webhooks", "status": "supported" }
+    ],
+    "auth": [
+      { "id": "token", "title": "Bearer token", "type": "bearer-token", "status": "supported" },
+      { "id": "app", "title": "GitHub App JWT", "type": "jwt-app", "status": "supported" }
+    ],
+    "specs": [
+      {
+        "kind": "openapi",
+        "title": "GitHub REST API",
+        "coverage": "partial",
+        "operations": [
+          { "operationId": "issues/create", "method": "POST", "path": "/repos/{owner}/{repo}/issues", "status": "hand-authored" },
+          { "operationId": "repos/get", "method": "GET", "path": "/repos/{owner}/{repo}", "status": "generated" }
+        ]
+      }
+    ],
+    "resetBehavior": { "description": "Resets the instance to its seeded baseline.", "reseeds": true, "clearsLedger": true, "clearsWebhooks": true },
+    "ledger": { "redactsSensitive": true, "correlationId": true, "webhookDeliveries": true, "sideEffects": true, "persistent": true },
+    "connections": [
+      { "id": "base-url", "title": "Base URL (env)", "kind": "env", "template": "GITHUB_BASE_URL={{baseUrl}}" }
+    ],
+    "docsUrl": "https://docs.emulators.dev/github"
+  },
+  "instance": {
+    "service": "github",
+    "instance": "my-run",
+    "baseUrl": "https://github.my-run.emulators.dev",
+    "controlBaseUrl": "https://github.my-run.emulators.dev/_emulate",
+    "providerBaseUrl": "https://github.my-run.emulators.dev"
+  },
+  "connections": [
+    { "id": "base-url", "title": "Base URL (env)", "kind": "env", "body": "GITHUB_BASE_URL=https://github.my-run.emulators.dev" }
+  ]
+}
+```
+
+Reset behavior, ledger capabilities, inspector tabs, and the base connection snippets are shared across every emulator because they run on the same core control plane, so per-plugin manifests stay focused on the service-specific surfaces, auth, seed, and SDK details.

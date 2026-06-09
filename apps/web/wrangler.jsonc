@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "emulate",
+  "name": "emulate-docs",
   "main": ".open-next/worker.js",
   "compatibility_date": "2026-06-08",
   "compatibility_flags": ["nodejs_compat"],
@@ -10,7 +10,10 @@
   },
   "routes": [
     {
-      "pattern": "emulate.rhys.dev",
+      // Docs live on their own subdomain. The apex emulators.dev is the emulator
+      // catalog (served by the emulate-hosts worker); this is a more specific host,
+      // so it wins for docs.emulators.dev.
+      "pattern": "docs.emulators.dev",
       "custom_domain": true
     }
   ]

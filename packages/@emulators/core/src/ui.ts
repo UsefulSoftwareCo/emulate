@@ -142,6 +142,14 @@ body{
 }
 .btn-revoke:hover{border-color:#ff4444;}
 .info-text{color:#1a8c00;font-size:.75rem;line-height:1.5;margin-top:10px;}
+.info-text a,.section-heading a{color:#1a8c00;text-decoration:none;transition:color .15s;}
+.info-text a:hover,.section-heading a:hover{color:#33ff00;}
+code{font-family:'Geist Mono','SF Mono',ui-monospace,monospace;font-size:.8125rem;color:#33ff00;word-break:break-all;}
+.code-block{
+  background:#020;border:1px solid #0a3300;border-radius:6px;padding:10px 12px;
+  margin:8px 0 12px;overflow-x:auto;
+}
+.code-block code{white-space:pre;word-break:normal;display:block;line-height:1.5;}
 .app-link{
   display:flex;align-items:center;gap:12px;padding:12px;
   border:1px solid #0a3300;border-radius:8px;background:#000;

@@ -24,6 +24,7 @@
     "gen:console": "node scripts/gen-console.mjs",
     "build": "tsup --clean",
     "dev": "tsup --watch",
+    "test": "vitest run",
     "clean": "rm -rf dist .turbo",
     "type-check": "tsc --noEmit",
     "lint": "eslint src"
@@ -36,7 +37,15 @@
     "@emulators/okta": "workspace:*",
     "@emulators/microsoft": "workspace:*",
     "@emulators/mcp": "workspace:*",
-    "@emulators/spotify": "workspace:*"
+    "@emulators/spotify": "workspace:*",
+    "@emulators/slack": "workspace:*",
+    "@emulators/apple": "workspace:*",
+    "@emulators/aws": "workspace:*",
+    "@emulators/resend": "workspace:*",
+    "@emulators/stripe": "workspace:*",
+    "@emulators/mongoatlas": "workspace:*",
+    "@emulators/clerk": "workspace:*",
+    "@emulators/x": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8",

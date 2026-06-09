@@ -10,6 +10,7 @@ import { inboxRoutes } from "./routes/inbox.js";
 
 export { getResendStore, type ResendStore } from "./store.js";
 export * from "./entities.js";
+export { manifest } from "./manifest.js";
 
 export interface ResendSeedConfig {
   port?: number;

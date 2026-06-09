@@ -27,7 +27,10 @@ export function seedFromConfig(store: Store, baseUrl: string, config: McpSeedCon
 }
 
 function unauthorized(c: Context<AppEnv>, baseUrl: string): Response {
-  c.header("WWW-Authenticate", `Bearer realm="OAuth", resource_metadata="${baseUrl}/.well-known/oauth-protected-resource"`);
+  c.header(
+    "WWW-Authenticate",
+    `Bearer realm="OAuth", resource_metadata="${baseUrl}/.well-known/oauth-protected-resource"`,
+  );
   return c.json(
     {
       error: "unauthorized",

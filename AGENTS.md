@@ -1,5 +1,69 @@
 # Agents
 
+## Product Vision
+
+Emulate is a stateful integration test double for real developer APIs. It should help humans and agents stand up fake versions of real services, point applications at them, exercise authenticated flows, inspect what happened, and reset or replay scenarios. Treat it as an integration simulator platform for developer and agent-driven testing, not as a generic mock server.
+
+The guiding principle is: emulate what the real service exposes, not every protocol the platform can technically support. A service should only expose the surfaces that match the real provider or an intentionally documented integration target. GitHub can have REST, GraphQL, OAuth app flows, GitHub App auth, webhooks, and a deliberate MCP surface. Spotify should model its real OAuth and catalog behavior, such as client credentials flows, and should not get GraphQL or MCP just because the platform supports those protocols.
+
+Specifications are inputs, not the whole product. OpenAPI, GraphQL schemas or introspection results, MCP manifests, Google Discovery documents, OAuth metadata, and hand-authored behavior packs can all contribute to a service definition. Use subsets of those specs when that is the honest supported surface. A curated subset with clear coverage is better than a broad fake that quietly lies.
+
+Every service should move toward exporting a machine-readable service manifest that describes:
+
+- Service identity, display name, and short description
+- Supported surfaces: REST, OAuth/OIDC, GraphQL, MCP, webhooks, redirect UIs, provider-specific auth, and provider-specific SDK semantics
+- Spec sources and coverage status, including generated, hand-authored, partial, and unsupported operations
+- Auth capabilities, grant types, dynamic client registration support, API keys, bearer tokens, app installations, webhook secrets, and other credential types
+- Seed schema, available scenarios, reset behavior, and state model
+- Inspector tabs, request ledger capabilities, and links to human docs
+- Copyable connection details for SDK, CLI, and application usage
+
+Every hosted emulator should be useful without repository context. A human or agent landing on a service host such as `github.emulators.dev` or an instance host such as `github.my-run.emulators.dev` should be able to learn what the service is, create or select an instance, create credentials, seed state, find base URLs, inspect calls, and copy SDK, CLI, or application snippets.
+
+Prefer host-based routing for deployed emulators when possible. The long-term product shape should support service and instance hosts such as:
+
+```text
+https://github.emulators.dev
+https://github.my-test-run.emulators.dev
+https://stripe.ci-48291.emulators.dev
+```
+
+Provider traffic and control-plane traffic should be separate. Provider routes should remain faithful to the real service. Emulate-specific controls should live under a reserved namespace such as `/_emulate`.
+
+The standard control plane should move toward routes like:
+
+```text
+GET  /_emulate
+GET  /_emulate/manifest
+GET  /_emulate/quickstart
+GET  /_emulate/openapi
+GET  /_emulate/graphql
+GET  /_emulate/mcp
+POST /_emulate/instances
+POST /_emulate/seed
+POST /_emulate/reset
+POST /_emulate/credentials
+GET  /_emulate/state
+GET  /_emulate/ledger
+GET  /_emulate/logs
+```
+
+The request ledger is a core feature, not a debug afterthought. Emulators should record enough information for people and tests to validate how applications called a service: timestamp, method, host, path, matched route or operation id, sanitized headers, sanitized request body, authenticated identity, response status, response summary, side effects, webhook deliveries, and a correlation id.
+
+The remote host should plug naturally into external SDKs, CLIs, agents, and applications. A user should be able to create an instance, generate credentials, and copy ready-to-use connection configuration without knowing the internals of this repository.
+
+OpenAPI generation should be treated as a skeleton generator and fallback layer. It can create route tables, validators, default fake responses, documentation, and coverage reports. Hand-authored behavior should override generated behavior for stateful flows, auth flows, provider-specific semantics, webhooks, and important edge cases.
+
+When making product or architecture decisions, optimize for:
+
+- Deployed use by applications under test
+- Local and in-process use by automated tests
+- Human-readable landing pages and inspectors
+- Agent-readable manifests, quickstarts, and ledgers
+- Faithful auth and credential flows
+- Honest support boundaries and visible coverage
+- Shared definitions across local, hosted, and SDK surfaces
+
 ## Package Manager
 
 Use `pnpm` for all package management commands (not npm or yarn).

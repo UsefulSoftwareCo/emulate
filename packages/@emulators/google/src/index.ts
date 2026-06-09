@@ -23,6 +23,7 @@ import { getGoogleStore } from "./store.js";
 
 export { getGoogleStore, type GoogleStore } from "./store.js";
 export * from "./entities.js";
+export { manifest } from "./manifest.js";
 
 export interface GoogleSeedUser {
   email: string;

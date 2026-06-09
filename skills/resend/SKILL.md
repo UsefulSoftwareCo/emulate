@@ -337,3 +337,19 @@ const res = await fetch(`${emu.url}/emails`, {
 const { data: emails } = await res.json()
 console.log(emails[0].html) // contains "123456"
 ```
+
+## Discovery
+
+When using a running emulator URL, inspect `GET /_emulate/manifest` first to confirm supported surfaces (REST email API), auth capabilities, and per-operation spec coverage. Use `GET /_emulate/connections` for copyable SDK, CLI, env, and curl snippets and `GET /_emulate/quickstart` for setup notes.
+
+Mint credentials with `POST /_emulate/credentials`, the canonical, uniform way to create a credential for any service (here a Resend API key):
+
+```bash
+curl -X POST "$RESEND_EMULATOR_URL/_emulate/credentials" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"api-key","login":"admin"}'
+```
+
+Inspect calls with `GET /_emulate/ledger`: each entry includes a correlation id (set `X-Correlation-Id` on a request to trace it), the matched route and operation id, sanitized headers and body, authenticated identity, response status, side effects, and webhook deliveries. Use `POST /_emulate/seed` to add runtime seed data and `POST /_emulate/reset` to replay seeds.
+
+Hosted Resend is at `https://resend.emulators.dev` (the bare service host is useful without an instance) with instance hosts of the form `resend.<instance>.emulators.dev`. The apex `https://emulators.dev` is a links-out catalog of every emulator; discover the same catalog machine-readably at `GET /_emulate/services` from any host. Per-service docs live at `https://docs.emulators.dev/resend`.

@@ -16,11 +16,122 @@ All services start with sensible defaults. No config file needed:
 - **Slack** on `http://localhost:4003`
 - **Apple** on `http://localhost:4004`
 - **Microsoft** on `http://localhost:4005`
-- **AWS** on `http://localhost:4006`
-- **Okta** on `http://localhost:4007`
-- **MongoDB Atlas** on `http://localhost:4008`
-- **Resend** on `http://localhost:4009`
-- **Stripe** on `http://localhost:4010`
+- **Okta** on `http://localhost:4006`
+- **AWS** on `http://localhost:4007`
+- **Resend** on `http://localhost:4008`
+- **Stripe** on `http://localhost:4009`
+- **MongoDB Atlas** on `http://localhost:4010`
+- **Clerk** on `http://localhost:4011`
+- **Spotify** on `http://localhost:4012`
+
+## Control Plane
+
+Every service exposes a public control plane under `/_emulate`.
+
+<table>
+  <thead>
+    <tr>
+      <th>Route</th>
+      <th>Purpose</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>GET /_emulate</code></td>
+      <td>Human-readable landing page for the service instance</td>
+    </tr>
+    <tr>
+      <td><code>GET /_emulate/manifest</code></td>
+      <td>Machine-readable service manifest with supported surfaces, auth capabilities, and spec coverage</td>
+    </tr>
+    <tr>
+      <td><code>GET /_emulate/quickstart</code></td>
+      <td>Plain-text instructions for humans and agents</td>
+    </tr>
+    <tr>
+      <td><code>GET /_emulate/specs</code></td>
+      <td>Advertised specs and protocol surfaces</td>
+    </tr>
+    <tr>
+      <td><code>GET /_emulate/coverage</code></td>
+      <td>Per-operation spec coverage with a summary by status (generated, hand-authored, partial, unsupported)</td>
+    </tr>
+    <tr>
+      <td><code>GET /_emulate/connections</code></td>
+      <td>Copyable SDK, CLI, env, and curl snippets resolved against this instance (optional <code>?token=</code>, <code>?client_id=</code>, <code>?client_secret=</code>)</td>
+    </tr>
+    <tr>
+      <td><code>GET /_emulate/openapi</code></td>
+      <td>Redirect to the advertised OpenAPI document when one exists</td>
+    </tr>
+    <tr>
+      <td><code>GET /_emulate/graphql</code></td>
+      <td>Return the GraphQL endpoint when the service exposes one</td>
+    </tr>
+    <tr>
+      <td><code>GET /_emulate/mcp</code></td>
+      <td>Return the MCP endpoint when the service exposes one</td>
+    </tr>
+    <tr>
+      <td><code>GET /_emulate/state</code></td>
+      <td>Current emulator store snapshot</td>
+    </tr>
+    <tr>
+      <td><code>GET /_emulate/ledger</code></td>
+      <td>Recent API calls with sensitive fields redacted. See <a href="/docs/ledger">Request Ledger</a></td>
+    </tr>
+    <tr>
+      <td><code>DELETE /_emulate/ledger</code></td>
+      <td>Clear the request ledger</td>
+    </tr>
+    <tr>
+      <td><code>GET /_emulate/logs</code></td>
+      <td>Webhook deliveries plus the most recent provider requests</td>
+    </tr>
+    <tr>
+      <td><code>POST /_emulate/reset</code></td>
+      <td>Reset state, webhooks, and the request ledger, then replay seed data</td>
+    </tr>
+    <tr>
+      <td><code>POST /_emulate/seed</code></td>
+      <td>Add runtime seed data using the service seed schema</td>
+    </tr>
+    <tr>
+      <td><code>POST /_emulate/credentials</code></td>
+      <td>Create bearer tokens, API keys, OAuth clients, or client-credentials apps where supported</td>
+    </tr>
+    <tr>
+      <td><code>POST /_emulate/instances</code></td>
+      <td>Return URLs for a lazily created hosted instance</td>
+    </tr>
+  </tbody>
+</table>
+
+The manifest advertises only the surfaces that match the real service. Specs such as OpenAPI, GraphQL, MCP, OAuth metadata, and Google discovery documents can inform an emulator, but they are not treated as proof that every protocol exists for every service. The [Service Manifest](/docs/manifest) is the single source of truth for what each emulator supports.
+
+### Service host
+
+A bare service host such as `https://github.emulators.dev` (no instance) serves a service-level control plane so it is useful before you create an instance: `GET /_emulate`, `/_emulate/manifest`, `/_emulate/quickstart`, `/_emulate/specs`, `/_emulate/coverage`, `/_emulate/connections`, `/_emulate/openapi`, and `POST /_emulate/instances`.
+
+### Service catalog
+
+`GET /_emulate/services` returns a machine-readable catalog of every hosted service, including its id, name, description, service host, instance host pattern, path form, and manifest URL. It is available from any host so consoles and agents can discover what is deployed. See [Deployment](/docs/deployment).
+
+Credential creation follows each service's real shape. GitHub can mint bearer tokens for users, Spotify creates client credentials apps, OAuth/OIDC providers create clients, Stripe and Resend create API-key style credentials, and AWS advertises provider-specific SDK credentials.
+
+## Deployed Instances
+
+All 13 services are available on host-based routing. Cloudflare deployments support service hosts, instance hosts, and a compatibility path form:
+
+```text
+https://github.emulators.dev               # service host
+https://github.my-instance.emulators.dev   # instance host
+https://emulators.dev/github/my-instance    # path form
+```
+
+The instance host and path form route to the same stateful service instance. The instance host form is preferred for public examples because the provider base URL is the origin itself, which better matches service-owned hosts. The control plane for the instance host form lives at `https://github.my-instance.emulators.dev/_emulate`.
+
+See [Deployment](/docs/deployment) for the host-based routing model, the `emulate-hosts` Cloudflare worker, and the Durable Object instance model.
 
 ## CLI
 

@@ -23,6 +23,7 @@ import { getOktaStore } from "./store.js";
 
 export { getOktaStore, type OktaStore } from "./store.js";
 export * from "./entities.js";
+export { manifest } from "./manifest.js";
 
 export interface OktaSeedConfig {
   users?: Array<{

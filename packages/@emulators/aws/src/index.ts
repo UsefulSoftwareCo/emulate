@@ -9,6 +9,7 @@ import { inspectorRoutes } from "./routes/inspector.js";
 
 export { getAwsStore, type AwsStore } from "./store.js";
 export * from "./entities.js";
+export { manifest } from "./manifest.js";
 
 export interface AwsSeedConfig {
   port?: number;

@@ -1,0 +1,132 @@
+# Request Ledger
+
+The request ledger is a core feature, not a debug afterthought. Every provider request an emulator handles is recorded so humans, tests, and agents can validate exactly how an application called a service. Control-plane traffic under `/_emulate` is not recorded.
+
+```bash
+# Recent records, newest first, sensitive fields redacted
+curl -s http://localhost:4001/_emulate/ledger
+
+# Webhook deliveries plus the most recent requests in one payload
+curl -s http://localhost:4001/_emulate/logs
+
+# Clear the ledger
+curl -s -X DELETE http://localhost:4001/_emulate/ledger
+```
+
+## Recorded fields
+
+Each ledger entry records:
+
+<table>
+  <thead>
+    <tr>
+      <th>Field</th>
+      <th>Description</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>id</code></td>
+      <td>Stable entry id, e.g. <code>req_42</code></td>
+    </tr>
+    <tr>
+      <td><code>correlationId</code></td>
+      <td>Honored from the incoming <code>X-Correlation-Id</code> or <code>X-Request-Id</code> header, otherwise generated, and echoed back on the <code>X-Correlation-Id</code> response header</td>
+    </tr>
+    <tr>
+      <td><code>timestamp</code></td>
+      <td>ISO 8601 time the request completed</td>
+    </tr>
+    <tr>
+      <td><code>method</code>, <code>host</code>, <code>path</code>, <code>query</code></td>
+      <td>The request line as received</td>
+    </tr>
+    <tr>
+      <td><code>route</code></td>
+      <td>Matched route pattern, e.g. <code>/repos/:owner/:repo/issues</code></td>
+    </tr>
+    <tr>
+      <td><code>operationId</code></td>
+      <td>Provider operation id when the handler advertises one</td>
+    </tr>
+    <tr>
+      <td><code>request</code></td>
+      <td>Sanitized request <code>headers</code> and <code>body</code>, with <code>bodyTruncated</code> set when the body was clipped</td>
+    </tr>
+    <tr>
+      <td><code>identity</code></td>
+      <td>Authenticated identity resolved for the request: the <code>user</code> (login, id, scopes) or <code>app</code> (app id, slug, name)</td>
+    </tr>
+    <tr>
+      <td><code>response</code></td>
+      <td>Response <code>status</code>, sanitized <code>headers</code>, and <code>body</code></td>
+    </tr>
+    <tr>
+      <td><code>summary</code></td>
+      <td>One-line human and agent readable summary, e.g. <code>POST /repos/:owner/:repo -&gt; 201</code></td>
+    </tr>
+    <tr>
+      <td><code>sideEffects</code></td>
+      <td>State changes the request caused: create, update, delete, or custom, with the affected collection and id</td>
+    </tr>
+    <tr>
+      <td><code>webhookDeliveries</code></td>
+      <td>Webhook deliveries this request fired, correlated by delivery id, event, action, status code, and success</td>
+    </tr>
+    <tr>
+      <td><code>durationMs</code></td>
+      <td>How long the request took to handle</td>
+    </tr>
+  </tbody>
+</table>
+
+## Redaction
+
+Sensitive headers such as `authorization`, `cookie`, `set-cookie`, `x-api-key`, `x-github-token`, and `stripe-signature` are replaced with `[redacted]`. Request and response bodies are redacted by key, so any field whose name matches `token`, `secret`, `password`, `authorization`, `api_key`, `client_secret`, or `private_key` is masked. Form-encoded bodies are redacted by the same rules. Bodies larger than the limit are clipped and flagged with `bodyTruncated`.
+
+## Correlation ids
+
+Set `X-Correlation-Id` (or `X-Request-Id`) on a request and the emulator stores it on the ledger entry and echoes it back on the `X-Correlation-Id` response header, so you can stitch an entry to a specific call in your test. When no id is supplied the emulator generates one.
+
+## Persistence
+
+On the hosted Cloudflare surface the ledger is persistent. Each instance is backed by a Durable Object that snapshots state and the ledger to storage, so records survive eviction. Locally and in process the ledger is in memory and is cleared on reset. See [Deployment](/docs/deployment) for the instance model.
+
+## Example entry
+
+```json
+{
+  "id": "req_42",
+  "correlationId": "cor_8f1c0a2b4d6e",
+  "timestamp": "2026-06-08T17:04:22.118Z",
+  "method": "POST",
+  "host": "github.my-run.emulators.dev",
+  "path": "/repos/acme/web/issues",
+  "query": "",
+  "route": "/repos/:owner/:repo/issues",
+  "operationId": "issues/create",
+  "request": {
+    "headers": {
+      "authorization": "[redacted]",
+      "content-type": "application/json"
+    },
+    "body": { "title": "Bug report", "body": "It broke" }
+  },
+  "identity": {
+    "user": { "login": "octocat", "id": 1, "scopes": ["repo"] }
+  },
+  "response": {
+    "status": 201,
+    "headers": { "content-type": "application/json" },
+    "body": { "number": 7, "state": "open" }
+  },
+  "summary": "POST /repos/:owner/:repo/issues -> 201",
+  "sideEffects": [{ "type": "create", "collection": "issues", "id": 7 }],
+  "webhookDeliveries": [
+    { "id": 3, "hook_id": 1, "event": "issues", "action": "opened", "status_code": 200, "success": true }
+  ],
+  "durationMs": 4
+}
+```
+
+The [Service Manifest](/docs/manifest) advertises ledger capabilities under its `ledger` block, including the recorded fields, whether redaction and correlation ids are supported, and whether the ledger is persistent on this host.

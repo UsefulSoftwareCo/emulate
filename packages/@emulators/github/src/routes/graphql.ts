@@ -42,10 +42,22 @@ const SCHEMA = buildSchema(/* GraphQL */ `
     owner: RepositoryOwner!
     url: String
   }
-  type Language { name: String! }
-  type Ref { name: String! }
-  type RepositoryOwner { login: String! }
-  type RateLimit { limit: Int!, cost: Int!, remaining: Int!, used: Int!, resource: String! }
+  type Language {
+    name: String!
+  }
+  type Ref {
+    name: String!
+  }
+  type RepositoryOwner {
+    login: String!
+  }
+  type RateLimit {
+    limit: Int!
+    cost: Int!
+    remaining: Int!
+    used: Int!
+    resource: String!
+  }
 `);
 
 // graphql-js validation says "Cannot query field 'x' on type 'T'."; GitHub says
@@ -127,14 +139,18 @@ export function graphqlRoutes(ctx: RouteContext): void {
         {
           message:
             "API rate limit exceeded for your request. (But here's the good news: Authenticated requests get a higher rate limit. Check out the documentation for more details.)",
-          documentation_url: "https://docs.github.com/en/free-pro-team@latest/rest/overview/resources-in-the-rest-api#rate-limiting",
+          documentation_url:
+            "https://docs.github.com/en/free-pro-team@latest/rest/overview/resources-in-the-rest-api#rate-limiting",
         },
         403,
       );
     }
     const authUser = tokenMap?.get(token);
     if (!authUser) {
-      return c.json({ message: "Bad credentials", documentation_url: "https://docs.github.com/rest", status: "401" }, 401);
+      return c.json(
+        { message: "Bad credentials", documentation_url: "https://docs.github.com/rest", status: "401" },
+        401,
+      );
     }
 
     const body = (await c.req.json().catch(() => ({}))) as {

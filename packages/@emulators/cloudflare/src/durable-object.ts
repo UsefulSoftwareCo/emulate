@@ -1,5 +1,12 @@
-import { createServer, type AppKeyResolver, type Store } from "@emulators/core";
-import { SERVICES } from "./services.js";
+import {
+  createServer,
+  type AppKeyResolver,
+  type LedgerSnapshot,
+  type RequestLedger,
+  type Store,
+  type TokenMap,
+} from "@emulators/core";
+import { SERVICES, issueCloudflareCredential } from "./services.js";
 
 // Minimal CF runtime types (avoid a hard dep on @cloudflare/workers-types here).
 interface DurableObjectStorage {
@@ -30,16 +37,17 @@ interface PersistedState {
   strict?: boolean;
   snapshot?: unknown;
   minted?: TokenEntry[];
-}
-interface TokenMap {
-  set(token: string, user: { login: string; id: number; scopes: string[] }): void;
+  ledger?: LedgerSnapshot;
 }
 interface Live {
   app: { fetch: (request: Request) => Promise<Response> };
   store: Store;
   tokenMap: TokenMap;
+  ledger: RequestLedger;
   service: string;
+  instance: string;
   baseUrl: string;
+  reset: () => Promise<void>;
 }
 
 const MUTATES = (method: string) => method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
@@ -86,7 +94,7 @@ export class EmulatorDurableObject {
 
   // Lazily build (or rebuild on base-url change) the emulator for this instance,
   // restoring a persisted snapshot if present, else seeding fresh.
-  private async ensure(service: string, baseUrl: string, preset?: string): Promise<Live> {
+  private async ensure(service: string, instance: string, baseUrl: string, preset?: string): Promise<Live> {
     if (this.live && this.live.service === service && this.live.baseUrl === baseUrl) return this.live;
     const entry = SERVICES[service];
     if (!entry) throw new Error(`unknown emulator service: ${service}`);
@@ -95,6 +103,7 @@ export class EmulatorDurableObject {
     const strict = persisted.strict ?? true;
     const tokens = this.buildTokens(persisted.seed, strict, persisted.minted);
 
+    // eslint-disable-next-line prefer-const
     let cachedResolver: AppKeyResolver | undefined;
     const appKeyResolver: AppKeyResolver | undefined = entry.createAppKeyResolver
       ? (appId) => cachedResolver!(appId)
@@ -105,11 +114,56 @@ export class EmulatorDurableObject {
       ? undefined
       : entry.defaultFallback(persisted.seed?.[service] as Record<string, unknown> | undefined);
 
-    const { app, store, tokenMap } = createServer(entry.plugin, { baseUrl, tokens, appKeyResolver, fallbackUser });
+    let resetService = async () => {};
+    const { app, store, tokenMap, webhooks, ledger } = createServer(entry.plugin, {
+      baseUrl,
+      tokens,
+      appKeyResolver,
+      fallbackUser,
+      manifest: entry.manifest,
+      instance,
+      ledgerPersistent: true,
+      reset: () => resetService(),
+      seed: async (seed) => {
+        if (seed && entry.seedFromConfig) {
+          entry.seedFromConfig(store, baseUrl, seed as Record<string, unknown>);
+          await this.persist();
+        }
+      },
+      issueCredential: async (request) => {
+        const credential = issueCloudflareCredential(service, entry, store, baseUrl, tokenMap as TokenMap, request);
+        // Persist minted bearer/API-key tokens so credentials created via
+        // /_emulate/credentials survive Durable Object eviction (rebuilds restore
+        // tokens from persisted.minted), matching the legacy /__token endpoint.
+        if (typeof credential.token === "string" && credential.token.length > 0) {
+          const persistedState = (await this.state.storage.get<PersistedState>("state")) ?? {};
+          persistedState.minted = [
+            ...(persistedState.minted ?? []),
+            {
+              token: credential.token,
+              login: credential.login ?? "admin",
+              id: (tokenMap as TokenMap).get(credential.token)?.id ?? Date.now(),
+              scopes: credential.scopes ?? [],
+            },
+          ];
+          await this.state.storage.put("state", persistedState);
+        }
+        await this.persist();
+        return credential;
+      },
+    });
     cachedResolver = entry.createAppKeyResolver?.(store);
 
     if (persisted.snapshot) store.restore(persisted.snapshot as Parameters<Store["restore"]>[0]);
     else this.seedInto(store, service, baseUrl, persisted.seed);
+    ledger.restore(persisted.ledger);
+    resetService = async () => {
+      store.reset();
+      webhooks.clear();
+      ledger.clear();
+      this.seedInto(store, service, baseUrl, persisted.seed);
+      await this.persist();
+    };
 
     // URL-selected preset (e.g. `/oauth|bearer|query/mcp`): pin the auth mode from
     // the URL — no seed call. Reapplied on every build (the mode lives in the store
@@ -121,7 +175,7 @@ export class EmulatorDurableObject {
       }
     }
 
-    this.live = { app, store, tokenMap: tokenMap as TokenMap, service, baseUrl };
+    this.live = { app, store, tokenMap: tokenMap as TokenMap, ledger, service, instance, baseUrl, reset: resetService };
     return this.live;
   }
 
@@ -129,11 +183,16 @@ export class EmulatorDurableObject {
     if (!this.live) return;
     const persisted = (await this.state.storage.get<PersistedState>("state")) ?? {};
     persisted.snapshot = this.live.store.snapshot();
+    // Persist the request ledger alongside state so inspection history survives
+    // Durable Object eviction (the vision treats the ledger as a first-class,
+    // durable feature, not an in-memory debug afterthought).
+    persisted.ledger = this.live.ledger.serialize();
     await this.state.storage.put("state", persisted);
   }
 
   async fetch(request: Request): Promise<Response> {
     const service = request.headers.get("x-emulator-service") ?? "";
+    const instance = request.headers.get("x-emulator-instance") ?? "default";
     const baseUrl = request.headers.get("x-emulator-base-url") ?? new URL(request.url).origin;
     const preset = request.headers.get("x-emulator-mcp-mode") ?? undefined;
     const path = new URL(request.url).pathname;
@@ -151,16 +210,13 @@ export class EmulatorDurableObject {
       const { strict, ...seed } = raw;
       await this.state.storage.put("state", { seed, strict: strict !== false, minted: [] });
       this.live = undefined;
-      await this.ensure(service, baseUrl);
+      await this.ensure(service, instance, baseUrl);
       await this.persist();
       return Response.json({ ok: true, url: baseUrl, strict: strict !== false });
     }
     if (path === "/__reset" && request.method === "POST") {
-      const persisted = (await this.state.storage.get<PersistedState>("state")) ?? {};
-      const live = await this.ensure(service, baseUrl);
-      live.store.reset();
-      this.seedInto(live.store, service, baseUrl, persisted.seed);
-      await this.persist();
+      const live = await this.ensure(service, instance, baseUrl);
+      await live.reset();
       return Response.json({ ok: true });
     }
     // Mint a credential: find-or-create the identity, return a working token.
@@ -172,7 +228,7 @@ export class EmulatorDurableObject {
       };
       if (!login) return Response.json({ error: "login is required" }, { status: 400 });
       const entry = SERVICES[service];
-      const live = await this.ensure(service, baseUrl);
+      const live = await this.ensure(service, instance, baseUrl);
       const id = entry.ensureUser ? entry.ensureUser(live.store, baseUrl, login) : 1;
       const token = `emu_${service}_${crypto.randomUUID().replace(/-/g, "")}`;
       const scopeList = scopes ?? [];
@@ -184,7 +240,7 @@ export class EmulatorDurableObject {
       return Response.json({ token, login, scopes: scopeList });
     }
 
-    const live = await this.ensure(service, baseUrl, preset);
+    const live = await this.ensure(service, instance, baseUrl, preset);
     const res = await live.app.fetch(request);
     if (MUTATES(request.method)) await this.persist();
     return res;

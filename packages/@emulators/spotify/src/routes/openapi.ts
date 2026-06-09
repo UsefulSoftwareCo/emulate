@@ -3,7 +3,7 @@ import type { RouteContext } from "@emulators/core";
 // Serves an OpenAPI 3.1 document describing this emulator instance, pointed at
 // itself (`servers[].url` = the instance base URL) with an OAuth2
 // client-credentials security scheme bound to the emulator's own token endpoint.
-// Ingestable directly by Executor as an OpenAPI source (`spec.kind: "url"`).
+// Useful for OpenAPI-aware clients and test tools.
 export function openapiRoutes({ app, baseUrl }: RouteContext): void {
   app.get("/openapi.json", (c) => c.json(buildSpec(baseUrl)));
 }

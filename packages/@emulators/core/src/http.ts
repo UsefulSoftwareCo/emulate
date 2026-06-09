@@ -5,7 +5,7 @@ type HeadersInit = ConstructorParameters<typeof Headers>[0];
 type FormDataEntryValue = string | File;
 
 export type ContentfulStatusCode = number;
-export type Next = () => Promise<void>;
+export type Next = () => Promise<Response | void>;
 
 type VariablesOf<E> = unknown extends E
   ? Record<string, any>
@@ -50,20 +50,24 @@ export interface CorsOptions {
   maxAge?: number;
 }
 
-export class HonoRequest<P extends string = string> {
+export class HonoRequest {
   readonly raw: Request;
   readonly url: string;
   readonly method: string;
   readonly path: string;
+  /** The matched route pattern (e.g. /repos/:owner/:repo), when a route matched. */
+  readonly routePath?: string;
 
   constructor(
     request: Request,
     private readonly params: Record<string, string>,
+    routePath?: string,
   ) {
     this.raw = request;
     this.url = request.url;
     this.method = request.method;
     this.path = new URL(request.url).pathname;
+    this.routePath = routePath;
   }
 
   header(): Record<string, string>;
@@ -128,8 +132,8 @@ export class HonoRequest<P extends string = string> {
   }
 }
 
-export class Context<E = unknown, P extends string = string> {
-  readonly req: HonoRequest<P>;
+export class Context<E = unknown, _P extends string = string> {
+  readonly req: HonoRequest;
   private readonly vars = new Map<string, unknown>();
   private readonly responseHeaders = new Headers();
   private responseStatus = 200;
@@ -138,8 +142,9 @@ export class Context<E = unknown, P extends string = string> {
     request: Request,
     params: Record<string, string>,
     private readonly notFoundHandler: (c: Context<E>) => Response | Promise<Response>,
+    routePath?: string,
   ) {
-    this.req = new HonoRequest<P>(request, params);
+    this.req = new HonoRequest(request, params, routePath);
   }
 
   get<K extends keyof VariablesOf<E> & string>(key: K): VariablesOf<E>[K] | undefined {
@@ -274,7 +279,7 @@ export class Hono<E = unknown> {
     const path = url.pathname;
     const method = request.method.toUpperCase();
     const matched = this.match(method, path);
-    const context = new Context<E>(request, matched.params, this.notFoundHandler);
+    const context = new Context<E>(request, matched.params, this.notFoundHandler, matched.routePattern);
 
     try {
       const response = await this.dispatch(context, matched.handlers);
@@ -284,7 +289,10 @@ export class Hono<E = unknown> {
     }
   };
 
-  private match(method: string, path: string): { handlers: MatchedHandler<E>[]; params: Record<string, string> } {
+  private match(
+    method: string,
+    path: string,
+  ): { handlers: MatchedHandler<E>[]; params: Record<string, string>; routePattern?: string } {
     const handlers: MatchedHandler<E>[] = [];
     const params: Record<string, string> = {};
 
@@ -311,7 +319,7 @@ export class Hono<E = unknown> {
       }
     }
 
-    return { handlers, params };
+    return { handlers, params, routePattern: route?.compiled.pattern };
   }
 
   private async dispatch(context: Context<E>, handlers: MatchedHandler<E>[]): Promise<Response | void> {
@@ -330,6 +338,7 @@ export class Hono<E = unknown> {
       const next: Next = async () => {
         nextCalled = true;
         nextResponse = await run(nextIndex + 1);
+        return nextResponse;
       };
 
       const response = await matched.handler(context, next);

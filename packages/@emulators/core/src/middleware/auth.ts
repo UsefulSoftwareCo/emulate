@@ -54,6 +54,12 @@ export type AppEnv = {
     authToken?: string;
     authScopes?: string[];
     docsUrl?: string;
+    /** Correlation id for the active request, set by the ledger middleware. */
+    correlationId?: string;
+    /** Provider operation id a handler can advertise for the ledger. */
+    operationId?: string;
+    /** Side effects a handler records onto the active request's ledger entry. */
+    ledgerEffects?: import("../ledger.js").LedgerSideEffect[];
   };
 };
 

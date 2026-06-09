@@ -14,6 +14,7 @@ import { openapiRoutes } from "./routes/openapi.js";
 
 export { getVercelStore, type VercelStore } from "./store.js";
 export * from "./entities.js";
+export { manifest } from "./manifest.js";
 
 export interface VercelSeedConfig {
   port?: number;

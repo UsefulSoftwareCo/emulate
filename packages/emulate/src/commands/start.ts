@@ -1,5 +1,5 @@
 import { createServer, serve, type AppKeyResolver, type Store } from "@emulators/core";
-import { SERVICE_REGISTRY, SERVICE_NAMES, type ServiceName } from "../registry.js";
+import { SERVICE_REGISTRY, SERVICE_NAMES, issueServiceCredential, type ServiceName } from "../registry.js";
 import { readFileSync, existsSync } from "fs";
 import { resolve } from "path";
 import { parse as parseYaml } from "yaml";
@@ -171,21 +171,38 @@ export async function startCommand(options: StartOptions): Promise<void> {
 
     const fallbackUser = entry.defaultFallback(svcSeedConfig);
 
-    const { app, store, webhooks } = createServer(loadedSvc.plugin, {
+    let resetService = () => {};
+    let applyRuntimeSeed = (_seed: unknown) => {};
+    const { app, store, webhooks, ledger, tokenMap } = createServer(loadedSvc.plugin, {
       port,
       baseUrl,
       tokens,
       appKeyResolver,
       fallbackUser,
+      manifest: loadedSvc.manifest,
+      instance: svc,
+      reset: () => resetService(),
+      seed: (seed) => applyRuntimeSeed(seed),
+      issueCredential: (request) => issueServiceCredential(svc, loadedSvc, store, baseUrl, tokenMap, request, webhooks),
     });
     cachedResolver = loadedSvc.createAppKeyResolver?.(store);
     stores.push(store);
 
-    loadedSvc.plugin.seed?.(store, baseUrl);
-
-    if (svcSeedConfig && loadedSvc.seedFromConfig) {
-      loadedSvc.seedFromConfig(store, baseUrl, svcSeedConfig, webhooks);
-    }
+    resetService = () => {
+      store.reset();
+      webhooks.clear();
+      ledger.clear();
+      loadedSvc.plugin.seed?.(store, baseUrl);
+      if (svcSeedConfig && loadedSvc.seedFromConfig) {
+        loadedSvc.seedFromConfig(store, baseUrl, svcSeedConfig, webhooks);
+      }
+    };
+    applyRuntimeSeed = (seed) => {
+      if (seed && loadedSvc.seedFromConfig) {
+        loadedSvc.seedFromConfig(store, baseUrl, seed, webhooks);
+      }
+    };
+    resetService();
 
     const httpServer = serve({ fetch: app.fetch, port });
     httpServers.push(httpServer);

@@ -383,3 +383,19 @@ const pi = await stripe.paymentIntents.create({
 const confirmed = await stripe.paymentIntents.confirm(pi.id)
 console.log(confirmed.status) // 'succeeded'
 ```
+
+## Discovery
+
+When using a running emulator URL, inspect `GET /_emulate/manifest` first to confirm supported surfaces (REST, hosted checkout, webhooks), auth capabilities, and per-operation spec coverage. Use `GET /_emulate/connections` for copyable SDK, CLI, env, and curl snippets and `GET /_emulate/quickstart` for setup notes.
+
+Mint credentials with `POST /_emulate/credentials`, the canonical, uniform way to create a credential for any service (here a Stripe secret key):
+
+```bash
+curl -X POST "$STRIPE_EMULATOR_URL/_emulate/credentials" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"api-key","login":"admin"}'
+```
+
+Inspect calls with `GET /_emulate/ledger`: each entry includes a correlation id (set `X-Correlation-Id` on a request to trace it), the matched route and operation id, sanitized headers and body, authenticated identity, response status, side effects, and webhook deliveries (the Stripe events dispatched on state changes). Use `POST /_emulate/seed` to add runtime seed data and `POST /_emulate/reset` to replay seeds.
+
+Hosted Stripe is at `https://stripe.emulators.dev` (the bare service host is useful without an instance) with instance hosts of the form `stripe.<instance>.emulators.dev` (e.g. `stripe.ci-48291.emulators.dev`). The apex `https://emulators.dev` is a links-out catalog of every emulator; discover the same catalog machine-readably at `GET /_emulate/services` from any host. Per-service docs live at `https://docs.emulators.dev/stripe`.

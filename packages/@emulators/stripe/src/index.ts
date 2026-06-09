@@ -13,6 +13,7 @@ import { customerSessionRoutes } from "./routes/customer-sessions.js";
 
 export { getStripeStore, type StripeStore } from "./store.js";
 export * from "./entities.js";
+export { manifest } from "./manifest.js";
 
 export interface StripeSeedConfig {
   port?: number;

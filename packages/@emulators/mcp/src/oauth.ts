@@ -24,7 +24,13 @@ function isAcceptableRedirect(uri: string): boolean {
   }
 }
 
-function issueAccessToken(store: Store, tokenMap: TokenMap | undefined, login: string, userId: number, scope: string): string {
+function issueAccessToken(
+  store: Store,
+  tokenMap: TokenMap | undefined,
+  login: string,
+  userId: number,
+  scope: string,
+): string {
   const accessToken = "mcp_" + randomBytes(24).toString("base64url");
   const scopes = scope ? scope.split(/\s+/).filter(Boolean) : [];
   tokenMap?.set(accessToken, { login, id: userId, scopes });
@@ -116,15 +122,11 @@ export function registerOAuthRoutes(ctx: RouteContext): void {
     }
     for (const uri of redirectUris) {
       if (!isAcceptableRedirect(uri)) {
-        return c.json(
-          { error: "invalid_redirect_uri", error_description: `Unacceptable redirect_uri: ${uri}` },
-          400,
-        );
+        return c.json({ error: "invalid_redirect_uri", error_description: `Unacceptable redirect_uri: ${uri}` }, 400);
       }
     }
 
-    const authMethod =
-      typeof body.token_endpoint_auth_method === "string" ? body.token_endpoint_auth_method : "none";
+    const authMethod = typeof body.token_endpoint_auth_method === "string" ? body.token_endpoint_auth_method : "none";
 
     const clientId = "mcp-client-" + randomUUID();
     const record: OAuthClientRecord = {
@@ -247,8 +249,13 @@ export function registerOAuthRoutes(ctx: RouteContext): void {
       };
       const buttons = userButtonsHtml(store, baseUrl, hidden);
       const subtitle = `<strong>${escapeBasic(login || "(no login)")}</strong> isn't a seeded user in this instance.`;
-      const pick = buttons ? `<p class="empty" style="margin-bottom:8px">Authorize as an available user instead:</p>${buttons}` : "";
-      return c.html(renderCardPage("User not found", subtitle, pick + seedHintHtml(baseUrl, login), SERVICE_LABEL), 400);
+      const pick = buttons
+        ? `<p class="empty" style="margin-bottom:8px">Authorize as an available user instead:</p>${buttons}`
+        : "";
+      return c.html(
+        renderCardPage("User not found", subtitle, pick + seedHintHtml(baseUrl, login), SERVICE_LABEL),
+        400,
+      );
     }
 
     const code = randomBytes(24).toString("hex");

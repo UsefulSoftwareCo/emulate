@@ -1,0 +1,92 @@
+# Deployment
+
+Hosted emulators run on Cloudflare and are addressed by host. A human or agent can land on a service host, learn what the service is, create or select an instance, mint credentials, find base URLs, and inspect calls without any repository context. Provider traffic stays faithful to the real service, while emulate-specific controls live under the reserved `/_emulate` namespace.
+
+## Host-based routing
+
+All 13 services are available on host-based routing. There are four address forms:
+
+<table>
+  <thead>
+    <tr>
+      <th>Form</th>
+      <th>Example</th>
+      <th>Purpose</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Apex catalog</td>
+      <td><code>https://emulators.dev</code></td>
+      <td>The emulator catalog: a links-out landing page that lists every emulator and links to its host</td>
+    </tr>
+    <tr>
+      <td>Service host</td>
+      <td><code>https://github.emulators.dev</code></td>
+      <td>A single service, useful before you create an instance. Serves a service-level control plane</td>
+    </tr>
+    <tr>
+      <td>Instance host</td>
+      <td><code>https://github.my-run.emulators.dev</code></td>
+      <td>One stateful instance of a service. The provider base URL is the origin itself</td>
+    </tr>
+    <tr>
+      <td>Path form</td>
+      <td><code>https://emulators.dev/github/my-run</code></td>
+      <td>A compatibility form that routes to the same instance as the instance host</td>
+    </tr>
+  </tbody>
+</table>
+
+Instance names are arbitrary, so a CI run can pick a unique one such as `stripe.ci-48291.emulators.dev`. The instance host form is preferred for public examples because the provider base URL is the origin, which matches a service-owned host.
+
+## Apex catalog
+
+The apex `emulators.dev` is the emulator catalog, not the docs site. It is served by the `emulate-hosts` worker through the console, which fetches `GET /_emulate/services` and renders the list. That endpoint returns a machine-readable catalog of every hosted service:
+
+```bash
+curl -s https://emulators.dev/_emulate/services
+```
+
+```json
+{
+  "services": [
+    {
+      "id": "github",
+      "name": "GitHub",
+      "description": "Stateful GitHub API emulator.",
+      "serviceHost": "https://github.emulators.dev",
+      "instanceHostPattern": "https://github.<instance>.emulators.dev",
+      "pathForm": "https://emulators.dev/github/<instance>",
+      "manifest": "https://github.emulators.dev/_emulate/manifest"
+    }
+  ]
+}
+```
+
+`GET /_emulate/services` is available from any host, so consoles and agents can discover what is deployed from the apex, a service host, or an instance host.
+
+## Service host control plane
+
+A bare service host such as `https://github.emulators.dev`, with no instance, serves a service-level control plane so it is useful before you create an instance:
+
+- `GET /_emulate`, `/_emulate/manifest`, `/_emulate/quickstart`, `/_emulate/specs`, `/_emulate/coverage`, `/_emulate/connections`, `/_emulate/openapi`
+- `POST /_emulate/instances` to create an instance and get its URLs
+
+## Instance model
+
+The `emulate-hosts` worker serves `emulators.dev/*` (the apex catalog) and `*.emulators.dev/*` (service and instance hosts). Each stateful instance is backed by one Cloudflare Durable Object. The `EmulatorDurableObject` class is declared through a wrangler `migrations` entry (`new_classes`), and both the instance state and the request ledger are snapshotted to Durable Object storage, so an instance survives eviction.
+
+```text
+POST https://github.emulators.dev/_emulate/instances
+```
+
+Instances are created lazily. Creating one, or simply addressing an instance host for the first time, returns the base URL, control base URL, and provider base URL for that instance. See the [Service Manifest](/docs/manifest) for the instance shape and [Request Ledger](/docs/ledger) for what persists.
+
+## Hosted services
+
+The hosted catalog includes all 13 services: GitHub, Vercel, Google, Okta, Microsoft Entra ID, Spotify, Slack, Apple, AWS, Resend, Stripe, MongoDB Atlas, and Clerk.
+
+## Docs subdomain
+
+Docs are a separate site. They are deployed on the `emulate-docs` worker at `docs.emulators.dev`, and per-service docs live at `https://docs.emulators.dev/<service>`, which is the convention the manifest `docsUrl` follows. Because `docs.emulators.dev` is a more specific host than the apex, it wins for that hostname. The apex `emulators.dev` is the catalog, not the docs.
