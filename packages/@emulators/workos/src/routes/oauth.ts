@@ -40,6 +40,10 @@ export function oauthRoutes(ctx: RouteContext): void {
       client_secret: null,
       redirect_uris: Array.isArray(body.redirect_uris) ? (body.redirect_uris as string[]) : [],
       name: typeof body.client_name === "string" ? body.client_name : null,
+      access_token_ttl_seconds:
+        typeof body.access_token_ttl_seconds === "number" && body.access_token_ttl_seconds > 0
+          ? Math.floor(body.access_token_ttl_seconds)
+          : null,
     });
     return c.json(
       {
@@ -59,6 +63,7 @@ export function oauthRoutes(ctx: RouteContext): void {
     const redirectUri = c.req.query("redirect_uri") ?? "";
     const state = c.req.query("state") ?? "";
     const codeChallenge = c.req.query("code_challenge") ?? "";
+    const scope = c.req.query("scope") ?? "";
     const loginHint = c.req.query("login_hint");
     if (!redirectUri) return workosError(c, 422, "invalid_request", "redirect_uri is required");
 
@@ -75,6 +80,7 @@ export function oauthRoutes(ctx: RouteContext): void {
         client_id: clientId,
         redirect_uri: redirectUri,
         code_challenge: codeChallenge || null,
+        scope: scope || null,
         used: false,
       });
       const target = new URL(redirectUri);
@@ -100,6 +106,7 @@ export function oauthRoutes(ctx: RouteContext): void {
             redirect_uri: redirectUri,
             state,
             code_challenge: codeChallenge,
+            scope,
           },
         }),
       )
@@ -110,6 +117,7 @@ export function oauthRoutes(ctx: RouteContext): void {
         <input type="hidden" name="redirect_uri" value="${escapeHtml(redirectUri)}" />
         <input type="hidden" name="state" value="${escapeHtml(state)}" />
         <input type="hidden" name="code_challenge" value="${escapeHtml(codeChallenge)}" />
+        <input type="hidden" name="scope" value="${escapeHtml(scope)}" />
         <input type="email" name="email" class="checkout-input" placeholder="new-user@example.com" required />
         <button type="submit" class="checkout-pay-btn">Continue as new user</button>
       </form>`;
@@ -138,6 +146,7 @@ export function oauthRoutes(ctx: RouteContext): void {
       client_id: String(form.client_id ?? ""),
       redirect_uri: redirectUri,
       code_challenge: String(form.code_challenge ?? "") || null,
+      scope: String(form.scope ?? "") || null,
       used: false,
     });
     const target = new URL(redirectUri);
@@ -154,12 +163,17 @@ export function oauthRoutes(ctx: RouteContext): void {
       : ((await c.req.parseBody()) as Record<string, unknown>);
     const grantType = String(body.grant_type ?? "");
 
+    // Per-client TTL (emulate DCR extension) so tests can compress the lifecycle.
+    const ttlFor = (clientId: string): number =>
+      ws().oauthClients.findOneBy("client_id", clientId)?.access_token_ttl_seconds ?? 3600;
+
     if (grantType === "refresh_token") {
       const refreshToken = String(body.refresh_token ?? "");
       const session = ws().sessions.findOneBy("refresh_token", refreshToken);
       if (!session || session.revoked) {
         return workosError(c, 400, "invalid_grant", "Refresh token is invalid.");
       }
+      // AuthKit refresh tokens are single use: rotate on every redemption.
       ws().sessions.update(session.id, { revoked: true });
       const rotated = ws().sessions.insert({
         workos_id: workosId("session"),
@@ -168,8 +182,10 @@ export function oauthRoutes(ctx: RouteContext): void {
         organization_id: session.organization_id,
         client_id: session.client_id,
         revoked: false,
+        scope: session.scope,
       });
       const audience = process.env.EMULATE_WORKOS_AUDIENCE ?? session.client_id;
+      const expiresIn = ttlFor(session.client_id);
       const accessToken = await signAccessToken(
         {
           sub: session.user_id,
@@ -177,13 +193,14 @@ export function oauthRoutes(ctx: RouteContext): void {
           ...(session.organization_id ? { org_id: session.organization_id } : {}),
           permissions: [],
         },
-        { issuer: baseUrl, audience },
+        { issuer: baseUrl, audience, expiresIn: `${expiresIn}s` },
       );
       return c.json({
         access_token: accessToken,
         token_type: "Bearer",
-        expires_in: 3600,
+        expires_in: expiresIn,
         refresh_token: rotated.refresh_token,
+        ...(session.scope ? { scope: session.scope } : {}),
       });
     }
 
@@ -200,28 +217,39 @@ export function oauthRoutes(ctx: RouteContext): void {
     // DCR client's — mirror AuthKit: EMULATE_WORKOS_AUDIENCE (the app's client
     // id) when set, else the requesting client.
     const audience = process.env.EMULATE_WORKOS_AUDIENCE ?? oauthCode.client_id;
-    const session = ws().sessions.insert({
-      workos_id: workosId("session"),
-      refresh_token: randomToken("rt"),
-      user_id: oauthCode.user_id,
-      organization_id: oauthCode.organization_id,
-      client_id: oauthCode.client_id,
-      revoked: false,
-    });
+    // AuthKit grants exactly the scopes the client requested (no defaulting)
+    // and issues a refresh token ONLY when offline_access is among them. A
+    // client that requests no scopes gets granted_scopes: [] and a session it
+    // can never refresh.
+    const grantedScopes = (oauthCode.scope ?? "").split(" ").filter(Boolean);
+    const offline = grantedScopes.includes("offline_access");
+    const session = offline
+      ? ws().sessions.insert({
+          workos_id: workosId("session"),
+          refresh_token: randomToken("rt"),
+          user_id: oauthCode.user_id,
+          organization_id: oauthCode.organization_id,
+          client_id: oauthCode.client_id,
+          revoked: false,
+          scope: oauthCode.scope,
+        })
+      : null;
+    const expiresIn = ttlFor(oauthCode.client_id);
     const accessToken = await signAccessToken(
       {
         sub: oauthCode.user_id,
-        sid: session.workos_id,
+        sid: session?.workos_id ?? workosId("session"),
         ...(oauthCode.organization_id ? { org_id: oauthCode.organization_id } : {}),
         permissions: [],
       },
-      { issuer: baseUrl, audience },
+      { issuer: baseUrl, audience, expiresIn: `${expiresIn}s` },
     );
     return c.json({
       access_token: accessToken,
       token_type: "Bearer",
-      expires_in: 3600,
-      refresh_token: session.refresh_token,
+      expires_in: expiresIn,
+      ...(session ? { refresh_token: session.refresh_token } : {}),
+      ...(grantedScopes.length > 0 ? { scope: grantedScopes.join(" ") } : {}),
     });
   });
 }

@@ -45,6 +45,7 @@ async function authenticationResponse(
     organization_id: organizationId,
     client_id: clientId,
     revoked: false,
+    scope: null,
   });
   const membership = organizationId
     ? ws.memberships

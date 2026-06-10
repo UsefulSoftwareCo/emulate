@@ -62,6 +62,8 @@ export interface WorkosSession extends Entity {
   organization_id: string | null;
   client_id: string;
   revoked: boolean;
+  /** Space-delimited granted scopes (null for user-management sessions). */
+  scope: string | null;
 }
 
 /** Vault KV object. */
@@ -79,6 +81,8 @@ export interface WorkosOAuthClient extends Entity {
   client_secret: string | null;
   redirect_uris: string[];
   name: string | null;
+  /** Emulate extension (DCR field `access_token_ttl_seconds`): per-client TTL so tests can compress the token lifecycle. */
+  access_token_ttl_seconds: number | null;
 }
 
 /** One-time code for the /oauth2/authorize surface (MCP clients). */
@@ -89,5 +93,7 @@ export interface WorkosOAuthCode extends Entity {
   client_id: string;
   redirect_uri: string;
   code_challenge: string | null;
+  /** Space-delimited scopes the client requested at /oauth2/authorize. */
+  scope: string | null;
   used: boolean;
 }

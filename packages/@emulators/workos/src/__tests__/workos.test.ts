@@ -181,6 +181,87 @@ describe("workos emulator with the real @workos-inc/node SDK", () => {
     expect(meta.registration_endpoint).toBe(`${BASE}/oauth2/register`);
   });
 
+  it("grants exactly the requested OAuth scopes and gates refresh tokens on offline_access", async () => {
+    const redirectUri = "http://127.0.0.1:9/callback";
+    const register = async (extra: Record<string, unknown> = {}) =>
+      (await (
+        await fetch(`${BASE}/oauth2/register`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            client_name: "scope-test",
+            redirect_uris: [redirectUri],
+            ...extra,
+          }),
+        })
+      ).json()) as { client_id: string };
+    const mint = async (clientId: string, scope: string | null) => {
+      const authorize = new URL(`${BASE}/oauth2/authorize`);
+      authorize.searchParams.set("client_id", clientId);
+      authorize.searchParams.set("redirect_uri", redirectUri);
+      authorize.searchParams.set("login_hint", "scopes@example.com");
+      if (scope !== null) authorize.searchParams.set("scope", scope);
+      const redirect = await fetch(authorize, { redirect: "manual" });
+      const code = new URL(redirect.headers.get("location") ?? "").searchParams.get("code") ?? "";
+      return (await (
+        await fetch(`${BASE}/oauth2/token`, {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            grant_type: "authorization_code",
+            code,
+            redirect_uri: redirectUri,
+            client_id: clientId,
+          }),
+        })
+      ).json()) as {
+        access_token?: string;
+        refresh_token?: string;
+        expires_in?: number;
+        scope?: string;
+      };
+    };
+
+    // A client that requests no scopes (what a spec-faithful MCP client does
+    // when the resource advertises scopes_supported: []) gets NO refresh token.
+    const bare = await register();
+    const bareTokens = await mint(bare.client_id, null);
+    expect(bareTokens.access_token).toBeTruthy();
+    expect(bareTokens.refresh_token).toBeUndefined();
+    expect(bareTokens.scope).toBeUndefined();
+    expect(bareTokens.expires_in).toBe(3600);
+
+    // offline_access yields a refresh token; the TTL DCR extension compresses
+    // the lifecycle; refresh rotates (single use, like AuthKit).
+    const offline = await register({ access_token_ttl_seconds: 7 });
+    const offlineTokens = await mint(offline.client_id, "openid profile email offline_access");
+    expect(offlineTokens.refresh_token).toBeTruthy();
+    expect(offlineTokens.scope).toBe("openid profile email offline_access");
+    expect(offlineTokens.expires_in).toBe(7);
+    const jwtPayload = JSON.parse(
+      Buffer.from(offlineTokens.access_token?.split(".")[1] ?? "", "base64url").toString(),
+    ) as { exp: number; iat: number };
+    expect(jwtPayload.exp - jwtPayload.iat).toBe(7);
+
+    const refresh = async (token: string) =>
+      (await (
+        await fetch(`${BASE}/oauth2/token`, {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            grant_type: "refresh_token",
+            refresh_token: token,
+            client_id: offline.client_id,
+          }),
+        })
+      ).json()) as { refresh_token?: string; expires_in?: number; error?: string };
+    const rotated = await refresh(offlineTokens.refresh_token ?? "");
+    expect(rotated.refresh_token).toBeTruthy();
+    expect(rotated.expires_in).toBe(7);
+    const replayed = await refresh(offlineTokens.refresh_token ?? "");
+    expect(replayed.error).toBe("invalid_grant");
+  });
+
   it("seeds users from config", async () => {
     const code = await signInAndGetCode("seeded@example.com");
     const auth = await workos.userManagement.authenticateWithCode({

@@ -39,7 +39,7 @@ Sealed sessions are sealed and unsealed locally by the SDK with your cookie pass
 
 ## Other surfaces
 
-- OAuth authorization server for MCP clients: `/.well-known/oauth-authorization-server`, `/oauth2/register`, `/oauth2/authorize`, `/oauth2/token`, `/oauth2/jwks`. Set `EMULATE_WORKOS_AUDIENCE` to control the `aud` claim resource servers verify.
+- OAuth authorization server for MCP clients: `/.well-known/oauth-authorization-server`, `/oauth2/register`, `/oauth2/authorize`, `/oauth2/token`, `/oauth2/jwks`. Set `EMULATE_WORKOS_AUDIENCE` to control the `aud` claim resource servers verify. AuthKit-faithful scope handling: the token grant carries exactly the scopes the client requested at `/oauth2/authorize`, a refresh token is issued only when `offline_access` is among them, and refresh tokens are single use (rotated on every redemption). Register with the emulate-only DCR field `access_token_ttl_seconds` to compress access-token expiry for lifecycle tests.
 - Vault KV: `POST /vault/v1/kv`, `GET /vault/v1/kv/name/:name`, `PUT /vault/v1/kv/:id`, `DELETE /vault/v1/kv/:id`.
 
 ## Seed
