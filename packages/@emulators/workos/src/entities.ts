@@ -75,6 +75,12 @@ export interface WorkosVaultObject extends Entity {
   version_id: string;
 }
 
+/** Singleton OAuth-surface settings (emulate control, set via /_emulate/seed `oauth`). */
+export interface WorkosOAuthSettings extends Entity {
+  /** Default access-token TTL for clients without a per-client override. */
+  default_access_token_ttl_seconds: number | null;
+}
+
 /** Dynamically-registered OAuth client (AuthKit MCP surface). */
 export interface WorkosOAuthClient extends Entity {
   client_id: string;

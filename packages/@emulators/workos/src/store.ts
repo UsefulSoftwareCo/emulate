@@ -7,6 +7,7 @@ import type {
   WorkosMembership,
   WorkosOAuthClient,
   WorkosOAuthCode,
+  WorkosOAuthSettings,
   WorkosOrganization,
   WorkosSession,
   WorkosUser,
@@ -24,6 +25,7 @@ export interface WorkosStore {
   vaultObjects: Collection<WorkosVaultObject>;
   oauthClients: Collection<WorkosOAuthClient>;
   oauthCodes: Collection<WorkosOAuthCode>;
+  oauthSettings: Collection<WorkosOAuthSettings>;
 }
 
 export function getWorkosStore(store: Store): WorkosStore {
@@ -50,5 +52,6 @@ export function getWorkosStore(store: Store): WorkosStore {
     ]),
     oauthClients: store.collection<WorkosOAuthClient>("workos.oauth_clients", ["client_id"]),
     oauthCodes: store.collection<WorkosOAuthCode>("workos.oauth_codes", ["code"]),
+    oauthSettings: store.collection<WorkosOAuthSettings>("workos.oauth_settings", []),
   };
 }

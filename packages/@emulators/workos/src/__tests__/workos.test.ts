@@ -262,6 +262,51 @@ describe("workos emulator with the real @workos-inc/node SDK", () => {
     expect(replayed.error).toBe("invalid_grant");
   });
 
+  it("honors the seeded default access-token TTL for plain DCR clients", async () => {
+    const redirectUri = "http://127.0.0.1:9/callback";
+    const { app, store } = createServer(workosPlugin, {
+      port: PORT + 1,
+      baseUrl: `http://localhost:${PORT + 1}`,
+      manifest,
+      fallbackUser: { login: "sk_emulate_admin", id: 1, scopes: [] },
+    });
+    seedFromConfig(store, `http://localhost:${PORT + 1}`, {
+      oauth: { default_access_token_ttl_seconds: 5 },
+    });
+    const server = serve({ fetch: app.fetch, port: PORT + 1 });
+    try {
+      const base = `http://localhost:${PORT + 1}`;
+      const registered = (await (
+        await fetch(`${base}/oauth2/register`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ client_name: "plain-dcr", redirect_uris: [redirectUri] }),
+        })
+      ).json()) as { client_id: string };
+      const authorize = new URL(`${base}/oauth2/authorize`);
+      authorize.searchParams.set("client_id", registered.client_id);
+      authorize.searchParams.set("redirect_uri", redirectUri);
+      authorize.searchParams.set("login_hint", "ttl@example.com");
+      const redirect = await fetch(authorize, { redirect: "manual" });
+      const code = new URL(redirect.headers.get("location") ?? "").searchParams.get("code") ?? "";
+      const tokens = (await (
+        await fetch(`${base}/oauth2/token`, {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            grant_type: "authorization_code",
+            code,
+            redirect_uri: redirectUri,
+            client_id: registered.client_id,
+          }),
+        })
+      ).json()) as { expires_in?: number };
+      expect(tokens.expires_in).toBe(5);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   it("seeds users from config", async () => {
     const code = await signInAndGetCode("seeded@example.com");
     const auth = await workos.userManagement.authenticateWithCode({

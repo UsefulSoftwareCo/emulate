@@ -16,10 +16,18 @@ export { manifest } from "./manifest.js";
 export interface WorkosSeedConfig {
   users?: Array<{ email: string; first_name?: string; last_name?: string }>;
   organizations?: Array<{ name: string; members?: string[] }>;
+  /** OAuth-surface controls (emulate-only): set the default access-token TTL; null restores 3600. */
+  oauth?: { default_access_token_ttl_seconds?: number | null };
 }
 
 export function seedFromConfig(store: Store, _baseUrl: string, config: WorkosSeedConfig): void {
   const ws = getWorkosStore(store);
+  if (config.oauth !== undefined) {
+    const ttl = config.oauth.default_access_token_ttl_seconds ?? null;
+    const existing = ws.oauthSettings.all()[0];
+    if (existing) ws.oauthSettings.update(existing.id, { default_access_token_ttl_seconds: ttl });
+    else ws.oauthSettings.insert({ default_access_token_ttl_seconds: ttl });
+  }
   for (const user of config.users ?? []) {
     const created = ensureUserByEmail(ws, user.email);
     if (user.first_name || user.last_name) {

@@ -163,9 +163,13 @@ export function oauthRoutes(ctx: RouteContext): void {
       : ((await c.req.parseBody()) as Record<string, unknown>);
     const grantType = String(body.grant_type ?? "");
 
-    // Per-client TTL (emulate DCR extension) so tests can compress the lifecycle.
+    // TTL precedence: per-client DCR extension, then the seeded default
+    // (real clients register plain DCR and can't carry the extension), then
+    // the AuthKit-like 3600.
     const ttlFor = (clientId: string): number =>
-      ws().oauthClients.findOneBy("client_id", clientId)?.access_token_ttl_seconds ?? 3600;
+      ws().oauthClients.findOneBy("client_id", clientId)?.access_token_ttl_seconds ??
+      ws().oauthSettings.all()[0]?.default_access_token_ttl_seconds ??
+      3600;
 
     if (grantType === "refresh_token") {
       const refreshToken = String(body.refresh_token ?? "");
