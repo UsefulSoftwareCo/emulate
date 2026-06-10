@@ -50,6 +50,8 @@ const SERVICE_NAME_LIST = [
   "clerk",
   "spotify",
   "x",
+  "workos",
+  "autumn",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -817,6 +819,52 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
           },
         ],
         tweets: [{ text: "Hello from the X API v2 emulator.", author: "developer", like_count: 42, retweet_count: 7 }],
+      },
+    },
+  },
+  workos: {
+    label: "WorkOS emulator",
+    endpoints:
+      "AuthKit user management (hosted login, code/refresh grants, sealed-session JWKS), organizations, memberships, invitations, API keys, Vault KV, OAuth authorization server",
+    async load() {
+      const mod = await import("@emulators/workos");
+      return {
+        plugin: mod.workosPlugin,
+        manifest: mod.manifest,
+        seedFromConfig: mod.seedFromConfig,
+        ensureUser(store: Store, baseUrl: string, login: string): number {
+          mod.seedFromConfig(store, baseUrl, { users: [{ email: login }] });
+          return mod.getWorkosStore(store).users.findOneBy("email", login)?.id ?? 1;
+        },
+      };
+    },
+    defaultFallback() {
+      return { login: "sk_emulate_admin", id: 1, scopes: [] };
+    },
+    initConfig: {
+      workos: {
+        users: [{ email: "admin@example.com", first_name: "Admin", last_name: "User" }],
+        organizations: [{ name: "Acme", members: ["admin@example.com"] }],
+      },
+    },
+  },
+  autumn: {
+    label: "Autumn billing emulator",
+    endpoints: "customers (get_or_create with seedable subscriptions), usage tracking, plans/features/events lists",
+    async load() {
+      const mod = await import("@emulators/autumn");
+      return {
+        plugin: mod.autumnPlugin,
+        manifest: mod.manifest,
+        seedFromConfig: mod.seedFromConfig,
+      };
+    },
+    defaultFallback() {
+      return { login: "am_emulate_admin", id: 1, scopes: [] };
+    },
+    initConfig: {
+      autumn: {
+        customers: [{ id: "org_paid_example", subscriptions: [{ plan_id: "pro", status: "active" }] }],
       },
     },
   },

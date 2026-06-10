@@ -52,6 +52,8 @@
     "lint": "eslint src"
   },
   "dependencies": {
+    "@emulators/autumn": "workspace:*",
+    "@emulators/workos": "workspace:*",
     "commander": "^14",
     "picocolors": "^1.1.1",
     "yaml": "^2"

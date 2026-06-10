@@ -136,7 +136,7 @@ github:
 
 ## Deployed Instances
 
-All 13 services are available on host-based routing when deployed: `github`, `vercel`, `google`, `okta`, `microsoft`, `spotify`, `slack`, `apple`, `aws`, `resend`, `stripe`, `mongoatlas`, and `clerk`. Each one supports three addressing forms:
+All services are available on host-based routing when deployed: `github`, `vercel`, `google`, `okta`, `microsoft`, `spotify`, `slack`, `apple`, `aws`, `resend`, `stripe`, `mongoatlas`, `clerk`, `x`, `workos`, and `autumn`. Each one supports three addressing forms:
 
 ```text
 https://github.emulators.dev                     # service host (no instance)
@@ -221,7 +221,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, or `'spotify'` |
+| `service` | *(required)* | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'spotify'`, `'x'`, `'workos'`, or `'autumn'` |
 | `port` | `4000` | Port for the HTTP server |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |

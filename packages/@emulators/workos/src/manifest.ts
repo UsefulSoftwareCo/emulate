@@ -1,0 +1,98 @@
+import type { ServiceManifest } from "@emulators/core";
+
+export const manifest: ServiceManifest = {
+  id: "workos",
+  name: "WorkOS",
+  description:
+    "Stateful WorkOS emulator: AuthKit user management (hosted login, code + refresh grants, sealed-session JWKS), organizations, memberships, invitations, API keys, Vault KV, and an OAuth authorization server for MCP clients.",
+  docsUrl: "https://docs.emulators.dev/workos",
+  surfaces: [
+    { id: "rest", kind: "rest", title: "WorkOS REST API", status: "partial", basePath: "/" },
+    { id: "authkit", kind: "ui", title: "Hosted AuthKit login", status: "supported", basePath: "/user_management/authorize" },
+    { id: "oauth", kind: "rest", title: "OAuth authorization server (MCP)", status: "supported", basePath: "/oauth2" },
+    { id: "vault", kind: "rest", title: "Vault KV", status: "supported", basePath: "/vault/v1/kv" },
+  ],
+  auth: [{ id: "api-key", title: "WorkOS secret key", type: "api-key", status: "supported" }],
+  specs: [
+    {
+      kind: "manual",
+      title: "WorkOS User Management + Organizations subset",
+      coverage: "hand-authored",
+      operations: [
+        { operationId: "userManagement.authorize", method: "GET", path: "/user_management/authorize", status: "hand-authored" },
+        { operationId: "userManagement.authenticate", method: "POST", path: "/user_management/authenticate", status: "hand-authored" },
+        { operationId: "userManagement.getUser", method: "GET", path: "/user_management/users/:id", status: "hand-authored" },
+        { operationId: "memberships.list", method: "GET", path: "/user_management/organization_memberships", status: "hand-authored" },
+        { operationId: "memberships.create", method: "POST", path: "/user_management/organization_memberships", status: "hand-authored" },
+        { operationId: "memberships.get", method: "GET", path: "/user_management/organization_memberships/:id", status: "hand-authored" },
+        { operationId: "memberships.update", method: "PUT", path: "/user_management/organization_memberships/:id", status: "hand-authored" },
+        { operationId: "memberships.delete", method: "DELETE", path: "/user_management/organization_memberships/:id", status: "hand-authored" },
+        { operationId: "invitations.list", method: "GET", path: "/user_management/invitations", status: "hand-authored" },
+        { operationId: "invitations.send", method: "POST", path: "/user_management/invitations", status: "hand-authored" },
+        { operationId: "invitations.accept", method: "POST", path: "/user_management/invitations/:id/accept", status: "hand-authored" },
+        { operationId: "userApiKeys.list", method: "GET", path: "/user_management/users/:id/api_keys", status: "hand-authored" },
+        { operationId: "userApiKeys.create", method: "POST", path: "/user_management/users/:id/api_keys", status: "hand-authored" },
+        { operationId: "apiKeys.validate", method: "POST", path: "/api_keys/validations", status: "hand-authored" },
+        { operationId: "apiKeys.delete", method: "DELETE", path: "/api_keys/:id", status: "hand-authored" },
+        { operationId: "organizations.create", method: "POST", path: "/organizations", status: "hand-authored" },
+        { operationId: "organizations.get", method: "GET", path: "/organizations/:id", status: "hand-authored" },
+        { operationId: "organizations.update", method: "PUT", path: "/organizations/:id", status: "hand-authored" },
+        { operationId: "organizations.roles", method: "GET", path: "/organizations/:id/roles", status: "hand-authored" },
+        { operationId: "sso.jwks", method: "GET", path: "/sso/jwks/:clientId", status: "hand-authored" },
+        { operationId: "oauth.metadata", method: "GET", path: "/.well-known/oauth-authorization-server", status: "hand-authored" },
+        { operationId: "oauth.register", method: "POST", path: "/oauth2/register", status: "hand-authored" },
+        { operationId: "oauth.authorize", method: "GET", path: "/oauth2/authorize", status: "hand-authored" },
+        { operationId: "oauth.token", method: "POST", path: "/oauth2/token", status: "hand-authored" },
+        { operationId: "vault.create", method: "POST", path: "/vault/v1/kv", status: "hand-authored" },
+        { operationId: "vault.readByName", method: "GET", path: "/vault/v1/kv/name/:name", status: "hand-authored" },
+        { operationId: "vault.update", method: "PUT", path: "/vault/v1/kv/:id", status: "hand-authored" },
+        { operationId: "vault.delete", method: "DELETE", path: "/vault/v1/kv/:id", status: "hand-authored" },
+      ],
+    },
+  ],
+  seedSchema: {
+    description: "Seed users, organizations, and memberships.",
+    fields: [
+      {
+        key: "users",
+        title: "Users",
+        description: "AuthKit users (email is the identity; sign-in creates missing users on the fly).",
+        example: [{ email: "admin@example.com", first_name: "Admin", last_name: "User" }],
+      },
+      {
+        key: "organizations",
+        title: "Organizations",
+        description: "Organizations with optional member emails (memberships are created as active).",
+        example: [{ name: "Acme", members: ["admin@example.com"] }],
+      },
+    ],
+    example: {
+      users: [{ email: "admin@example.com", first_name: "Admin", last_name: "User" }],
+      organizations: [{ name: "Acme", members: ["admin@example.com"] }],
+    },
+  },
+  stateModel: {
+    description: "Entities mutated by WorkOS provider calls.",
+    collections: [
+      { name: "workos.users" },
+      { name: "workos.organizations" },
+      { name: "workos.memberships" },
+      { name: "workos.invitations" },
+      { name: "workos.api_keys" },
+      { name: "workos.sessions" },
+      { name: "workos.vault_objects" },
+      { name: "workos.oauth_clients" },
+    ],
+  },
+  connections: [
+    {
+      id: "workos-node",
+      title: "WorkOS Node SDK",
+      kind: "sdk",
+      language: "typescript",
+      description: "Point @workos-inc/node at the emulator via apiHostname — sealed sessions, JWKS, everything follows.",
+      template:
+        'import { WorkOS } from "@workos-inc/node";\n\nconst url = new URL("{{baseUrl}}");\nconst workos = new WorkOS("{{token}}", {\n  clientId: "client_emulate",\n  apiHostname: url.hostname,\n  port: Number(url.port),\n  https: url.protocol === "https:",\n});',
+    },
+  ],
+};
