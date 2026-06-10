@@ -20,12 +20,11 @@ import {
 export function ensureUserByEmail(ws: WorkosStore, email: string): WorkosUser {
   const existing = ws.users.findOneBy("email", email);
   if (existing) return existing;
-  const local = email.split("@")[0] ?? "user";
   return ws.users.insert({
     workos_id: workosId("user"),
     email,
-    first_name: local.charAt(0).toUpperCase() + local.slice(1),
-    last_name: "Test",
+    first_name: "Test",
+    last_name: "User",
     email_verified: true,
     profile_picture_url: null,
   });
