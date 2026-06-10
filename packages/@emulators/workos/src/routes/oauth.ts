@@ -153,6 +153,40 @@ export function oauthRoutes(ctx: RouteContext): void {
       ? ((await c.req.json().catch(() => ({}))) as Record<string, unknown>)
       : ((await c.req.parseBody()) as Record<string, unknown>);
     const grantType = String(body.grant_type ?? "");
+
+    if (grantType === "refresh_token") {
+      const refreshToken = String(body.refresh_token ?? "");
+      const session = ws().sessions.findOneBy("refresh_token", refreshToken);
+      if (!session || session.revoked) {
+        return workosError(c, 400, "invalid_grant", "Refresh token is invalid.");
+      }
+      ws().sessions.update(session.id, { revoked: true });
+      const rotated = ws().sessions.insert({
+        workos_id: workosId("session"),
+        refresh_token: randomToken("rt"),
+        user_id: session.user_id,
+        organization_id: session.organization_id,
+        client_id: session.client_id,
+        revoked: false,
+      });
+      const audience = process.env.EMULATE_WORKOS_AUDIENCE ?? session.client_id;
+      const accessToken = await signAccessToken(
+        {
+          sub: session.user_id,
+          sid: rotated.workos_id,
+          ...(session.organization_id ? { org_id: session.organization_id } : {}),
+          permissions: [],
+        },
+        { issuer: baseUrl, audience },
+      );
+      return c.json({
+        access_token: accessToken,
+        token_type: "Bearer",
+        expires_in: 3600,
+        refresh_token: rotated.refresh_token,
+      });
+    }
+
     if (grantType !== "authorization_code") {
       return workosError(c, 400, "unsupported_grant_type", `Unsupported grant_type: ${grantType}`);
     }
@@ -166,10 +200,18 @@ export function oauthRoutes(ctx: RouteContext): void {
     // DCR client's — mirror AuthKit: EMULATE_WORKOS_AUDIENCE (the app's client
     // id) when set, else the requesting client.
     const audience = process.env.EMULATE_WORKOS_AUDIENCE ?? oauthCode.client_id;
+    const session = ws().sessions.insert({
+      workos_id: workosId("session"),
+      refresh_token: randomToken("rt"),
+      user_id: oauthCode.user_id,
+      organization_id: oauthCode.organization_id,
+      client_id: oauthCode.client_id,
+      revoked: false,
+    });
     const accessToken = await signAccessToken(
       {
         sub: oauthCode.user_id,
-        sid: workosId("session"),
+        sid: session.workos_id,
         ...(oauthCode.organization_id ? { org_id: oauthCode.organization_id } : {}),
         permissions: [],
       },
@@ -179,7 +221,7 @@ export function oauthRoutes(ctx: RouteContext): void {
       access_token: accessToken,
       token_type: "Bearer",
       expires_in: 3600,
-      refresh_token: randomToken("rt"),
+      refresh_token: session.refresh_token,
     });
   });
 }
