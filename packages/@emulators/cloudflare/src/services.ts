@@ -39,6 +39,13 @@ import {
 } from "@emulators/mongoatlas";
 import { clerkPlugin, manifest as clerkManifest, seedFromConfig as clerkSeed } from "@emulators/clerk";
 import { getXStore, manifest as xManifest, seedFromConfig as xSeed, xPlugin } from "@emulators/x";
+import {
+  getWorkosStore,
+  manifest as workosManifest,
+  seedFromConfig as workosSeed,
+  workosPlugin,
+} from "@emulators/workos";
+import { autumnPlugin, manifest as autumnManifest, seedFromConfig as autumnSeed } from "@emulators/autumn";
 
 // GitHub exposes three surfaces over ONE store: REST + GraphQL (githubPlugin) and
 // an MCP server (mcpPlugin's transport + OAuth/DCR routes). They compose cleanly —
@@ -249,6 +256,22 @@ export const SERVICES: Record<string, ServiceEntry> = {
       xSeed(store, baseUrl, { users: [{ username: login }] });
       return getXStore(store).users.findOneBy("username", login.toLowerCase().replace(/^@/, ""))?.id ?? 1;
     },
+  },
+  workos: {
+    plugin: workosPlugin,
+    manifest: workosManifest,
+    seedFromConfig: workosSeed,
+    defaultFallback: () => ({ login: "sk_emulate_admin", id: 1, scopes: [] }),
+    ensureUser: (store, baseUrl, login) => {
+      workosSeed(store, baseUrl, { users: [{ email: login }] });
+      return getWorkosStore(store).users.findOneBy("email", login)?.id ?? 1;
+    },
+  },
+  autumn: {
+    plugin: autumnPlugin,
+    manifest: autumnManifest,
+    seedFromConfig: autumnSeed,
+    defaultFallback: () => ({ login: "am_emulate_admin", id: 1, scopes: [] }),
   },
 };
 

@@ -499,6 +499,9 @@ importers:
       '@emulators/apple':
         specifier: workspace:*
         version: link:../apple
+      '@emulators/autumn':
+        specifier: workspace:*
+        version: link:../autumn
       '@emulators/aws':
         specifier: workspace:*
         version: link:../aws
@@ -541,6 +544,9 @@ importers:
       '@emulators/vercel':
         specifier: workspace:*
         version: link:../vercel
+      '@emulators/workos':
+        specifier: workspace:*
+        version: link:../workos
       '@emulators/x':
         specifier: workspace:*
         version: link:../x

@@ -45,7 +45,9 @@
     "@emulators/stripe": "workspace:*",
     "@emulators/mongoatlas": "workspace:*",
     "@emulators/clerk": "workspace:*",
-    "@emulators/x": "workspace:*"
+    "@emulators/x": "workspace:*",
+    "@emulators/workos": "workspace:*",
+    "@emulators/autumn": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8",
