@@ -21,6 +21,7 @@ export const manifest: ServiceManifest = {
       kind: "openapi",
       title: "Resend REST API subset",
       coverage: "hand-authored",
+      url: "/openapi.json",
       operations: [
         { operationId: "emails.send", method: "POST", path: "/emails", status: "hand-authored" },
         { operationId: "emails.sendBatch", method: "POST", path: "/emails/batch", status: "hand-authored" },

@@ -7,6 +7,7 @@ import { domainRoutes } from "./routes/domains.js";
 import { apiKeyRoutes } from "./routes/api-keys.js";
 import { contactRoutes } from "./routes/contacts.js";
 import { inboxRoutes } from "./routes/inbox.js";
+import { openapiRoutes } from "./routes/openapi.js";
 
 export { getResendStore, type ResendStore } from "./store.js";
 export * from "./entities.js";
@@ -110,6 +111,7 @@ export const resendPlugin: ServicePlugin = {
     apiKeyRoutes(ctx);
     contactRoutes(ctx);
     inboxRoutes(ctx);
+    openapiRoutes(ctx);
   },
   seed(_store: Store, _baseUrl: string): void {
     // No default seed data - inbox starts empty
