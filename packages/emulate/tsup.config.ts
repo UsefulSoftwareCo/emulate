@@ -42,7 +42,9 @@ export default defineConfig([
     ...shared,
     entry: ["src/api.ts"],
     format: ["esm"],
-    dts: true,
+    // resolve: inline types from the (unpublished) workspace packages so the
+    // emitted d.ts is self-contained, matching the bundled JS (noExternal).
+    dts: { resolve: [/^@emulators\//] },
     clean: false,
     splitting: true,
     sourcemap: true,

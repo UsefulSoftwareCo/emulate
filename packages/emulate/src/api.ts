@@ -1,6 +1,24 @@
-import { createServer, serve, type AppKeyResolver } from "@emulators/core";
+import { createServer, serve, EmulatorClient, type AppKeyResolver, type FetchLike } from "@emulators/core";
 import { SERVICE_REGISTRY, issueServiceCredential } from "./registry.js";
 export type { ServiceName } from "./registry.js";
+export {
+  EmulatorClient,
+  EmulatorControlError,
+  type ConnectionsQuery,
+  type CoverageResponse,
+  type CredentialRequest,
+  type IssuedCredential,
+  type LedgerEntry,
+  type LedgerIdentity,
+  type LedgerSideEffect,
+  type LedgerWebhookDelivery,
+  type LogsResponse,
+  type ManifestResponse,
+  type ServiceManifest,
+  type SpecsResponse,
+  type StoreSnapshot,
+  type WebhookDelivery,
+} from "@emulators/core";
 import type { ServiceName } from "./registry.js";
 import { resolveBaseUrl } from "./base-url.js";
 
@@ -16,10 +34,46 @@ export interface EmulatorOptions {
   baseUrl?: string;
 }
 
-export interface Emulator {
+/**
+ * A handle on a running emulator. Extends the typed /_emulate control-plane
+ * client (credentials.mint, ledger.list/clear, seed, reset, manifest, ...)
+ * with lifecycle for the locally spawned process.
+ */
+export interface Emulator extends EmulatorClient {
   url: string;
-  reset(): void;
   close(): Promise<void>;
+}
+
+export interface ConnectOptions {
+  /** Provider base URL of a running emulator (local or hosted). */
+  baseUrl: string;
+  /**
+   * Expected service id; when given, the manifest is fetched on connect and a
+   * mismatch (or unreachable control plane) throws instead of failing later.
+   */
+  service?: ServiceName;
+  /** Override fetch (e.g. an in-process app.request) — mainly for tests. */
+  fetch?: FetchLike;
+}
+
+/**
+ * Attach to an already-running emulator — another local process or a hosted
+ * instance like `https://resend.<name>.emulators.dev` — and get the same
+ * typed control-plane client a locally spawned Emulator carries. Unlike
+ * createEmulator, nothing is spawned and close() is not available; lifecycle
+ * belongs to whoever started the instance.
+ */
+export async function connectEmulator(options: ConnectOptions): Promise<EmulatorClient> {
+  const client = new EmulatorClient(options.baseUrl, { fetch: options.fetch });
+  if (options.service) {
+    const { manifest } = await client.manifest();
+    if (manifest.id !== options.service) {
+      throw new Error(
+        `connectEmulator: ${options.baseUrl} is a "${manifest.id}" emulator, expected "${options.service}"`,
+      );
+    }
+  }
+  return client;
 }
 
 export async function createEmulator(options: EmulatorOptions): Promise<Emulator> {
@@ -92,12 +146,14 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
 
   const httpServer = serve({ fetch: app.fetch, port });
 
-  return {
-    url: baseUrl,
-    reset() {
+  // Control-plane calls dispatch in-process (no network round-trip, and they
+  // work even when the advertised baseUrl is a not-yet-reachable proxy URL).
+  class LocalEmulator extends EmulatorClient implements Emulator {
+    readonly url = baseUrl;
+    override async reset(): Promise<void> {
       store.reset();
       seed();
-    },
+    }
     close(): Promise<void> {
       return new Promise((resolve, reject) => {
         httpServer.close((err) => {
@@ -105,6 +161,7 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
           else resolve();
         });
       });
-    },
-  };
+    }
+  }
+  return new LocalEmulator(baseUrl, { fetch: (input, init) => app.request(input, init) });
 }
