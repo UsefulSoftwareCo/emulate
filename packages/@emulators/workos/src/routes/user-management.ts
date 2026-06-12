@@ -48,9 +48,7 @@ async function authenticationResponse(
     scope: null,
   });
   const membership = organizationId
-    ? ws.memberships
-        .findBy("user_id", user.workos_id)
-        .find((m) => m.organization_id === organizationId)
+    ? ws.memberships.findBy("user_id", user.workos_id).find((m) => m.organization_id === organizationId)
     : undefined;
   const accessToken = await signAccessToken(
     {
@@ -142,9 +140,7 @@ export function userManagementRoutes(ctx: RouteContext): void {
     if (!redirectUri) return workosError(c, 422, "invalid_request", "redirect_uri is required");
     const user = ensureUserByEmail(storeRef, email);
     const code = randomToken("code");
-    const activeMembership = storeRef.memberships
-      .findBy("user_id", user.workos_id)
-      .find((m) => m.status === "active");
+    const activeMembership = storeRef.memberships.findBy("user_id", user.workos_id).find((m) => m.status === "active");
     storeRef.authCodes.insert({
       code,
       user_id: user.workos_id,
@@ -234,8 +230,7 @@ export function userManagementRoutes(ctx: RouteContext): void {
         memberships.map((m) =>
           serializeMembership(
             m,
-            ws().organizations.findOneBy("workos_id", m.organization_id)?.name ??
-              m.organization_id,
+            ws().organizations.findOneBy("workos_id", m.organization_id)?.name ?? m.organization_id,
           ),
         ),
       ),
@@ -270,8 +265,7 @@ export function userManagementRoutes(ctx: RouteContext): void {
     const membership = ws().memberships.findOneBy("workos_id", c.req.param("id"));
     if (!membership) return workosError(c, 404, "entity_not_found", "Membership not found.");
     const organizationName =
-      ws().organizations.findOneBy("workos_id", membership.organization_id)?.name ??
-      membership.organization_id;
+      ws().organizations.findOneBy("workos_id", membership.organization_id)?.name ?? membership.organization_id;
     return c.json(serializeMembership(membership, organizationName));
   });
 
@@ -280,14 +274,10 @@ export function userManagementRoutes(ctx: RouteContext): void {
     if (!membership) return workosError(c, 404, "entity_not_found", "Membership not found.");
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const updated = ws().memberships.update(membership.id, {
-      role_slug:
-        typeof body.role_slug === "string" && body.role_slug
-          ? body.role_slug
-          : membership.role_slug,
+      role_slug: typeof body.role_slug === "string" && body.role_slug ? body.role_slug : membership.role_slug,
     })!;
     const organizationName =
-      ws().organizations.findOneBy("workos_id", updated.organization_id)?.name ??
-      updated.organization_id;
+      ws().organizations.findOneBy("workos_id", updated.organization_id)?.name ?? updated.organization_id;
     return c.json(serializeMembership(updated, organizationName));
   });
 

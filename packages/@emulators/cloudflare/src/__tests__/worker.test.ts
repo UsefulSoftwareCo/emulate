@@ -81,7 +81,13 @@ describe("cloudflare worker routing", () => {
   });
 
   it("routes the service host to a default instance over the valid 1-label cert", async () => {
-    const seen: Array<{ idName: string; url: string; service: string | null; instance: string | null; baseUrl: string | null }> = [];
+    const seen: Array<{
+      idName: string;
+      url: string;
+      service: string | null;
+      instance: string | null;
+      baseUrl: string | null;
+    }> = [];
     const env: Env = {
       EMULATE_HOST_SUFFIX: "emulators.dev",
       EMULATOR: {
@@ -102,7 +108,10 @@ describe("cloudflare worker routing", () => {
     };
 
     // Provider API and /_emulate both resolve to the default instance.
-    await worker.fetch(new Request("https://github.emulators.dev/user", { headers: { accept: "application/json" } }), env);
+    await worker.fetch(
+      new Request("https://github.emulators.dev/user", { headers: { accept: "application/json" } }),
+      env,
+    );
     await worker.fetch(new Request("https://github.emulators.dev/_emulate/manifest"), env);
 
     expect(seen).toEqual([

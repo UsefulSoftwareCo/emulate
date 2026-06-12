@@ -14,11 +14,7 @@ const ok = (description: string) => ({
 });
 const id = { name: "id", in: "path", required: true, schema: { type: "string" } };
 const audienceId = { name: "audience_id", in: "path", required: true, schema: { type: "string" } };
-const jsonBody = (
-  properties: Record<string, unknown>,
-  required: readonly string[],
-  description: string,
-) => ({
+const jsonBody = (properties: Record<string, unknown>, required: readonly string[], description: string) => ({
   required: true,
   description,
   content: {

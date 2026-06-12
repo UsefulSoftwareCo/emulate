@@ -8,6 +8,7 @@ import { organizationRoutes } from "./routes/organizations.js";
 import { membershipRoutes } from "./routes/memberships.js";
 import { invitationRoutes } from "./routes/invitations.js";
 import { sessionRoutes } from "./routes/sessions.js";
+import { openapiRoutes } from "./routes/openapi.js";
 import { getClerkStore } from "./store.js";
 
 export { getClerkStore, type ClerkStore } from "./store.js";
@@ -228,6 +229,7 @@ export const clerkPlugin: ServicePlugin = {
     membershipRoutes(ctx);
     invitationRoutes(ctx);
     sessionRoutes(ctx);
+    openapiRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);

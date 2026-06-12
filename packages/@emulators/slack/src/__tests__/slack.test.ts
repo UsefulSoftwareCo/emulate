@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Hono, Store, WebhookDispatcher } from "@emulators/core";
-import { slackPlugin, seedFromConfig, getSlackStore } from "../index.js";
+import { slackPlugin, seedFromConfig, getSlackStore, manifest } from "../index.js";
 import {
   authHeaders,
   captureFetchRequests,
@@ -4680,5 +4680,35 @@ describe("Slack plugin - Message Inspector", () => {
     expect(eventsHtml).toContain("message");
     expect(eventsHtml).toContain("500");
     expect(eventsHtml).toContain("Last Errors");
+  });
+});
+
+describe("Slack plugin - OpenAPI document", () => {
+  it("serves a spec covering every hand-authored Web API operation", async () => {
+    const { app } = createTestApp();
+
+    const res = await app.request(`${base}/openapi.json`);
+    expect(res.status).toBe(200);
+
+    const spec = (await res.json()) as {
+      openapi: string;
+      info: { title: string };
+      servers: Array<{ url: string }>;
+      paths: Record<string, Record<string, { operationId: string }>>;
+    };
+    expect(spec.openapi).toBe("3.1.0");
+    expect(spec.info.title).toBe("Slack Web API (Emulated)");
+    expect(spec.servers).toEqual([{ url: base }]);
+
+    const specOperationIds = Object.values(spec.paths)
+      .flatMap((methods) => Object.values(methods))
+      .map((operation) => operation.operationId)
+      .sort();
+    const manifestOperationIds = manifest.specs
+      .flatMap((entry) => entry.operations ?? [])
+      .filter((operation) => operation.status !== "unsupported")
+      .map((operation) => operation.operationId)
+      .sort();
+    expect(specOperationIds).toEqual(manifestOperationIds);
   });
 });

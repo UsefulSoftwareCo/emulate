@@ -174,9 +174,10 @@ describe("workos emulator with the real @workos-inc/node SDK", () => {
     };
     expect(sso.keys[0]?.kid).toBe(oauth.keys[0]?.kid);
 
-    const meta = (await (
-      await fetch(`${BASE}/.well-known/oauth-authorization-server`)
-    ).json()) as Record<string, string>;
+    const meta = (await (await fetch(`${BASE}/.well-known/oauth-authorization-server`)).json()) as Record<
+      string,
+      string
+    >;
     expect(meta.token_endpoint).toBe(`${BASE}/oauth2/token`);
     expect(meta.registration_endpoint).toBe(`${BASE}/oauth2/register`);
   });

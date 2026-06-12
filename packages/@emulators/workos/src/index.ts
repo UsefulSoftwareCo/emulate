@@ -6,6 +6,7 @@ import { organizationRoutes } from "./routes/organizations.js";
 import { apiKeyRoutes } from "./routes/api-keys.js";
 import { vaultRoutes } from "./routes/vault.js";
 import { oauthRoutes } from "./routes/oauth.js";
+import { openapiRoutes } from "./routes/openapi.js";
 import { workosId } from "./helpers.js";
 import { manifest } from "./manifest.js";
 
@@ -58,19 +59,14 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: WorkosSee
 
 export const workosPlugin: ServicePlugin = {
   name: "workos",
-  register(
-    app: Hono<AppEnv>,
-    store: Store,
-    webhooks: WebhookDispatcher,
-    baseUrl: string,
-    tokenMap?: TokenMap,
-  ): void {
+  register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     oauthRoutes(ctx);
     userManagementRoutes(ctx);
     organizationRoutes(ctx);
     apiKeyRoutes(ctx);
     vaultRoutes(ctx);
+    openapiRoutes(ctx);
   },
   seed(_store: Store, _baseUrl: string): void {
     // No default seed — sign-in creates users on the fly.

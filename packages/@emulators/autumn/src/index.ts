@@ -2,6 +2,7 @@ import type { Hono, Store, WebhookDispatcher, TokenMap, AppEnv, RouteContext, Se
 
 import { getAutumnStore, type AutumnStore } from "./store.js";
 import { autumnApiRoutes } from "./routes/api.js";
+import { openapiRoutes } from "./routes/openapi.js";
 import { manifest } from "./manifest.js";
 import type { AutumnSubscription } from "./entities.js";
 
@@ -41,15 +42,10 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: AutumnSee
 
 export const autumnPlugin: ServicePlugin = {
   name: "autumn",
-  register(
-    app: Hono<AppEnv>,
-    store: Store,
-    webhooks: WebhookDispatcher,
-    baseUrl: string,
-    tokenMap?: TokenMap,
-  ): void {
+  register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     autumnApiRoutes(ctx);
+    openapiRoutes(ctx);
   },
   seed(_store: Store, _baseUrl: string): void {
     // No default seed; customers are created on first get_or_create.

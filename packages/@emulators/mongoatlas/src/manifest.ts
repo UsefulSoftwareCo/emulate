@@ -21,6 +21,7 @@ export const manifest: ServiceManifest = {
       kind: "openapi",
       title: "Atlas Administration API v2 subset",
       coverage: "hand-authored",
+      url: "/openapi.json",
       operations: [
         { operationId: "listProjects", method: "GET", path: "/api/atlas/v2/groups", status: "hand-authored" },
         { operationId: "getProject", method: "GET", path: "/api/atlas/v2/groups/:groupId", status: "hand-authored" },
@@ -103,6 +104,7 @@ export const manifest: ServiceManifest = {
       kind: "openapi",
       title: "Atlas Data API v1 subset",
       coverage: "hand-authored",
+      url: "/openapi.json",
       operations: [
         { operationId: "findOne", method: "POST", path: "/app/data-api/v1/action/findOne", status: "hand-authored" },
         { operationId: "find", method: "POST", path: "/app/data-api/v1/action/find", status: "hand-authored" },

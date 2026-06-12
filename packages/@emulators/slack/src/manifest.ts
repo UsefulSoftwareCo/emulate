@@ -24,9 +24,10 @@ export const manifest: ServiceManifest = {
   ],
   specs: [
     {
-      kind: "manual",
+      kind: "openapi",
       title: "Slack Web API subset",
       coverage: "hand-authored",
+      url: "/openapi.json",
       notes: "The Web API is invoked over POST with form-encoded or JSON bodies and returns { ok: boolean, ... }.",
       operations: [
         { operationId: "auth.test", method: "POST", path: "/api/auth.test", status: "hand-authored" },

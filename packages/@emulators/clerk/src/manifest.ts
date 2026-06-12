@@ -26,6 +26,7 @@ export const manifest: ServiceManifest = {
       kind: "openapi",
       title: "Clerk Backend API subset",
       coverage: "hand-authored",
+      url: "/openapi.json",
       operations: [
         { operationId: "GetUserList", method: "GET", path: "/v1/users", status: "hand-authored" },
         { operationId: "GetUsersCount", method: "GET", path: "/v1/users/count", status: "hand-authored" },

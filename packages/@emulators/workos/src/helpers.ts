@@ -75,10 +75,7 @@ export function serializeOrganization(org: WorkosOrganization): Record<string, u
   };
 }
 
-export function serializeMembership(
-  membership: WorkosMembership,
-  organizationName: string,
-): Record<string, unknown> {
+export function serializeMembership(membership: WorkosMembership, organizationName: string): Record<string, unknown> {
   return {
     object: "organization_membership",
     id: membership.workos_id,
@@ -109,10 +106,7 @@ export function serializeInvitation(invitation: WorkosInvitation): Record<string
   };
 }
 
-export function serializeApiKey(
-  key: WorkosApiKey,
-  options: { includeValue?: boolean } = {},
-): Record<string, unknown> {
+export function serializeApiKey(key: WorkosApiKey, options: { includeValue?: boolean } = {}): Record<string, unknown> {
   return {
     object: "api_key",
     id: key.workos_id,

@@ -40,9 +40,7 @@ describe("autumn emulator with the real autumn-js SDK", () => {
 
   it("get_or_create returns the seeded paid subscription", async () => {
     const customer = await autumn.customers.getOrCreate({ customerId: "org_paid" });
-    expect(customer.subscriptions?.map((s) => s.planId ?? (s as { plan_id?: string }).plan_id)).toContain(
-      "pro",
-    );
+    expect(customer.subscriptions?.map((s) => s.planId ?? (s as { plan_id?: string }).plan_id)).toContain("pro");
   });
 
   it("tracks usage events", async () => {

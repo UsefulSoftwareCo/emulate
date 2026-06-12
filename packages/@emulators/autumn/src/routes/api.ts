@@ -24,11 +24,7 @@ function serializeCustomer(customer: AutumnCustomer): Record<string, unknown> {
   };
 }
 
-function ensureCustomer(
-  as: AutumnStore,
-  id: string,
-  data: { name?: unknown; email?: unknown },
-): AutumnCustomer {
+function ensureCustomer(as: AutumnStore, id: string, data: { name?: unknown; email?: unknown }): AutumnCustomer {
   const existing = as.customers.findOneBy("customer_id", id);
   if (existing) return existing;
   return as.customers.insert({
@@ -92,9 +88,7 @@ export function autumnApiRoutes(ctx: RouteContext): void {
   });
 
   app.post("/v1/plans.list", async (c) => c.json({ list: [], total: 0, offset: 0, limit: 100 }));
-  app.post("/v1/features.list", async (c) =>
-    c.json({ list: [], total: 0, offset: 0, limit: 100 }),
-  );
+  app.post("/v1/features.list", async (c) => c.json({ list: [], total: 0, offset: 0, limit: 100 }));
   app.post("/v1/events.list", async (c) => {
     const events = as()
       .events.all()

@@ -469,6 +469,14 @@ export const slackCoverageMatrix: SlackCoverageEntry[] = [
     notes: "Posts text and rich webhook messages with blocks, attachments, and common formatting fields preserved.",
   },
   {
+    family: "meta",
+    method: "openapi_document",
+    route: "GET /openapi.json",
+    status: "supported",
+    testedBy: ["slack.test.ts"],
+    notes: "Serves an OpenAPI 3.1 document covering the hand-authored Web API surface declared in the manifest.",
+  },
+  {
     family: "inspector",
     method: "message_inspector",
     route: "GET /",

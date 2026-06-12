@@ -25,6 +25,7 @@ export const manifest: ServiceManifest = {
       kind: "openapi",
       title: "Stripe API subset",
       coverage: "hand-authored",
+      url: "/openapi.json",
       operations: [
         { operationId: "PostCustomers", method: "POST", path: "/v1/customers", status: "hand-authored" },
         { operationId: "GetCustomersCustomer", method: "GET", path: "/v1/customers/:id", status: "hand-authored" },

@@ -10,11 +10,17 @@ export const manifest: ServiceManifest = {
   auth: [{ id: "api-key", title: "Autumn secret key", type: "api-key", status: "supported" }],
   specs: [
     {
-      kind: "manual",
+      kind: "openapi",
       title: "Autumn v1 subset",
       coverage: "hand-authored",
+      url: "/openapi.json",
       operations: [
-        { operationId: "customers.get_or_create", method: "POST", path: "/v1/customers.get_or_create", status: "hand-authored" },
+        {
+          operationId: "customers.get_or_create",
+          method: "POST",
+          path: "/v1/customers.get_or_create",
+          status: "hand-authored",
+        },
         { operationId: "customers.list", method: "POST", path: "/v1/customers.list", status: "hand-authored" },
         { operationId: "customers.update", method: "POST", path: "/v1/customers.update", status: "hand-authored" },
         { operationId: "balances.track", method: "POST", path: "/v1/balances.track", status: "hand-authored" },

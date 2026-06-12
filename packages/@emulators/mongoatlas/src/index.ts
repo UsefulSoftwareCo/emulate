@@ -4,6 +4,7 @@ import { getMongoAtlasStore } from "./store.js";
 import { generateClusterId, generateGroupId, generateUserId } from "./helpers.js";
 import { dataApiRoutes } from "./routes/data-api.js";
 import { adminRoutes } from "./routes/admin.js";
+import { openapiRoutes } from "./routes/openapi.js";
 
 export { getMongoAtlasStore, type MongoAtlasStore } from "./store.js";
 export * from "./entities.js";
@@ -204,6 +205,7 @@ export const mongoatlasPlugin: ServicePlugin = {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     adminRoutes(ctx);
     dataApiRoutes(ctx);
+    openapiRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);

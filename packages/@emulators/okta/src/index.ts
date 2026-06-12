@@ -18,6 +18,7 @@ import { appRoutes } from "./routes/apps.js";
 import { authorizationServerRoutes } from "./routes/auth-servers.js";
 import { groupRoutes } from "./routes/groups.js";
 import { oauthRoutes } from "./routes/oauth.js";
+import { openapiRoutes } from "./routes/openapi.js";
 import { userRoutes } from "./routes/users.js";
 import { getOktaStore } from "./store.js";
 
@@ -270,6 +271,7 @@ export const oktaPlugin: ServicePlugin = {
     groupRoutes(ctx);
     appRoutes(ctx);
     authorizationServerRoutes(ctx);
+    openapiRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);

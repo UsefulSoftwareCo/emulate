@@ -10,6 +10,7 @@ import { productRoutes } from "./routes/products.js";
 import { priceRoutes } from "./routes/prices.js";
 import { checkoutSessionRoutes } from "./routes/checkout-sessions.js";
 import { customerSessionRoutes } from "./routes/customer-sessions.js";
+import { openapiRoutes } from "./routes/openapi.js";
 
 export { getStripeStore, type StripeStore } from "./store.js";
 export * from "./entities.js";
@@ -127,6 +128,7 @@ export const stripePlugin: ServicePlugin = {
     priceRoutes(ctx);
     checkoutSessionRoutes(ctx);
     customerSessionRoutes(ctx);
+    openapiRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);
