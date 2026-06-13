@@ -12,7 +12,12 @@ export function apiKeyRoutes(ctx: RouteContext): void {
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const value = String(body.value ?? "");
     const key = ws().apiKeys.findOneBy("value", value);
-    if (!key) return workosError(c, 404, "invalid_api_key", "API key is invalid.");
+    // Real WorkOS answers an unrecognized value with 200 { api_key: null } — it
+    // does NOT 404 (confirmed against api.workos.com). The distinction matters
+    // downstream: a 404 makes the SDK throw, which a caller reading it as an
+    // api-key gate renders as a validation *outage* (503) rather than a clean
+    // "not a valid key" (401). Mirror the real wire so that boundary is faithful.
+    if (!key) return c.json({ api_key: null });
     ws().apiKeys.update(key.id, { last_used_at: new Date().toISOString() });
     return c.json({ api_key: serializeApiKey(key) });
   });

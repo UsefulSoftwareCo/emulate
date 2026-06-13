@@ -163,6 +163,14 @@ describe("workos emulator with the real @workos-inc/node SDK", () => {
       value: created.data.value as string,
     })) as { apiKey?: { id?: string } } | null;
     expect(validation).toBeTruthy();
+
+    // An unrecognized value (e.g. a JWT replayed as a bearer) resolves 200 with
+    // a null api_key — real WorkOS does not 404 here. Verified against
+    // api.workos.com: { "api_key": null } / HTTP 200.
+    const miss = (await workos.apiKeys.validateApiKey({
+      value: "eyJhbGciOiJSUzI1NiJ9.eyJzdWIiOiJ1c2VyXzEyMyJ9.not-a-real-signature",
+    })) as { apiKey?: unknown } | null;
+    expect(miss?.apiKey ?? null).toBeNull();
   });
 
   it("serves JWKS on both surfaces and OAuth AS metadata", async () => {
