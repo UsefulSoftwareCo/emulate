@@ -1,8 +1,15 @@
 # Changelog
 
-## 0.6.0
+## 0.7.2
 
 <!-- release:start -->
+### New Features
+
+- **MCP OAuth scope discovery** — the GitHub MCP emulator advertises configurable OAuth scopes for runtime discovery via RFC 9728 protected-resource and RFC 8414 authorization-server metadata. Seed `scopes` and `scopeSource` (`resource`, `authorization-server`, `both`, or `none`) to drive any discovery branch, including the resource-silent fallback to authorization-server metadata and an authoritative empty scope set. The hosted `/github/scope-discovery/mcp` instance deploys the fallback scenario with zero seed config.
+<!-- release:end -->
+
+## 0.6.0
+
 ### New Features
 
 - **Expanded Slack emulator support** — stateful Slack writes for rich chat messages, updates, deletes, permalinks, ephemeral and scheduled messages, conversations and DMs, OAuth installs and scopes, user profiles and presence, modern file uploads, pins and bookmarks, App Home views, modals, inspector tabs, event delivery visibility, docs, and coverage matrix (#152-#164)
@@ -15,7 +22,6 @@
 ### Contributors
 
 - @ctate
-<!-- release:end -->
 
 ## 0.5.0
 
