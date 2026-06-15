@@ -52,6 +52,36 @@ interface Live {
 
 const MUTATES = (method: string) => method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
 
+// Durable Object storage caps each value at 128 KiB. A hosted instance persists
+// its whole state (store snapshot + request ledger + minted tokens) under one
+// "state" key. The minted-token list grows with every credential mint and is
+// never cleared, so on a long-lived shared instance it eventually pushes the
+// blob past the cap — at which point the put throws and EVERY future mutating
+// request (mints included) fails with a faithful-looking 400. Bound the list,
+// and shed the oldest history on the way down if a write overflows anyway.
+const MAX_MINTED = 500;
+const VALUE_TOO_LARGE = /larger than \d+ bytes/i;
+
+const capMinted = (minted: TokenEntry[]): TokenEntry[] =>
+  minted.length > MAX_MINTED ? minted.slice(-MAX_MINTED) : minted;
+
+// Drop a quarter of the oldest sheddable history — debug ledger first, then
+// stale minted tokens — so an overflowing "state" blob converges under the cap.
+// Returns false when there is nothing left to shed (the write genuinely can't fit).
+const shedOldest = (persisted: PersistedState): boolean => {
+  const ledger = persisted.ledger?.entries;
+  if (ledger && ledger.length > 0) {
+    ledger.splice(0, Math.max(1, Math.ceil(ledger.length / 4)));
+    return true;
+  }
+  const minted = persisted.minted;
+  if (minted && minted.length > 0) {
+    minted.splice(0, Math.max(1, Math.ceil(minted.length / 4)));
+    return true;
+  }
+  return false;
+};
+
 // One Durable Object instance == one stateful emulator instance. Its `store`
 // lives in DO memory (single-threaded → the serialized-write consistency the
 // in-process emulator already assumes), snapshotted to DO storage after every
@@ -137,7 +167,7 @@ export class EmulatorDurableObject {
         // tokens from persisted.minted), matching the legacy /__token endpoint.
         if (typeof credential.token === "string" && credential.token.length > 0) {
           const persistedState = (await this.state.storage.get<PersistedState>("state")) ?? {};
-          persistedState.minted = [
+          persistedState.minted = capMinted([
             ...(persistedState.minted ?? []),
             {
               token: credential.token,
@@ -145,8 +175,8 @@ export class EmulatorDurableObject {
               id: (tokenMap as TokenMap).get(credential.token)?.id ?? Date.now(),
               scopes: credential.scopes ?? [],
             },
-          ];
-          await this.state.storage.put("state", persistedState);
+          ]);
+          await this.writeState(persistedState);
         }
         await this.persist();
         return credential;
@@ -187,7 +217,24 @@ export class EmulatorDurableObject {
     // Durable Object eviction (the vision treats the ledger as a first-class,
     // durable feature, not an in-memory debug afterthought).
     persisted.ledger = this.live.ledger.serialize();
-    await this.state.storage.put("state", persisted);
+    await this.writeState(persisted);
+  }
+
+  // Write the "state" value, shedding the oldest history and retrying if the
+  // write overflows the Durable Object 128 KiB per-value cap. An oversized blob
+  // must never turn a mint or a routine persist into a faithful-looking 400 —
+  // the instance trims its own debug history instead of wedging.
+  private async writeState(persisted: PersistedState): Promise<void> {
+    for (;;) {
+      try {
+        await this.state.storage.put("state", persisted);
+        return;
+      } catch (err) {
+        if (!(err instanceof Error) || !VALUE_TOO_LARGE.test(err.message) || !shedOldest(persisted)) {
+          throw err;
+        }
+      }
+    }
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -234,9 +281,9 @@ export class EmulatorDurableObject {
       const scopeList = scopes ?? [];
       live.tokenMap.set(token, { login, id, scopes: scopeList });
       const persisted = (await this.state.storage.get<PersistedState>("state")) ?? {};
-      persisted.minted = [...(persisted.minted ?? []), { token, login, id, scopes: scopeList }];
+      persisted.minted = capMinted([...(persisted.minted ?? []), { token, login, id, scopes: scopeList }]);
       persisted.snapshot = live.store.snapshot();
-      await this.state.storage.put("state", persisted);
+      await this.writeState(persisted);
       return Response.json({ token, login, scopes: scopeList });
     }
 

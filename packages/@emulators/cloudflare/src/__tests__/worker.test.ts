@@ -296,6 +296,72 @@ describe("cloudflare durable object control plane", () => {
     expect(body.instance.service).toBe("github");
   });
 
+  it("sheds old history instead of failing mints when the state value would overflow the cap", async () => {
+    // Durable Object storage caps each value at 128 KiB. A long-lived shared
+    // instance accrues minted tokens (and ledger entries) under one "state"
+    // key; once the blob crosses the cap, an unguarded put throws and every
+    // future mint 400s. Simulate the cap with a byte-limited fake store and
+    // prove the instance trims its oldest history rather than wedging.
+    const storage = new Map<string, unknown>();
+    const LIMIT = 8_000;
+    const state = {
+      storage: {
+        async get<T>(key: string): Promise<T | undefined> {
+          return storage.get(key) as T | undefined;
+        },
+        async put(key: string, value: unknown): Promise<void> {
+          const size = new TextEncoder().encode(JSON.stringify(value)).length;
+          if (size > LIMIT) {
+            throw new Error(`Values cannot be larger than ${LIMIT} bytes. A value of size ${size} was provided.`);
+          }
+          storage.set(key, JSON.parse(JSON.stringify(value)));
+        },
+      },
+      async blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T> {
+        return fn();
+      },
+    };
+    const makeDo = () => new EmulatorDurableObject(state, {});
+    let durableObject = makeDo();
+    const mint = (login: string) =>
+      durableObject.fetch(
+        new Request("https://github.instance.emulators.dev/_emulate/credentials", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-emulator-service": "github",
+            "x-emulator-base-url": "https://github.instance.emulators.dev",
+          },
+          body: JSON.stringify({ type: "bearer-token", login, scopes: ["repo"] }),
+        }),
+      );
+
+    let lastToken = "";
+    for (let i = 0; i < 150; i++) {
+      const res = await mint("agent");
+      expect(res.status, `mint ${i} must not fail on the 128 KiB value cap`).toBe(200);
+      lastToken = ((await res.json()) as { credential: { token: string } }).credential.token;
+    }
+
+    // Shedding actually happened: fewer tokens persisted than were minted.
+    const persisted = storage.get("state") as { minted?: unknown[] };
+    expect(persisted.minted?.length).toBeLessThan(150);
+
+    // The most recent token survives eviction — shedding drops the OLDEST
+    // history, never the credential we just issued.
+    durableObject = makeDo(); // fresh DO over the same storage == eviction + rebuild
+    const userRes = await durableObject.fetch(
+      new Request("https://github.instance.emulators.dev/user", {
+        headers: {
+          authorization: `Bearer ${lastToken}`,
+          "x-emulator-service": "github",
+          "x-emulator-base-url": "https://github.instance.emulators.dev",
+        },
+      }),
+    );
+    expect(userRes.status).toBe(200);
+  });
+
   it("persists the request ledger across durable object eviction", async () => {
     const { state } = makeState();
     const do1 = new EmulatorDurableObject(state, {});
