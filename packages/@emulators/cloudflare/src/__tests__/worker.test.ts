@@ -397,4 +397,35 @@ describe("cloudflare durable object control plane", () => {
     expect(repoCall?.correlationId).toMatch(/^cor_|.+/);
     expect(repoCall?.summary).toContain("POST");
   });
+
+  it("the scope-discovery preset deploys resource-silent, AS-scoped MCP metadata", async () => {
+    const { state } = makeState();
+    const durableObject = new EmulatorDurableObject(state, {});
+    // `/github/scope-discovery/mcp` routes the preset in via this header (the
+    // worker derives it from the instance segment).
+    const headers = {
+      "x-emulator-service": "github",
+      "x-emulator-instance": "scope-discovery",
+      "x-emulator-base-url": "https://github.scope-discovery.emulators.dev",
+      "x-emulator-mcp-mode": "scope-discovery",
+    };
+
+    // The protected resource stays silent on scopes, so a discovering client must
+    // fall back to the authorization server it names.
+    const prRes = await durableObject.fetch(
+      new Request("https://github.scope-discovery.emulators.dev/.well-known/oauth-protected-resource", { headers }),
+    );
+    expect(prRes.status).toBe(200);
+    const pr = (await prRes.json()) as Record<string, unknown>;
+    expect(pr).not.toHaveProperty("scopes_supported");
+    expect(pr.authorization_servers).toEqual(["https://github.scope-discovery.emulators.dev"]);
+
+    // The authorization-server metadata carries the discoverable scopes.
+    const asRes = await durableObject.fetch(
+      new Request("https://github.scope-discovery.emulators.dev/.well-known/oauth-authorization-server", { headers }),
+    );
+    expect(asRes.status).toBe(200);
+    const as = (await asRes.json()) as Record<string, unknown>;
+    expect(as.scopes_supported).toEqual(["channels:history", "users:read"]);
+  });
 });

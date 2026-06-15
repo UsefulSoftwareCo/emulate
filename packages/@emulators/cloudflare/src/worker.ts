@@ -27,7 +27,12 @@ const DEFAULT_HOST_SUFFIX = "emulators.dev";
 // The service host (e.g. github.emulators.dev) IS a usable, stateful instance.
 // Named, isolated instances use the cert-safe path form emulators.dev/<svc>/<id>.
 const DEFAULT_INSTANCE = "default";
-const MCP_PRESETS = new Set(["oauth", "bearer", "query"]);
+// The instance segment selects the MCP surface's auth/scope preset:
+//  - oauth | bearer | query: how `/mcp` authenticates.
+//  - scope-discovery: oauth, but the protected-resource metadata stays silent on
+//    scopes so a discovering client must fall back to the authorization-server
+//    metadata (RFC 8414) — the scenario that exercises MCP OAuth scope discovery.
+const MCP_PRESETS = new Set(["oauth", "bearer", "query", "scope-discovery"]);
 
 const html = (body: string): Response =>
   new Response(body, { headers: { "content-type": "text/html; charset=utf-8" } });

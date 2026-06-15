@@ -497,6 +497,43 @@ curl -X POST http://localhost:4001/settings/connections/applications/Iv1.abc123/
   -H "Authorization: Bearer $TOKEN"
 ```
 
+### MCP surface
+
+GitHub exposes a Model Context Protocol surface at `/mcp` (JSON-RPC over POST),
+alongside its own OAuth/DCR endpoints (`/register`, `/authorize`, `/token`, and the
+RFC 9728 / RFC 8414 `.well-known` metadata). How `/mcp` authenticates is pinned per
+instance — on the hosted service the instance segment selects the mode:
+
+| Route | `/mcp` auth |
+| --- | --- |
+| `https://github.<inst>.emulators.dev/oauth/mcp` | Full MCP OAuth (DCR + PKCE) |
+| `.../bearer/mcp` | `Authorization: Bearer <seeded-token>` |
+| `.../query/mcp` | `?token=<seeded-token>` |
+| `.../scope-discovery/mcp` | OAuth, scopes discovered from server metadata (see below) |
+
+**OAuth scope discovery.** A spec-faithful MCP client declares no scopes of its own
+and discovers them from the server's metadata at connect: the RFC 9728
+protected-resource `scopes_supported`, falling back to the RFC 8414
+authorization-server metadata when the resource is silent. Configure what the
+emulator advertises, and where, via seed config (or `POST /_emulate/seed`):
+
+```yaml
+mcp:
+  scopes: [channels:history, users:read]
+  # Where the scopes are advertised, which selects the discovery branch tested:
+  #   resource             - protected-resource metadata only
+  #   authorization-server - resource stays silent, forcing the RFC 8414 fallback
+  #   both                 - both documents (default)
+  #   none                 - neither (a discovering client requests no scopes)
+  scopeSource: authorization-server
+```
+
+The `scope-discovery` preset route is a zero-seed deployment of the fallback case:
+the protected-resource metadata omits `scopes_supported`, so a client must read
+`[channels:history, users:read]` from the authorization-server metadata it names.
+An empty `scopes` with `scopeSource: resource` advertises a present-but-empty list
+(an authoritative "no scopes"), distinct from a silent document.
+
 ### Misc
 
 ```bash

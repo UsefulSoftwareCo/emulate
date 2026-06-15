@@ -3,6 +3,7 @@ import type { RouteContext, Store, TokenMap } from "@emulators/core";
 import { bodyStr, matchesRedirectUri, renderCardPage, renderUserButton } from "@emulators/core";
 import { getGitHubStore } from "@emulators/github";
 import { getOAuthClients, getPendingCodes, isCodeExpired, type OAuthClientRecord } from "./oauth-store.js";
+import { authServerScopesSupported, getMcpScopeConfig, resourceScopesSupported } from "./scopes.js";
 
 const SERVICE_LABEL = "GitHub MCP";
 
@@ -74,38 +75,50 @@ function seedHintHtml(baseUrl: string, login: string): string {
 export function registerOAuthRoutes(ctx: RouteContext): void {
   const { app, store, baseUrl, tokenMap } = ctx;
 
+  // The scopes this server requires and WHERE it advertises them. A discovering
+  // client reads them from the metadata below; the source decides which document
+  // carries `scopes_supported` (and whether the field is present at all). Read at
+  // request time so a re-seed / preset change takes effect without re-registering.
+  // `scopes_supported` is omitted entirely when the helper returns `undefined` —
+  // a silent document, distinct from an empty list.
+  const withScopes = <T extends object>(doc: T, scopes: string[] | undefined): T =>
+    scopes === undefined ? doc : { ...doc, scopes_supported: scopes };
+
   // ---------- Protected-resource metadata (RFC 9728) ----------
   app.get("/.well-known/oauth-protected-resource", (c) => {
-    return c.json({
-      resource: baseUrl,
-      authorization_servers: [baseUrl],
-      bearer_methods_supported: ["header"],
-      scopes_supported: ["repo", "read:user"],
-    });
+    return c.json(
+      withScopes(
+        { resource: baseUrl, authorization_servers: [baseUrl], bearer_methods_supported: ["header"] },
+        resourceScopesSupported(getMcpScopeConfig(store)),
+      ),
+    );
   });
 
   // Some clients append the resource path to the well-known probe.
   app.get("/.well-known/oauth-protected-resource/mcp", (c) => {
-    return c.json({
-      resource: `${baseUrl}/mcp`,
-      authorization_servers: [baseUrl],
-      bearer_methods_supported: ["header"],
-      scopes_supported: ["repo", "read:user"],
-    });
+    return c.json(
+      withScopes(
+        { resource: `${baseUrl}/mcp`, authorization_servers: [baseUrl], bearer_methods_supported: ["header"] },
+        resourceScopesSupported(getMcpScopeConfig(store)),
+      ),
+    );
   });
 
   // ---------- Authorization-server metadata (RFC 8414) ----------
-  const asMetadata = () => ({
-    issuer: baseUrl,
-    authorization_endpoint: `${baseUrl}/authorize`,
-    token_endpoint: `${baseUrl}/token`,
-    registration_endpoint: `${baseUrl}/register`,
-    response_types_supported: ["code"],
-    grant_types_supported: ["authorization_code"],
-    code_challenge_methods_supported: ["S256"],
-    token_endpoint_auth_methods_supported: ["none", "client_secret_post"],
-    scopes_supported: ["repo", "read:user"],
-  });
+  const asMetadata = () =>
+    withScopes(
+      {
+        issuer: baseUrl,
+        authorization_endpoint: `${baseUrl}/authorize`,
+        token_endpoint: `${baseUrl}/token`,
+        registration_endpoint: `${baseUrl}/register`,
+        response_types_supported: ["code"],
+        grant_types_supported: ["authorization_code"],
+        code_challenge_methods_supported: ["S256"],
+        token_endpoint_auth_methods_supported: ["none", "client_secret_post"],
+      },
+      authServerScopesSupported(getMcpScopeConfig(store)),
+    );
   app.get("/.well-known/oauth-authorization-server", (c) => c.json(asMetadata()));
   // OpenID-style probe some MCP clients also try.
   app.get("/.well-known/oauth-authorization-server/mcp", (c) => c.json(asMetadata()));
@@ -347,11 +360,15 @@ export function registerOAuthRoutes(ctx: RouteContext): void {
     codes.delete(code);
 
     const accessToken = issueAccessToken(store, tokenMap, pending.login, pending.userId, pending.scope);
+    // Echo back the granted scope. When the client requested none (it may have
+    // discovered an empty/silent scope set), fall back to the server's configured
+    // scopes so the token still reflects what this resource grants.
+    const grantedScope = pending.scope || getMcpScopeConfig(store).scopes.join(" ");
     return c.json({
       access_token: accessToken,
       token_type: "Bearer",
       expires_in: 3600,
-      scope: pending.scope || "repo read:user",
+      scope: grantedScope,
       ...(pending.resource ? { resource: pending.resource } : {}),
     });
   });

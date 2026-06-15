@@ -3,11 +3,14 @@ import type { AppEnv, RouteContext, ServicePlugin, Store, TokenMap, WebhookDispa
 import { githubPlugin, seedFromConfig as githubSeed, type GitHubSeedConfig } from "@emulators/github";
 import { extractBearer, getMcpAuthConfig, resolveAuthUser, setMcpAuthConfig } from "./auth.js";
 import { registerOAuthRoutes } from "./oauth.js";
+import { setMcpScopeConfig } from "./scopes.js";
 import { handleMcpPost } from "./transport.js";
 
 export { TOOL_DEFINITIONS } from "./tools.js";
 export { setMcpAuthConfig } from "./auth.js";
 export type { McpAuthMode } from "./auth.js";
+export { getMcpScopeConfig, setMcpScopeConfig } from "./scopes.js";
+export type { McpScopeConfig, McpScopeSource } from "./scopes.js";
 
 // The DO routes the per-service config block (`seed["mcp"]`) here, so the GitHub
 // fixture data (users/repos/issues) lives ALONGSIDE the `auth` selector in this
@@ -16,13 +19,22 @@ export type { McpAuthMode } from "./auth.js";
 export interface McpSeedConfig extends GitHubSeedConfig {
   auth?: "oauth" | "bearer" | "query";
   queryParam?: string;
+  // OAuth scopes this MCP server advertises for discovery (RFC 9728 / RFC 8414),
+  // and WHERE it advertises them. A client that declares no scopes of its own
+  // discovers these from the server metadata at connect. `scopeSource` selects
+  // which document carries them — "resource", "authorization-server" (resource
+  // stays silent, forcing the RFC 8414 fallback), "both" (default), or "none".
+  scopes?: string[];
+  scopeSource?: "resource" | "authorization-server" | "both" | "none";
 }
 
 // Seed the MCP service. The GitHub store (users/repos/issues) is seeded via the
 // github seeder so the MCP tools share state with the REST github emulator; the
-// `auth`/`queryParam` fields select the auth mode.
+// `auth`/`queryParam` fields select the auth mode and `scopes`/`scopeSource`
+// configure what the OAuth metadata advertises for scope discovery.
 export function seedFromConfig(store: Store, baseUrl: string, config: McpSeedConfig): void {
   setMcpAuthConfig(store, { auth: config.auth, queryParam: config.queryParam });
+  setMcpScopeConfig(store, { scopes: config.scopes, scopeSource: config.scopeSource });
   githubSeed(store, baseUrl, config);
 }
 
@@ -85,8 +97,9 @@ export const mcpPlugin: ServicePlugin = {
     });
   },
   seed(store: Store, baseUrl: string): void {
-    // Default seed: github defaults + oauth mode.
+    // Default seed: github defaults + oauth mode + default scope advertising.
     setMcpAuthConfig(store, {});
+    setMcpScopeConfig(store, {});
     githubPlugin.seed?.(store, baseUrl);
   },
 };
