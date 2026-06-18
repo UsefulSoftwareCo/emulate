@@ -1,12 +1,18 @@
 # Changelog
 
-## 0.7.3
+## 0.7.4
 
 <!-- release:start -->
+### Bug Fixes
+
+- **Local MCP packaging** — the npm `emulate` package now includes the MCP emulator in its local service registry. `createEmulator({ service: "github" })` serves the GitHub MCP OAuth metadata locally, matching the hosted Cloudflare worker, and `createEmulator({ service: "mcp" })` is available for MCP-only tests.
+<!-- release:end -->
+
+## 0.7.3
+
 ### New Features
 
 - **MCP Enterprise-Managed Authorization** — the WorkOS emulator can exchange signed user subject tokens for ID-JAG assertions, and the GitHub MCP emulator advertises the ID-JAG grant profile and redeems ID-JAG assertions through the JWT bearer grant. The request ledger now captures both token exchanges so end-to-end tests can prove the enterprise-managed authorization path.
-<!-- release:end -->
 
 ## 0.7.2
 

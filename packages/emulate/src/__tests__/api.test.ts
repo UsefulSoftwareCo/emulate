@@ -17,6 +17,43 @@ describe("createEmulator", () => {
     await github.close();
   });
 
+  it("starts github with the MCP OAuth metadata surface", async () => {
+    const github = await createEmulator({ service: "github", port: 14001 });
+
+    const resource = await fetch(`${github.url}/.well-known/oauth-protected-resource/mcp`);
+    expect(resource.status).toBe(200);
+    const resourceBody = (await resource.json()) as {
+      resource: string;
+      authorization_servers: string[];
+    };
+    expect(resourceBody).toMatchObject({
+      resource: `${github.url}/mcp`,
+      authorization_servers: [github.url],
+    });
+
+    const metadata = await fetch(`${github.url}/.well-known/oauth-authorization-server`);
+    expect(metadata.status).toBe(200);
+    const metadataBody = (await metadata.json()) as {
+      authorization_grant_profiles_supported?: string[];
+    };
+    expect(metadataBody.authorization_grant_profiles_supported).toContain(
+      "urn:ietf:params:oauth:grant-profile:id-jag",
+    );
+
+    await github.close();
+  });
+
+  it("starts the standalone MCP emulator", async () => {
+    const mcp = await createEmulator({ service: "mcp", port: 14002 });
+
+    const res = await fetch(`${mcp.url}/.well-known/oauth-authorization-server`);
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { registration_endpoint?: string };
+    expect(body.registration_endpoint).toBe(`${mcp.url}/register`);
+
+    await mcp.close();
+  });
+
   it("starts multiple services independently", async () => {
     const [github, vercel] = await Promise.all([
       createEmulator({ service: "github", port: 14010 }),

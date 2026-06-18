@@ -8,6 +8,8 @@ import type {
   CredentialRequest,
   IssuedCredential,
   TokenMap,
+  Hono,
+  AppEnv,
 } from "@emulators/core";
 
 export interface LoadedService {
@@ -52,6 +54,7 @@ const SERVICE_NAME_LIST = [
   "x",
   "workos",
   "autumn",
+  "mcp",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -290,8 +293,25 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       "users, repos, issues, PRs, comments, reviews, labels, milestones, branches, git data, orgs, teams, releases, webhooks, search, actions, checks, rate limit",
     async load() {
       const mod = await import("@emulators/github");
+      const mcp = await import("@emulators/mcp");
+      const githubWithMcpPlugin: ServicePlugin = {
+        name: "github",
+        register(
+          app: Hono<AppEnv>,
+          store: Store,
+          webhooks: WebhookDispatcher,
+          baseUrl: string,
+          tokenMap?: TokenMap,
+        ): void {
+          mod.githubPlugin.register(app, store, webhooks, baseUrl, tokenMap);
+          mcp.mcpPlugin.register(app, store, webhooks, baseUrl, tokenMap);
+        },
+        seed(store: Store, baseUrl: string): void {
+          mod.githubPlugin.seed?.(store, baseUrl);
+        },
+      };
       return {
-        plugin: mod.githubPlugin,
+        plugin: githubWithMcpPlugin,
         manifest: mod.manifest,
         seedFromConfig: mod.seedFromConfig,
         createAppKeyResolver(store: Store): AppKeyResolver {
@@ -354,6 +374,42 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
             redirect_uris: ["http://localhost:3000/api/auth/callback/github"],
           },
         ],
+      },
+    },
+  },
+
+  mcp: {
+    label: "GitHub MCP emulator",
+    endpoints:
+      "streamable HTTP MCP, OAuth protected-resource metadata, authorization-server metadata, dynamic client registration, ID-JAG token exchange",
+    async load() {
+      const mod = await import("@emulators/mcp");
+      const github = await import("@emulators/github");
+      return {
+        plugin: mod.mcpPlugin,
+        manifest: mod.manifest,
+        seedFromConfig: mod.seedFromConfig,
+        ensureUser(store: Store, baseUrl: string, login: string): number {
+          mod.seedFromConfig(store, baseUrl, { users: [{ login }] });
+          return github.getGitHubStore(store).users.findOneBy("login", login)?.id ?? 1;
+        },
+      };
+    },
+    defaultFallback(cfg) {
+      const firstLogin = (cfg?.users as Array<{ login?: string }> | undefined)?.[0]?.login ?? "admin";
+      return { login: firstLogin, id: 1, scopes: ["repo", "read:user"] };
+    },
+    initConfig: {
+      mcp: {
+        auth: "oauth",
+        users: [
+          {
+            login: "octocat",
+            name: "The Octocat",
+            email: "octocat@github.com",
+          },
+        ],
+        scopes: ["repo", "read:user"],
       },
     },
   },

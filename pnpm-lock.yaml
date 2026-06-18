@@ -842,6 +842,9 @@ importers:
       '@emulators/google':
         specifier: workspace:*
         version: link:../@emulators/google
+      '@emulators/mcp':
+        specifier: workspace:*
+        version: link:../@emulators/mcp
       '@emulators/microsoft':
         specifier: workspace:*
         version: link:../@emulators/microsoft

@@ -11,6 +11,7 @@ export { setMcpAuthConfig } from "./auth.js";
 export type { McpAuthMode } from "./auth.js";
 export { getMcpScopeConfig, setMcpScopeConfig } from "./scopes.js";
 export type { McpScopeConfig, McpScopeSource } from "./scopes.js";
+export { manifest } from "./manifest.js";
 
 // The DO routes the per-service config block (`seed["mcp"]`) here, so the GitHub
 // fixture data (users/repos/issues) lives ALONGSIDE the `auth` selector in this

@@ -54,9 +54,9 @@ Global catalog:
   /_emulate/seed to load fixtures, and /_emulate/ledger to validate API calls.
 
 Hosted services:
-  All 13 services are available on emulators.dev: github, vercel, google, okta,
-  microsoft, spotify, slack, apple, aws, resend, stripe, mongoatlas, clerk,
-  x, workos, autumn.
+  Available services include vercel, github, google, slack, apple, microsoft,
+  okta, aws, resend, stripe, mongoatlas, clerk, spotify, x, workos, autumn,
+  and mcp.
   Service host:    <service>.emulators.dev (useful without an instance; serves
                    a service-level /_emulate control plane)
   Instance host:   <service>.<instance>.emulators.dev

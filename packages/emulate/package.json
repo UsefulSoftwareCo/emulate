@@ -1,6 +1,6 @@
 {
   "name": "emulate",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "description": "Local drop-in replacement services for CI and no-network sandboxes",
   "license": "Apache-2.0",
   "type": "module",
@@ -61,6 +61,7 @@
   "devDependencies": {
     "@emulators/core": "workspace:*",
     "@emulators/github": "workspace:*",
+    "@emulators/mcp": "workspace:*",
     "@emulators/apple": "workspace:*",
     "@emulators/microsoft": "workspace:*",
     "@emulators/okta": "workspace:*",

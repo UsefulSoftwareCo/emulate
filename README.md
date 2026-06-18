@@ -15,7 +15,7 @@ npx emulate
 All services start with sensible defaults. No config file needed:
 
 - **Vercel** on `http://localhost:4000`
-- **GitHub** on `http://localhost:4001`
+- **GitHub** on `http://localhost:4001` (REST, GraphQL, OAuth, and MCP)
 - **Google** on `http://localhost:4002`
 - **Slack** on `http://localhost:4003`
 - **Apple** on `http://localhost:4004`
@@ -27,6 +27,10 @@ All services start with sensible defaults. No config file needed:
 - **MongoDB Atlas** on `http://localhost:4010`
 - **Clerk** on `http://localhost:4011`
 - **Spotify** on `http://localhost:4012`
+- **X** on `http://localhost:4013`
+- **WorkOS** on `http://localhost:4014`
+- **Autumn** on `http://localhost:4015`
+- **MCP** on `http://localhost:4016`
 
 Every running service also exposes a public control plane under `/_emulate`:
 
