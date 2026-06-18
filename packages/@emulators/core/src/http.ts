@@ -461,11 +461,11 @@ function defaultContentType(headers: HeadersInit | undefined, contentType: strin
   return out;
 }
 
-function formDataToObject(formData: FormData): Record<string, FormDataEntryValue | FormDataEntryValue[]> {
+function formDataToObject(
+  formData: Awaited<ReturnType<Request["formData"]>>,
+): Record<string, FormDataEntryValue | FormDataEntryValue[]> {
   const out: Record<string, FormDataEntryValue | FormDataEntryValue[]> = {};
-  for (const [key, value] of formData) {
-    appendBodyValue(out, key, value);
-  }
+  formData.forEach((value, key) => appendBodyValue(out, key, value as FormDataEntryValue));
   return out;
 }
 

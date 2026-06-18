@@ -1,11 +1,14 @@
 import { createHash, randomBytes, randomUUID } from "crypto";
 import type { RouteContext, Store, TokenMap } from "@emulators/core";
 import { bodyStr, matchesRedirectUri, renderCardPage, renderUserButton } from "@emulators/core";
-import { getGitHubStore } from "@emulators/github";
+import { getGitHubStore, seedFromConfig as seedGitHub } from "@emulators/github";
+import { createRemoteJWKSet, decodeProtectedHeader, decodeJwt, jwtVerify, type JWTPayload } from "jose";
 import { getOAuthClients, getPendingCodes, isCodeExpired, type OAuthClientRecord } from "./oauth-store.js";
 import { authServerScopesSupported, getMcpScopeConfig, resourceScopesSupported } from "./scopes.js";
 
 const SERVICE_LABEL = "GitHub MCP";
+const JWT_BEARER_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer";
+const ID_JAG_GRANT_PROFILE = "urn:ietf:params:oauth:grant-profile:id-jag";
 
 // A loopback/localhost redirect URI is REQUIRED for MCP clients (the OAuth flow
 // runs in a local desktop/CLI agent). RFC 8252 §7.3 / the MCP spec mandate
@@ -113,7 +116,8 @@ export function registerOAuthRoutes(ctx: RouteContext): void {
         token_endpoint: `${baseUrl}/token`,
         registration_endpoint: `${baseUrl}/register`,
         response_types_supported: ["code"],
-        grant_types_supported: ["authorization_code"],
+        grant_types_supported: ["authorization_code", JWT_BEARER_GRANT_TYPE],
+        authorization_grant_profiles_supported: [ID_JAG_GRANT_PROFILE],
         code_challenge_methods_supported: ["S256"],
         token_endpoint_auth_methods_supported: ["none", "client_secret_post"],
       },
@@ -306,9 +310,41 @@ export function registerOAuthRoutes(ctx: RouteContext): void {
     }
 
     const grantType = form.grant_type ?? "";
+    if (grantType === JWT_BEARER_GRANT_TYPE) {
+      c.set("operationId", "mcp.oauth.jwtBearer");
+      const clientCheck = validateClientForTokenRequest(store, form.client_id ?? "", form.client_secret ?? "");
+      if (clientCheck) return clientCheck;
+
+      const assertion = form.assertion ?? "";
+      if (!assertion) {
+        return c.json({ error: "invalid_request", error_description: "assertion is required." }, 400);
+      }
+
+      const result = await validateIdentityAssertion(assertion, { audience: baseUrl, resourceBaseUrl: baseUrl });
+      if (!result.ok) {
+        return c.json({ error: "invalid_grant", error_description: result.message }, 400);
+      }
+
+      const gh = getGitHubStore(store);
+      const identity = resolveAssertionIdentity(store, baseUrl, result.payload);
+      const grantedScope = scopeFromAssertion(result.payload) || getMcpScopeConfig(store).scopes.join(" ");
+      const accessToken = issueAccessToken(store, tokenMap, identity.login, identity.id, grantedScope);
+      const resource =
+        typeof result.payload.resource === "string" && result.payload.resource ? result.payload.resource : undefined;
+      c.header("Cache-Control", "no-store");
+      return c.json({
+        access_token: accessToken,
+        token_type: "Bearer",
+        expires_in: 86400,
+        scope: grantedScope,
+        ...(resource ? { resource } : {}),
+        login: gh.users.get(identity.id)?.login ?? identity.login,
+      });
+    }
+
     if (grantType !== "authorization_code") {
       return c.json(
-        { error: "unsupported_grant_type", error_description: "Only authorization_code is supported." },
+        { error: "unsupported_grant_type", error_description: "Only authorization_code and jwt-bearer are supported." },
         400,
       );
     }
@@ -379,6 +415,105 @@ function constantTimeEqual(a: string, b: string): boolean {
   let diff = 0;
   for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
+}
+
+function validateClientForTokenRequest(store: Store, clientId: string, clientSecret: string): Response | null {
+  if (!clientId)
+    return Response.json({ error: "invalid_client", error_description: "client_id is required." }, { status: 401 });
+  const client = getOAuthClients(store).get(clientId);
+  if (client?.client_secret && !constantTimeEqual(clientSecret, client.client_secret)) {
+    return Response.json({ error: "invalid_client", error_description: "Bad client_secret." }, { status: 401 });
+  }
+  return null;
+}
+
+interface IdentityAssertionPayload extends JWTPayload {
+  sub: string;
+  email?: string;
+  preferred_username?: string;
+  resource?: string;
+  scope?: string;
+}
+
+async function validateIdentityAssertion(
+  assertion: string,
+  options: { audience: string; resourceBaseUrl: string },
+): Promise<{ ok: true; payload: IdentityAssertionPayload } | { ok: false; message: string }> {
+  let untrusted: JWTPayload;
+  try {
+    untrusted = decodeJwt(assertion);
+  } catch {
+    return { ok: false, message: "Assertion is not a JWT." };
+  }
+  const issuer = typeof untrusted.iss === "string" ? untrusted.iss : "";
+  if (!issuer) return { ok: false, message: "Assertion issuer is required." };
+  let typ: string | undefined;
+  try {
+    typ = decodeProtectedHeader(assertion).typ;
+  } catch {
+    return { ok: false, message: "Assertion header is invalid." };
+  }
+  if (typ && typ !== "oauth-id-jag+jwt") {
+    return { ok: false, message: "Assertion typ must be oauth-id-jag+jwt." };
+  }
+
+  const jwksUri = await discoverJwksUri(issuer);
+  const jwks = createRemoteJWKSet(new URL(jwksUri));
+  try {
+    const verified = await jwtVerify(assertion, jwks, { issuer, audience: options.audience });
+    const payload = verified.payload as IdentityAssertionPayload;
+    if (typeof payload.sub !== "string" || payload.sub.length === 0) {
+      return { ok: false, message: "Assertion subject is required." };
+    }
+    if (typeof payload.resource === "string" && payload.resource.length > 0) {
+      const acceptedResources = new Set([options.resourceBaseUrl, `${options.resourceBaseUrl}/mcp`]);
+      if (!acceptedResources.has(payload.resource)) {
+        return { ok: false, message: "Assertion resource does not match this MCP server." };
+      }
+    }
+    return { ok: true, payload };
+  } catch {
+    return { ok: false, message: "Assertion signature, issuer, audience, or expiry is invalid." };
+  }
+}
+
+async function discoverJwksUri(issuer: string): Promise<string> {
+  const base = issuer.replace(/\/+$/, "");
+  try {
+    const response = await fetch(`${base}/.well-known/oauth-authorization-server`);
+    if (response.ok) {
+      const body = (await response.json()) as { jwks_uri?: unknown };
+      if (typeof body.jwks_uri === "string" && body.jwks_uri.length > 0) return body.jwks_uri;
+    }
+  } catch {
+    // Fall back to the WorkOS emulator's JWKS route below.
+  }
+  return `${base}/oauth2/jwks`;
+}
+
+function resolveAssertionIdentity(
+  store: Store,
+  baseUrl: string,
+  payload: IdentityAssertionPayload,
+): { login: string; id: number } {
+  const gh = getGitHubStore(store);
+  const email = typeof payload.email === "string" && payload.email ? payload.email : undefined;
+  const preferred =
+    typeof payload.preferred_username === "string" && payload.preferred_username
+      ? payload.preferred_username
+      : email?.split("@")[0];
+  const login = preferred || payload.sub;
+  const existing =
+    gh.users.findOneBy("login", login) ?? (email ? gh.users.all().find((u) => u.email === email) : undefined);
+  if (existing) return { login: existing.login, id: existing.id };
+
+  seedGitHub(store, baseUrl, { users: [{ login, email }] });
+  const created = gh.users.findOneBy("login", login);
+  return { login, id: created?.id ?? 1 };
+}
+
+function scopeFromAssertion(payload: IdentityAssertionPayload): string {
+  return typeof payload.scope === "string" ? payload.scope.trim() : "";
 }
 
 function escapeBasic(s: string): string {

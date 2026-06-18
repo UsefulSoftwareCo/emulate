@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createServer, serve } from "@emulators/core";
 import { WorkOS } from "@workos-inc/node";
+import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify } from "jose";
 
 import { workosPlugin, seedFromConfig } from "../index.js";
 import { manifest } from "../manifest.js";
@@ -13,6 +14,9 @@ const PORT = 41873;
 const BASE = `http://localhost:${PORT}`;
 const CLIENT_ID = "client_emulate_test";
 const COOKIE_PASSWORD = "emulate-cookie-password-0123456789abcdef0123456789";
+const TOKEN_EXCHANGE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:token-exchange";
+const ID_JAG_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:id-jag";
+const ACCESS_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token";
 
 let httpServer: ReturnType<typeof serve>;
 let workos: WorkOS;
@@ -188,6 +192,63 @@ describe("workos emulator with the real @workos-inc/node SDK", () => {
     >;
     expect(meta.token_endpoint).toBe(`${BASE}/oauth2/token`);
     expect(meta.registration_endpoint).toBe(`${BASE}/oauth2/register`);
+    expect(meta.grant_types_supported).toContain(TOKEN_EXCHANGE_GRANT_TYPE);
+  });
+
+  it("exchanges a WorkOS subject token for a signed ID-JAG", async () => {
+    const code = await signInAndGetCode("enterprise-user@example.com");
+    const auth = (await (
+      await fetch(`${BASE}/user_management/authenticate`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          grant_type: "authorization_code",
+          code,
+          client_id: CLIENT_ID,
+        }),
+      })
+    ).json()) as { access_token?: string };
+    expect(auth.access_token).toBeTruthy();
+
+    const audience = "http://localhost:41874";
+    const resource = `${audience}/mcp`;
+    const exchange = await fetch(`${BASE}/oauth2/token`, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: TOKEN_EXCHANGE_GRANT_TYPE,
+        requested_token_type: ID_JAG_TOKEN_TYPE,
+        audience,
+        resource,
+        scope: "repo read:user",
+        subject_token: auth.access_token ?? "",
+        subject_token_type: ACCESS_TOKEN_TYPE,
+        client_id: CLIENT_ID,
+      }),
+    });
+    expect(exchange.status).toBe(200);
+    const body = (await exchange.json()) as {
+      issued_token_type?: string;
+      access_token?: string;
+      token_type?: string;
+      expires_in?: number;
+      scope?: string;
+    };
+    expect(body.issued_token_type).toBe(ID_JAG_TOKEN_TYPE);
+    expect(body.token_type).toBe("N_A");
+    expect(body.expires_in).toBe(300);
+    expect(body.scope).toBe("repo read:user");
+    expect(decodeProtectedHeader(body.access_token ?? "").typ).toBe("oauth-id-jag+jwt");
+
+    const jwks = createRemoteJWKSet(new URL(`${BASE}/oauth2/jwks`));
+    const verified = await jwtVerify(body.access_token ?? "", jwks, { issuer: BASE, audience });
+    expect(verified.payload).toMatchObject({
+      email: "enterprise-user@example.com",
+      preferred_username: "enterprise-user",
+      resource,
+      client_id: CLIENT_ID,
+      scope: "repo read:user",
+    });
   });
 
   it("grants exactly the requested OAuth scopes and gates refresh tokens on offline_access", async () => {

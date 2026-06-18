@@ -2,8 +2,14 @@ import { renderCardPage, renderUserButton, escapeHtml, type RouteContext } from 
 
 import { getWorkosStore } from "../store.js";
 import { ensureUserByEmail } from "./user-management.js";
-import { jwksResponse, signAccessToken } from "../keys.js";
+import { jwksResponse, signAccessToken, signIdentityAssertion, verifyAccessToken } from "../keys.js";
 import { randomToken, workosError, workosId } from "../helpers.js";
+
+const TOKEN_EXCHANGE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:token-exchange";
+const ID_JAG_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:id-jag";
+const ID_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:id_token";
+const ACCESS_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token";
+const REFRESH_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:refresh_token";
 
 /**
  * The AuthKit-domain surface (what MCP_AUTHKIT_DOMAIN points at): JWKS, OAuth
@@ -27,7 +33,7 @@ export function oauthRoutes(ctx: RouteContext): void {
       registration_endpoint: `${baseUrl}/oauth2/register`,
       jwks_uri: `${baseUrl}/oauth2/jwks`,
       response_types_supported: ["code"],
-      grant_types_supported: ["authorization_code", "refresh_token"],
+      grant_types_supported: ["authorization_code", "refresh_token", TOKEN_EXCHANGE_GRANT_TYPE],
       code_challenge_methods_supported: ["S256"],
       token_endpoint_auth_methods_supported: ["client_secret_post", "none"],
     }),
@@ -171,6 +177,57 @@ export function oauthRoutes(ctx: RouteContext): void {
       ws().oauthSettings.all()[0]?.default_access_token_ttl_seconds ??
       3600;
 
+    if (grantType === TOKEN_EXCHANGE_GRANT_TYPE) {
+      c.set("operationId", "workos.oauth.tokenExchange");
+      const requestedTokenType = String(body.requested_token_type ?? "");
+      if (requestedTokenType !== ID_JAG_TOKEN_TYPE) {
+        return workosError(c, 400, "invalid_request", "requested_token_type must be id-jag.");
+      }
+      const audience = String(body.audience ?? "");
+      if (!audience) return workosError(c, 400, "invalid_request", "audience is required.");
+
+      const subjectToken = String(body.subject_token ?? "");
+      const subjectTokenType = String(body.subject_token_type ?? "");
+      if (!subjectToken) return workosError(c, 400, "invalid_request", "subject_token is required.");
+      if (![ID_TOKEN_TYPE, ACCESS_TOKEN_TYPE, REFRESH_TOKEN_TYPE].includes(subjectTokenType)) {
+        return workosError(c, 400, "invalid_request", "Unsupported subject_token_type.");
+      }
+
+      const subject =
+        subjectTokenType === REFRESH_TOKEN_TYPE
+          ? subjectFromRefreshToken(ws(), subjectToken)
+          : await subjectFromSignedToken(baseUrl, subjectToken).catch(() => null);
+      if (!subject) return workosError(c, 400, "invalid_grant", "Subject token is invalid.");
+
+      const user = ws().users.findOneBy("workos_id", subject.user_id);
+      if (!user) return workosError(c, 400, "invalid_grant", "Unknown user for subject token.");
+
+      const scope = String(body.scope ?? "").trim();
+      const resource = String(body.resource ?? "").trim();
+      const clientId = String(body.client_id ?? "").trim();
+      const idJag = await signIdentityAssertion(
+        {
+          sub: user.workos_id,
+          email: user.email,
+          preferred_username: usernameFromEmail(user.email),
+          ...(subject.organization_id ? { org_id: subject.organization_id } : {}),
+          ...(resource ? { resource } : {}),
+          ...(clientId ? { client_id: clientId } : {}),
+          ...(scope ? { scope } : {}),
+        },
+        { issuer: baseUrl, audience, expiresIn: "5m" },
+      );
+      c.header("Cache-Control", "no-store");
+      c.header("Pragma", "no-cache");
+      return c.json({
+        issued_token_type: ID_JAG_TOKEN_TYPE,
+        access_token: idJag,
+        token_type: "N_A",
+        expires_in: 300,
+        ...(scope ? { scope } : {}),
+      });
+    }
+
     if (grantType === "refresh_token") {
       const refreshToken = String(body.refresh_token ?? "");
       const session = ws().sessions.findOneBy("refresh_token", refreshToken);
@@ -256,4 +313,26 @@ export function oauthRoutes(ctx: RouteContext): void {
       ...(grantedScopes.length > 0 ? { scope: grantedScopes.join(" ") } : {}),
     });
   });
+}
+
+function usernameFromEmail(email: string): string {
+  const [local] = email.split("@");
+  return local || email;
+}
+
+function subjectFromRefreshToken(
+  ws: ReturnType<typeof getWorkosStore>,
+  token: string,
+): { user_id: string; organization_id: string | null } | null {
+  const session = ws.sessions.findOneBy("refresh_token", token);
+  if (!session || session.revoked) return null;
+  return { user_id: session.user_id, organization_id: session.organization_id };
+}
+
+async function subjectFromSignedToken(
+  issuer: string,
+  token: string,
+): Promise<{ user_id: string; organization_id: string | null }> {
+  const { payload } = await verifyAccessToken(token, { issuer });
+  return { user_id: payload.sub, organization_id: typeof payload.org_id === "string" ? payload.org_id : null };
 }

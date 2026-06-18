@@ -1,6 +1,6 @@
 {
   "name": "@emulators/mcp",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -36,9 +36,11 @@
   },
   "dependencies": {
     "@emulators/core": "workspace:*",
-    "@emulators/github": "workspace:*"
+    "@emulators/github": "workspace:*",
+    "jose": "^6.2.3"
   },
   "devDependencies": {
+    "@emulators/workos": "workspace:*",
     "tsup": "^8",
     "typescript": "^5.7",
     "vitest": "^4.1.0"
