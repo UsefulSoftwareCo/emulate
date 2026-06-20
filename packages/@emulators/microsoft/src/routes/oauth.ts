@@ -3,7 +3,6 @@ import { SignJWT, exportJWK, generateKeyPair } from "jose";
 import type { RouteContext } from "@emulators/core";
 import {
   escapeHtml,
-  escapeAttr,
   renderCardPage,
   renderErrorPage,
   renderFormPostPage,
@@ -114,7 +113,25 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     response_modes_supported: ["query", "fragment", "form_post"],
     subject_types_supported: ["pairwise"],
     id_token_signing_alg_values_supported: ["RS256"],
-    scopes_supported: ["openid", "email", "profile", "offline_access", "User.Read", ".default"],
+    scopes_supported: [
+      "openid",
+      "email",
+      "profile",
+      "offline_access",
+      "User.Read",
+      "User.Read.All",
+      "Mail.Read",
+      "Mail.ReadWrite",
+      "Mail.Send",
+      "Calendars.Read",
+      "Calendars.ReadWrite",
+      "Files.Read",
+      "Files.Read.All",
+      "Files.ReadWrite",
+      "Files.ReadWrite.All",
+      ".default",
+      "https://graph.microsoft.com/.default",
+    ],
     grant_types_supported: ["authorization_code", "refresh_token", "client_credentials"],
     token_endpoint_auth_methods_supported: ["client_secret_post", "client_secret_basic"],
     claims_supported: [
@@ -532,30 +549,6 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     });
   });
 
-  // ---------- Microsoft Graph /me endpoint ----------
-
-  app.get("/v1.0/me", (c) => {
-    const authUser = c.get("authUser");
-    if (!authUser) {
-      return c.json({ error: { code: "InvalidAuthenticationToken", message: "Authentication required." } }, 401);
-    }
-
-    const user = ms.users.findOneBy("email", authUser.login as MicrosoftUser["email"]);
-    if (!user) {
-      return c.json({ error: { code: "Request_ResourceNotFound", message: "User not found." } }, 404);
-    }
-
-    return c.json({
-      "@odata.context": `${baseUrl}/v1.0/$metadata#users/$entity`,
-      id: user.oid,
-      displayName: user.name,
-      givenName: user.given_name,
-      surname: user.family_name,
-      mail: user.email,
-      userPrincipalName: user.preferred_username,
-    });
-  });
-
   // ---------- v1 OAuth token endpoint (legacy) ----------
   // Azure AD v1 applications use /{tenant}/oauth2/token instead of /oauth2/v2.0/token.
   // The v1 endpoint accepts a `resource` body parameter instead of `scope`.
@@ -603,38 +596,6 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     });
 
     return app.fetch(v2Req);
-  });
-
-  // ---------- Microsoft Graph /v1.0/users/:id endpoint ----------
-  // Service-to-service calls (e.g. with client_credentials tokens) use
-  // /v1.0/users/{id} to look up any user by their object ID (oid).
-
-  app.get("/v1.0/users/:id", (c) => {
-    const userId = c.req.param("id");
-
-    // Look up by oid (the Microsoft object ID)
-    const user = ms.users.findOneBy("oid", userId);
-    if (!user) {
-      return c.json(
-        {
-          error: {
-            code: "Request_ResourceNotFound",
-            message: `Resource '${userId}' does not exist or one of its queried reference-property objects are not present.`,
-          },
-        },
-        404,
-      );
-    }
-
-    return c.json({
-      "@odata.context": `${baseUrl}/v1.0/$metadata#users/$entity`,
-      id: user.oid,
-      displayName: user.name,
-      givenName: user.given_name,
-      surname: user.family_name,
-      mail: user.email,
-      userPrincipalName: user.preferred_username,
-    });
   });
 
   // ---------- Logout ----------

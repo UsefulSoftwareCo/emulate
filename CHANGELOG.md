@@ -1,12 +1,18 @@
 # Changelog
 
-## 0.7.4
+## 0.7.5
 
 <!-- release:start -->
+### New Features
+
+- **Microsoft Graph emulator expansion** — the Microsoft emulator now includes stateful Graph users, mail, calendar events, and OneDrive routes alongside Entra ID OAuth, OIDC, refresh tokens, and client credentials. The OpenAPI subset, manifest, seed schema, docs, and agent skill now describe the supported Graph workload surface, and tests cover delegated OAuth, app-only token exchange, local credential minting, and opt-in live Microsoft token parity.
+<!-- release:end -->
+
+## 0.7.4
+
 ### Bug Fixes
 
 - **Local MCP packaging** — the npm `emulate` package now includes the MCP emulator in its local service registry. `createEmulator({ service: "github" })` serves the GitHub MCP OAuth metadata locally, matching the hosted Cloudflare worker, and `createEmulator({ service: "mcp" })` is available for MCP-only tests.
-<!-- release:end -->
 
 ## 0.7.3
 

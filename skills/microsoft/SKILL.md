@@ -1,12 +1,12 @@
 ---
 name: microsoft
-description: Emulated Microsoft Entra ID (Azure AD) OAuth 2.0 / OpenID Connect for local development and testing. Use when the user needs to test Microsoft sign-in locally, emulate Entra ID OIDC discovery, handle Microsoft token exchange, configure Azure AD OAuth clients, work with Microsoft Graph /me, or test PKCE/client credentials flows without hitting real Microsoft APIs. Triggers include "Microsoft OAuth", "Entra ID", "Azure AD", "emulate Microsoft", "mock Microsoft login", "test Microsoft sign-in", "Microsoft OIDC", "local Microsoft auth", or any task requiring a local Microsoft OAuth/OIDC provider.
+description: Emulated Microsoft Entra ID (Azure AD) OAuth 2.0 / OpenID Connect plus Microsoft Graph users, mail, calendar, and OneDrive for local development and testing. Use when the user needs to test Microsoft sign-in locally, emulate Entra ID OIDC discovery, handle Microsoft token exchange, configure Azure AD OAuth clients, work with Microsoft Graph /me, mail, calendar, or files, or test PKCE/client credentials flows without hitting real Microsoft APIs. Triggers include "Microsoft OAuth", "Entra ID", "Azure AD", "emulate Microsoft", "mock Microsoft login", "test Microsoft sign-in", "Microsoft OIDC", "local Microsoft auth", or any task requiring a local Microsoft OAuth/OIDC provider.
 allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
 ---
 
 # Microsoft Entra ID Emulator
 
-Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with authorization code flow, PKCE, client credentials, RS256 ID tokens, OIDC discovery, and a Microsoft Graph `/v1.0/me` endpoint.
+Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with authorization code flow, PKCE, client credentials, RS256 ID tokens, OIDC discovery, and a Microsoft Graph subset for users, mail, calendar, and OneDrive.
 
 ## Start
 
@@ -46,6 +46,9 @@ MICROSOFT_EMULATOR_URL=http://localhost:4005
 | `https://login.microsoftonline.com/common/discovery/v2.0/keys` | `$MICROSOFT_EMULATOR_URL/discovery/v2.0/keys` |
 | `https://graph.microsoft.com/oidc/userinfo` | `$MICROSOFT_EMULATOR_URL/oidc/userinfo` |
 | `https://graph.microsoft.com/v1.0/me` | `$MICROSOFT_EMULATOR_URL/v1.0/me` |
+| `https://graph.microsoft.com/v1.0/me/messages` | `$MICROSOFT_EMULATOR_URL/v1.0/me/messages` |
+| `https://graph.microsoft.com/v1.0/me/events` | `$MICROSOFT_EMULATOR_URL/v1.0/me/events` |
+| `https://graph.microsoft.com/v1.0/me/drive` | `$MICROSOFT_EMULATOR_URL/v1.0/me/drive` |
 
 ### Auth.js / NextAuth.js
 
@@ -121,6 +124,18 @@ microsoft:
       redirect_uris:
         - http://localhost:3000/api/auth/callback/microsoft-entra-id
       tenant_id: 9188040d-6c67-4c5b-b112-36a304b66dad
+  messages:
+    - subject: Welcome
+      body: Seeded Outlook message
+      from: sender@example.com
+  events:
+    - subject: Customer call
+      start_date_time: "2026-07-01T09:00:00"
+      end_date_time: "2026-07-01T09:30:00"
+  drive_items:
+    - name: Project Notes.txt
+      mime_type: text/plain
+      content: Notes
 ```
 
 When no OAuth clients are configured, the emulator accepts any `client_id`. With clients configured, strict validation is enforced for `client_id`, `client_secret`, and `redirect_uri`.
@@ -150,7 +165,17 @@ Returns the standard OIDC discovery document:
   "response_types_supported": ["code"],
   "subject_types_supported": ["pairwise"],
   "id_token_signing_alg_values_supported": ["RS256"],
-  "scopes_supported": ["openid", "email", "profile", "User.Read", "offline_access"],
+  "scopes_supported": [
+    "openid",
+    "email",
+    "profile",
+    "offline_access",
+    "User.Read",
+    "Mail.ReadWrite",
+    "Mail.Send",
+    "Calendars.ReadWrite",
+    "Files.ReadWrite.All"
+  ],
   "token_endpoint_auth_methods_supported": ["client_secret_post", "client_secret_basic"]
 }
 ```
@@ -284,6 +309,31 @@ Returns an OData-style response:
 }
 ```
 
+### Microsoft Graph Workloads
+
+Delegated tokens use the scopes requested during authorization. Common emulator scopes:
+
+- `User.Read` for `/v1.0/me`
+- `Mail.Read` or `Mail.ReadWrite` for `/v1.0/me/messages`
+- `Mail.Send` for `/v1.0/me/sendMail`
+- `Calendars.Read` or `Calendars.ReadWrite` for `/v1.0/me/events`
+- `Files.Read` or `Files.ReadWrite.All` for `/v1.0/me/drive`
+
+Client credentials tokens should request `scope=https://graph.microsoft.com/.default`. App-only tokens can call `/v1.0/users` and `/v1.0/users/:id`; `/v1.0/me` returns 403 because there is no signed-in user.
+
+```bash
+curl "$MICROSOFT_URL/v1.0/me/messages" \
+  -H "Authorization: Bearer microsoft_..."
+
+curl -X POST "$MICROSOFT_URL/v1.0/me/sendMail" \
+  -H "Authorization: Bearer microsoft_..." \
+  -H "Content-Type: application/json" \
+  -d '{"message":{"subject":"Hello","body":{"contentType":"text","content":"Hi"},"toRecipients":[{"emailAddress":{"address":"recipient@example.com"}}]}}'
+
+curl "$MICROSOFT_URL/v1.0/me/drive/root/children" \
+  -H "Authorization: Bearer microsoft_..."
+```
+
 ### Logout
 
 ```bash
@@ -372,6 +422,8 @@ curl -X POST "$MICROSOFT_EMULATOR_URL/_emulate/credentials" \
   -H "Content-Type: application/json" \
   -d '{"type":"oauth-authorization-code","redirect_uris":["http://localhost:3000/api/auth/callback/microsoft-entra-id"]}'
 ```
+
+For app-only scenarios, mint the same OAuth client, then exchange it with `grant_type=client_credentials` and `scope=https://graph.microsoft.com/.default`.
 
 Inspect calls with `GET /_emulate/ledger`: each entry includes a correlation id (set `X-Correlation-Id` on a request to trace it), the matched route and operation id, sanitized headers and body, authenticated identity, response status, side effects, and webhook deliveries. Use `POST /_emulate/seed` to add runtime seed data and `POST /_emulate/reset` to replay seeds.
 

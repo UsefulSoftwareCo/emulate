@@ -849,7 +849,7 @@ Sign in with Apple emulation with authorization code flow, PKCE support, RS256 I
 
 ## Microsoft Entra ID
 
-Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with authorization code flow, PKCE, client credentials, RS256 ID tokens, and OIDC discovery.
+Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with authorization code flow, PKCE, client credentials, RS256 ID tokens, OIDC discovery, and a curated Microsoft Graph subset.
 
 - `GET /.well-known/openid-configuration` - OIDC discovery document
 - `GET /:tenant/v2.0/.well-known/openid-configuration` - tenant-scoped OIDC discovery
@@ -858,6 +858,11 @@ Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with a
 - `POST /oauth2/v2.0/token` - token exchange (authorization code, refresh token, client credentials)
 - `GET /oidc/userinfo` - OpenID Connect user info
 - `GET /v1.0/me` - Microsoft Graph user profile
+- `GET /v1.0/users` - Microsoft Graph users
+- `GET /v1.0/me/messages` - Outlook mail messages
+- `POST /v1.0/me/sendMail` - send mail
+- `GET /v1.0/me/events` - calendar events
+- `GET /v1.0/me/drive/root/children` - OneDrive root children
 - `GET /oauth2/v2.0/logout` - end session / logout
 - `POST /oauth2/v2.0/revoke` - token revocation
 
@@ -1021,7 +1026,7 @@ packages/
     google/         # Google OAuth 2.0 / OIDC + Gmail, Calendar, Drive
     slack/          # Slack Web API, OAuth v2, incoming webhooks
     apple/          # Apple Sign In / OIDC
-    microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph /me
+    microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph users, mail, calendar, and files
     aws/            # AWS S3, SQS, IAM, STS
 apps/
   web/              # Documentation site (Next.js), deployed to docs.emulators.dev
@@ -1043,6 +1048,6 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 
 **Apple**: OIDC authorization code flow with RS256 ID tokens. On first auth per user/client pair, a `user` JSON blob is included.
 
-**Microsoft**: OIDC authorization code flow with PKCE support. Also supports client credentials grants. Microsoft Graph `/v1.0/me` available.
+**Microsoft**: OIDC authorization code flow with PKCE support. Also supports client credentials grants and Microsoft Graph users, mail, calendar, and OneDrive routes.
 
 **AWS**: Bearer tokens or IAM access key credentials. Default key pair always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.

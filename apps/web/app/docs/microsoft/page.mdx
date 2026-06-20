@@ -1,6 +1,6 @@
 # Microsoft Entra ID
 
-Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with authorization code flow, PKCE, client credentials, RS256 ID tokens, OIDC discovery, and a Microsoft Graph `/v1.0/me` endpoint.
+Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with authorization code flow, PKCE, client credentials, RS256 ID tokens, OIDC discovery, and a curated Microsoft Graph subset for users, mail, calendar, and OneDrive.
 
 ## Endpoints
 
@@ -11,6 +11,15 @@ Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with a
 - `POST /oauth2/v2.0/token` - token exchange (authorization code, refresh token, and client credentials grants)
 - `GET /oidc/userinfo` - OpenID Connect user info
 - `GET /v1.0/me` - Microsoft Graph user profile
+- `GET /v1.0/users` - Microsoft Graph users
+- `GET /v1.0/users/:id` - Microsoft Graph user by ID
+- `GET /v1.0/me/messages` - Outlook mail messages
+- `POST /v1.0/me/sendMail` - send mail
+- `GET /v1.0/me/calendars` - calendars
+- `GET /v1.0/me/events` - calendar events
+- `POST /v1.0/me/events` - create calendar event
+- `GET /v1.0/me/drive` - OneDrive
+- `GET /v1.0/me/drive/root/children` - OneDrive root children
 - `GET /oauth2/v2.0/logout` - end session / logout
 - `POST /oauth2/v2.0/revoke` - token revocation
 
@@ -27,7 +36,17 @@ Include `code_challenge` and `code_challenge_method` (`plain` or `S256`) in the 
 
 ## Client Credentials
 
-Request tokens for service-to-service flows using `grant_type=client_credentials` with `scope=https://graph.microsoft.com/.default`. Returns an `access_token` only (no `refresh_token` or `id_token`).
+Request tokens for service-to-service flows using `grant_type=client_credentials` with `scope=https://graph.microsoft.com/.default`. Returns an `access_token` only (no `refresh_token` or `id_token`). App-only tokens can call `/v1.0/users` and `/v1.0/users/:id`; `/v1.0/me` intentionally returns 403 because client credentials tokens have no signed-in user.
+
+You can generate OAuth clients through the control plane:
+
+```bash
+curl -X POST "$MICROSOFT_EMULATOR_URL/_emulate/credentials" \
+  -H "Content-Type: application/json" \
+  -d '{"type":"oauth-authorization-code","redirect_uris":["http://localhost:3000/api/auth/callback/microsoft"]}'
+```
+
+The response includes `client_id`, `client_secret`, `authorization_url`, and `token_url` for the running emulator.
 
 ## ID Token
 
@@ -35,4 +54,19 @@ The `id_token` is an RS256 JWT containing `sub`, `oid`, `tid` (tenant ID), `emai
 
 ## Microsoft Graph
 
-The `/v1.0/me` endpoint returns an OData-style response with `displayName`, `mail`, `userPrincipalName`, and `id`.
+The Graph subset is stateful. Delegated tokens with the matching scopes can list and send mail, list and mutate calendar events, and inspect or update OneDrive items. Responses use Microsoft Graph field names and OData collection wrappers, and mutating calls are recorded in the request ledger with operation IDs.
+
+Example delegated Graph calls:
+
+```bash
+curl "$MICROSOFT_EMULATOR_URL/v1.0/me/messages" \
+  -H "Authorization: Bearer microsoft_..."
+
+curl -X POST "$MICROSOFT_EMULATOR_URL/v1.0/me/sendMail" \
+  -H "Authorization: Bearer microsoft_..." \
+  -H "Content-Type: application/json" \
+  -d '{"message":{"subject":"Hello","body":{"contentType":"text","content":"Hi"},"toRecipients":[{"emailAddress":{"address":"recipient@example.com"}}]}}'
+
+curl "$MICROSOFT_EMULATOR_URL/v1.0/me/drive/root/children" \
+  -H "Authorization: Bearer microsoft_..."
+```

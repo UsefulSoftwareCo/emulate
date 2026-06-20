@@ -9,31 +9,73 @@ const jsonResponse = (description: string) => ({
   content: { "application/json": { schema: { type: "object" } } },
 });
 
+const emptyResponse = (description: string) => ({ description });
+
+const bearerErrors = {
+  "401": jsonResponse("Authentication is required."),
+  "403": jsonResponse("The access token does not include the required Graph scope."),
+};
+
+const idPathParameter = { name: "id", in: "path", required: true, schema: { type: "string" } };
+
+function getOperation(
+  operationId: string,
+  summary: string,
+  scopes: string[],
+  responses: Record<string, unknown> = { "200": jsonResponse("Successful response.") },
+): Record<string, unknown> {
+  return {
+    operationId,
+    summary,
+    security: [{ azureAdDelegated: scopes }],
+    responses: { ...responses, ...bearerErrors },
+  };
+}
+
 function buildSpec(baseUrl: string): Record<string, unknown> {
+  const scopes = {
+    openid: "Sign users in.",
+    email: "View users' email address.",
+    profile: "View users' basic profile.",
+    offline_access: "Maintain access to data you have given it access to.",
+    "User.Read": "Sign in and read user profile.",
+    "User.Read.All": "Read all users' full profiles.",
+    "Mail.Read": "Read user mail.",
+    "Mail.ReadWrite": "Read and write user mail.",
+    "Mail.Send": "Send mail as a user.",
+    "Calendars.Read": "Read user calendars.",
+    "Calendars.ReadWrite": "Read and write user calendars.",
+    "Files.Read": "Read user files.",
+    "Files.Read.All": "Read all files that the user can access.",
+    "Files.ReadWrite": "Read and write user files.",
+    "Files.ReadWrite.All": "Read and write all files that the user can access.",
+    "https://graph.microsoft.com/.default": "Use application permissions granted to the client.",
+  };
+
   return {
     openapi: "3.0.3",
     info: {
       title: "Microsoft Graph REST API v1.0 (Emulated)",
       version: "1.0.0",
       description:
-        "Emulated subset of Microsoft Graph v1.0. The OAuth security scheme uses the Microsoft Graph delegated scheme name and points at this emulator instance.",
+        "Emulated subset of Microsoft Graph v1.0. The OAuth security scheme points at this emulator instance and supports delegated authorization code plus client credentials token grants.",
     },
     servers: [{ url: baseUrl }],
     components: {
       securitySchemes: {
         azureAdDelegated: {
           type: "oauth2",
-          description: "Microsoft identity platform delegated OAuth 2.0 authorization code flow.",
+          description: "Microsoft identity platform OAuth 2.0 flows.",
           flows: {
             authorizationCode: {
               authorizationUrl: `${baseUrl}/oauth2/v2.0/authorize`,
               tokenUrl: `${baseUrl}/oauth2/v2.0/token`,
+              scopes,
+            },
+            clientCredentials: {
+              tokenUrl: `${baseUrl}/oauth2/v2.0/token`,
               scopes: {
-                openid: "Sign users in.",
-                email: "View users' email address.",
-                profile: "View users' basic profile.",
-                offline_access: "Maintain access to data you have given it access to.",
-                "User.Read": "Sign in and read user profile.",
+                "https://graph.microsoft.com/.default": scopes["https://graph.microsoft.com/.default"],
               },
             },
           },
@@ -43,27 +85,127 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
     security: [{ azureAdDelegated: ["User.Read"] }],
     paths: {
       "/v1.0/me": {
-        get: {
-          operationId: "graphUser_GetMyProfile",
-          summary: "Get the signed-in user",
-          security: [{ azureAdDelegated: ["User.Read"] }],
-          responses: {
-            "200": jsonResponse("Graph user profile."),
-            "401": jsonResponse("Authentication is required."),
-          },
-        },
+        get: getOperation("graphUser_GetMyProfile", "Get the signed-in user", ["User.Read"], {
+          "200": jsonResponse("Graph user profile."),
+        }),
+      },
+      "/v1.0/users": {
+        get: getOperation("graphUser_List", "List users", ["User.Read.All"], {
+          "200": jsonResponse("Graph user collection."),
+        }),
       },
       "/v1.0/users/{id}": {
         get: {
-          operationId: "graphUser_GetById",
-          summary: "Get a user by id or user principal name",
-          parameters: [{ name: "id", in: "path", required: true, schema: { type: "string" } }],
-          security: [{ azureAdDelegated: ["User.Read"] }],
-          responses: {
+          ...getOperation("graphUser_GetById", "Get a user by id or user principal name", ["User.Read.All"], {
             "200": jsonResponse("Graph user profile."),
-            "401": jsonResponse("Authentication is required."),
             "404": jsonResponse("User not found."),
-          },
+          }),
+          parameters: [idPathParameter],
+        },
+      },
+      "/v1.0/me/messages": {
+        get: getOperation("message_List", "List messages", ["Mail.Read"], {
+          "200": jsonResponse("Mail message collection."),
+        }),
+      },
+      "/v1.0/me/messages/{id}": {
+        get: {
+          ...getOperation("message_Get", "Get a message", ["Mail.Read"], {
+            "200": jsonResponse("Mail message."),
+            "404": jsonResponse("Message not found."),
+          }),
+          parameters: [idPathParameter],
+        },
+      },
+      "/v1.0/me/sendMail": {
+        post: getOperation("message_SendMail", "Send mail", ["Mail.Send"], {
+          "202": emptyResponse("Mail accepted for delivery."),
+        }),
+      },
+      "/v1.0/me/calendar": {
+        get: getOperation("calendar_GetDefaultCalendar", "Get default calendar", ["Calendars.Read"], {
+          "200": jsonResponse("Calendar."),
+        }),
+      },
+      "/v1.0/me/calendars": {
+        get: getOperation("calendar_List", "List calendars", ["Calendars.Read"], {
+          "200": jsonResponse("Calendar collection."),
+        }),
+      },
+      "/v1.0/me/events": {
+        get: getOperation("event_List", "List events", ["Calendars.Read"], {
+          "200": jsonResponse("Event collection."),
+        }),
+        post: getOperation("event_Create", "Create an event", ["Calendars.ReadWrite"], {
+          "201": jsonResponse("Created event."),
+        }),
+      },
+      "/v1.0/me/events/{id}": {
+        get: {
+          ...getOperation("event_Get", "Get an event", ["Calendars.Read"], {
+            "200": jsonResponse("Event."),
+            "404": jsonResponse("Event not found."),
+          }),
+          parameters: [idPathParameter],
+        },
+        delete: {
+          ...getOperation("event_Delete", "Delete an event", ["Calendars.ReadWrite"], {
+            "204": emptyResponse("Deleted event."),
+            "404": jsonResponse("Event not found."),
+          }),
+          parameters: [idPathParameter],
+        },
+      },
+      "/v1.0/me/calendar/events": {
+        get: getOperation("event_ListCalendarView", "List default calendar events", ["Calendars.Read"], {
+          "200": jsonResponse("Event collection."),
+        }),
+      },
+      "/v1.0/me/drive": {
+        get: getOperation("drive_GetMyDrive", "Get the signed-in user's OneDrive", ["Files.Read"], {
+          "200": jsonResponse("Drive."),
+        }),
+      },
+      "/v1.0/me/drive/root": {
+        get: getOperation("driveItem_GetRoot", "Get the root drive item", ["Files.Read"], {
+          "200": jsonResponse("Drive item."),
+        }),
+      },
+      "/v1.0/me/drive/root/children": {
+        get: getOperation("driveItem_ListRootChildren", "List root children", ["Files.Read"], {
+          "200": jsonResponse("Drive item collection."),
+        }),
+      },
+      "/v1.0/me/drive/items/{id}": {
+        get: {
+          ...getOperation("driveItem_Get", "Get a drive item", ["Files.Read"], {
+            "200": jsonResponse("Drive item."),
+            "404": jsonResponse("Drive item not found."),
+          }),
+          parameters: [idPathParameter],
+        },
+        patch: {
+          ...getOperation("driveItem_Update", "Update a drive item", ["Files.ReadWrite"], {
+            "200": jsonResponse("Updated drive item."),
+            "404": jsonResponse("Drive item not found."),
+          }),
+          parameters: [idPathParameter],
+        },
+        delete: {
+          ...getOperation("driveItem_Delete", "Delete a drive item", ["Files.ReadWrite"], {
+            "204": emptyResponse("Deleted drive item."),
+            "404": jsonResponse("Drive item not found."),
+          }),
+          parameters: [idPathParameter],
+        },
+      },
+      "/v1.0/me/drive/items/{id}/children": {
+        get: {
+          ...getOperation("driveItem_ListChildren", "List drive item children", ["Files.Read"], {
+            "200": jsonResponse("Drive item collection."),
+            "404": jsonResponse("Drive item not found."),
+          }),
+          parameters: [idPathParameter],
         },
       },
     },

@@ -36,9 +36,7 @@ describe("createEmulator", () => {
     const metadataBody = (await metadata.json()) as {
       authorization_grant_profiles_supported?: string[];
     };
-    expect(metadataBody.authorization_grant_profiles_supported).toContain(
-      "urn:ietf:params:oauth:grant-profile:id-jag",
-    );
+    expect(metadataBody.authorization_grant_profiles_supported).toContain("urn:ietf:params:oauth:grant-profile:id-jag");
 
     await github.close();
   });
@@ -172,6 +170,48 @@ describe("createEmulator", () => {
     expect(token.token_type).toBe("Bearer");
 
     await spotify.close();
+  });
+
+  it("creates Microsoft OAuth client credentials and exchanges them for a Graph app token", async () => {
+    const microsoft = await createEmulator({ service: "microsoft", port: 14055 });
+
+    const credentialRes = await fetch(`${microsoft.url}/_emulate/credentials`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type: "oauth-client-credentials", name: "Graph App" }),
+    });
+    expect(credentialRes.status).toBe(200);
+    const credentialBody = (await credentialRes.json()) as {
+      credential: { client_id: string; client_secret: string; token_url: string };
+    };
+
+    const tokenRes = await fetch(credentialBody.credential.token_url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "client_credentials",
+        client_id: credentialBody.credential.client_id,
+        client_secret: credentialBody.credential.client_secret,
+        scope: "https://graph.microsoft.com/.default",
+      }),
+    });
+    expect(tokenRes.status).toBe(200);
+    const token = (await tokenRes.json()) as { access_token: string; token_type: string; scope: string };
+    expect(token.access_token).toBeTruthy();
+    expect(token.token_type).toBe("Bearer");
+    expect(token.scope).toBe("https://graph.microsoft.com/.default");
+
+    const usersRes = await fetch(`${microsoft.url}/v1.0/users`, {
+      headers: { Authorization: `Bearer ${token.access_token}` },
+    });
+    expect(usersRes.status).toBe(200);
+
+    const meRes = await fetch(`${microsoft.url}/v1.0/me`, {
+      headers: { Authorization: `Bearer ${token.access_token}` },
+    });
+    expect(meRes.status).toBe(403);
+
+    await microsoft.close();
   });
 
   it("creates AWS-style access keys through the control plane", async () => {

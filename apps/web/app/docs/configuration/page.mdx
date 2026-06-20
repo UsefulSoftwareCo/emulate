@@ -129,6 +129,7 @@ github:
 ```
 
 **Endpoints:**
+
 - `GET /app` - get authenticated app (JWT required)
 - `GET /app/installations` - list app installations
 - `GET /app/installations/:id` - get installation
@@ -292,6 +293,18 @@ microsoft:
       redirect_uris:
         - http://localhost:3000/api/auth/callback/microsoft-entra-id
       tenant_id: 9188040d-6c67-4c5b-b112-36a304b66dad
+  messages:
+    - subject: Welcome
+      body: Seeded Outlook message
+      from: sender@example.com
+  events:
+    - subject: Customer call
+      start_date_time: "2026-07-01T09:00:00"
+      end_date_time: "2026-07-01T09:30:00"
+  drive_items:
+    - name: Project Notes.txt
+      mime_type: text/plain
+      content: Notes
 ```
 
 ## AWS Seed Config

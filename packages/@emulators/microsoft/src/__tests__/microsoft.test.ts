@@ -110,16 +110,41 @@ async function exchangeCode(
   });
 }
 
+async function getAccessToken(app: Hono, scope: string): Promise<string> {
+  const { code } = await getAuthCode(app, { scope });
+  const tokenRes = await exchangeCode(app, code);
+  expect(tokenRes.status).toBe(200);
+  const tokenBody = (await tokenRes.json()) as Record<string, unknown>;
+  return tokenBody.access_token as string;
+}
+
+async function getClientCredentialsToken(app: Hono, scope = "https://graph.microsoft.com/.default"): Promise<string> {
+  const formData = new URLSearchParams({
+    grant_type: "client_credentials",
+    client_id: "test-client",
+    client_secret: "test-secret",
+    scope,
+  });
+
+  const res = await app.request(`${base}/oauth2/v2.0/token`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: formData.toString(),
+  });
+
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as Record<string, unknown>;
+  return body.access_token as string;
+}
+
 describe("Microsoft plugin integration", () => {
   let app: Hono;
   let store: Store;
-  let tokenMap: TokenMap;
 
   beforeEach(() => {
     const testApp = createTestApp();
     app = testApp.app;
     store = testApp.store;
-    tokenMap = testApp.tokenMap;
   });
 
   // --- OpenAPI ---
@@ -137,6 +162,10 @@ describe("Microsoft plugin integration", () => {
             flows: {
               authorizationCode: {
                 authorizationUrl: string;
+                tokenUrl: string;
+                scopes: Record<string, string>;
+              };
+              clientCredentials: {
                 tokenUrl: string;
                 scopes: Record<string, string>;
               };
@@ -160,9 +189,20 @@ describe("Microsoft plugin integration", () => {
       openid: expect.any(String),
       offline_access: expect.any(String),
       "User.Read": expect.any(String),
+      "Mail.ReadWrite": expect.any(String),
+      "Mail.Send": expect.any(String),
+      "Calendars.ReadWrite": expect.any(String),
+      "Files.ReadWrite.All": expect.any(String),
     });
+    expect(body.components.securitySchemes.azureAdDelegated.flows.clientCredentials.tokenUrl).toBe(
+      `${base}/oauth2/v2.0/token`,
+    );
     expect(body.paths).toHaveProperty("/v1.0/me");
     expect(body.paths).toHaveProperty("/v1.0/users/{id}");
+    expect(body.paths).toHaveProperty("/v1.0/me/messages");
+    expect(body.paths).toHaveProperty("/v1.0/me/sendMail");
+    expect(body.paths).toHaveProperty("/v1.0/me/events");
+    expect(body.paths).toHaveProperty("/v1.0/me/drive/root/children");
   });
 
   // --- OIDC Discovery ---
@@ -183,6 +223,10 @@ describe("Microsoft plugin integration", () => {
     expect(body.subject_types_supported).toEqual(["pairwise"]);
     expect(body.scopes_supported).toContain("openid");
     expect(body.scopes_supported).toContain("User.Read");
+    expect(body.scopes_supported).toContain("Mail.ReadWrite");
+    expect(body.scopes_supported).toContain("Mail.Send");
+    expect(body.scopes_supported).toContain("Calendars.ReadWrite");
+    expect(body.scopes_supported).toContain("Files.ReadWrite.All");
     expect(body.claims_supported).toContain("oid");
     expect(body.claims_supported).toContain("tid");
     expect(body.claims_supported).toContain("preferred_username");
@@ -387,10 +431,7 @@ describe("Microsoft plugin integration", () => {
   // --- Graph /me endpoint ---
 
   it("GET /v1.0/me returns Graph-style user profile when authenticated", async () => {
-    const { code } = await getAuthCode(app);
-    const tokenRes = await exchangeCode(app, code);
-    const tokenBody = (await tokenRes.json()) as Record<string, unknown>;
-    const accessToken = tokenBody.access_token as string;
+    const accessToken = await getAccessToken(app, "openid email profile User.Read");
 
     const res = await app.request(`${base}/v1.0/me`, {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -402,6 +443,143 @@ describe("Microsoft plugin integration", () => {
     expect(body.userPrincipalName).toBe("testuser@example.com");
     expect(body.id).toBeDefined();
     expect(body["@odata.context"]).toContain("$metadata#users");
+  });
+
+  it("GET /v1.0/me rejects app-only client credentials tokens", async () => {
+    const accessToken = await getClientCredentialsToken(app);
+
+    const res = await app.request(`${base}/v1.0/me`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: Record<string, unknown> };
+    expect(body.error.code).toBe("ErrorAccessDenied");
+  });
+
+  it("GET /v1.0/me rejects tokens without User.Read", async () => {
+    const accessToken = await getAccessToken(app, "openid email profile Mail.Read");
+
+    const res = await app.request(`${base}/v1.0/me`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: Record<string, unknown> };
+    expect(body.error.code).toBe("ErrorAccessDenied");
+  });
+
+  it("lists messages and sends mail with delegated mail scopes", async () => {
+    const accessToken = await getAccessToken(app, "openid email profile Mail.ReadWrite Mail.Send");
+
+    const listRes = await app.request(`${base}/v1.0/me/messages`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(listRes.status).toBe(200);
+    const listBody = (await listRes.json()) as { value: Array<Record<string, unknown>> };
+    expect(listBody.value.length).toBeGreaterThan(0);
+    expect(listBody.value[0]).toMatchObject({
+      id: expect.any(String),
+      subject: expect.any(String),
+      body: expect.any(Object),
+      toRecipients: expect.any(Array),
+    });
+
+    const sendRes = await app.request(`${base}/v1.0/me/sendMail`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        message: {
+          subject: "Graph emulator test",
+          body: { contentType: "text", content: "Hello from emulate." },
+          toRecipients: [{ emailAddress: { address: "recipient@example.com", name: "Recipient" } }],
+        },
+        saveToSentItems: true,
+      }),
+    });
+    expect(sendRes.status).toBe(202);
+
+    const afterSendRes = await app.request(`${base}/v1.0/me/messages`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const afterSendBody = (await afterSendRes.json()) as { value: Array<Record<string, unknown>> };
+    expect(afterSendBody.value.some((message) => message.subject === "Graph emulator test")).toBe(true);
+  });
+
+  it("creates, fetches, and deletes calendar events with delegated calendar scopes", async () => {
+    const accessToken = await getAccessToken(app, "openid email profile Calendars.ReadWrite");
+
+    const calendarsRes = await app.request(`${base}/v1.0/me/calendars`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(calendarsRes.status).toBe(200);
+    const calendarsBody = (await calendarsRes.json()) as { value: Array<Record<string, unknown>> };
+    expect(calendarsBody.value[0]).toMatchObject({ id: expect.any(String), name: expect.any(String) });
+
+    const createRes = await app.request(`${base}/v1.0/me/events`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        subject: "Customer call",
+        body: { contentType: "text", content: "Review Microsoft emulator behavior." },
+        start: { dateTime: "2026-07-01T09:00:00", timeZone: "UTC" },
+        end: { dateTime: "2026-07-01T09:30:00", timeZone: "UTC" },
+        location: { displayName: "Teams" },
+        attendees: [{ emailAddress: { address: "customer@example.com", name: "Customer" }, type: "required" }],
+      }),
+    });
+    expect(createRes.status).toBe(201);
+    const event = (await createRes.json()) as Record<string, unknown>;
+    expect(event.subject).toBe("Customer call");
+    expect(event.id).toEqual(expect.any(String));
+
+    const getRes = await app.request(`${base}/v1.0/me/events/${event.id as string}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(getRes.status).toBe(200);
+    const getBody = (await getRes.json()) as Record<string, unknown>;
+    expect(getBody.subject).toBe("Customer call");
+
+    const deleteRes = await app.request(`${base}/v1.0/me/events/${event.id as string}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(deleteRes.status).toBe(204);
+  });
+
+  it("lists and updates OneDrive items with delegated file scopes", async () => {
+    const accessToken = await getAccessToken(app, "openid email profile Files.ReadWrite.All");
+
+    const driveRes = await app.request(`${base}/v1.0/me/drive`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(driveRes.status).toBe(200);
+    const drive = (await driveRes.json()) as Record<string, unknown>;
+    expect(drive.driveType).toBe("personal");
+
+    const childrenRes = await app.request(`${base}/v1.0/me/drive/root/children`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(childrenRes.status).toBe(200);
+    const children = (await childrenRes.json()) as { value: Array<Record<string, unknown>> };
+    const documents = children.value.find((item) => item.name === "Documents");
+    expect(documents).toBeDefined();
+
+    const updateRes = await app.request(`${base}/v1.0/me/drive/items/${documents!.id as string}`, {
+      method: "PATCH",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ name: "Shared Documents" }),
+    });
+    expect(updateRes.status).toBe(200);
+    const updated = (await updateRes.json()) as Record<string, unknown>;
+    expect(updated.name).toBe("Shared Documents");
   });
 
   // --- Logout endpoint ---
@@ -688,8 +866,11 @@ describe("Microsoft plugin integration", () => {
     const ms = getMicrosoftStore(store);
     const user = ms.users.findOneBy("email", "testuser@example.com");
     expect(user).toBeDefined();
+    const accessToken = await getClientCredentialsToken(app);
 
-    const res = await app.request(`${base}/v1.0/users/${user!.oid}`);
+    const res = await app.request(`${base}/v1.0/users/${user!.oid}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.id).toBe(user!.oid);
@@ -699,8 +880,22 @@ describe("Microsoft plugin integration", () => {
     expect(body["@odata.context"]).toContain("$metadata#users");
   });
 
+  it("GET /v1.0/users lists users with an app-only token", async () => {
+    const accessToken = await getClientCredentialsToken(app);
+    const res = await app.request(`${base}/v1.0/users`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { value: Array<Record<string, unknown>> };
+    expect(body.value.some((user) => user.userPrincipalName === "testuser@example.com")).toBe(true);
+  });
+
   it("GET /v1.0/users/:id returns 404 for unknown user id", async () => {
-    const res = await app.request(`${base}/v1.0/users/00000000-0000-0000-0000-000000000000`);
+    const accessToken = await getClientCredentialsToken(app);
+    const res = await app.request(`${base}/v1.0/users/00000000-0000-0000-0000-000000000000`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error: Record<string, unknown> };
     expect(body.error.code).toBe("Request_ResourceNotFound");

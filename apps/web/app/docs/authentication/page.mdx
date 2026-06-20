@@ -65,11 +65,11 @@ curl http://localhost:4002/.well-known/openid-configuration
 The Slack emulator supports OAuth v2 with a user picker UI. Configure OAuth apps in the seed config for strict client validation. Point your Slack SDK at the emulator URL:
 
 ```typescript
-import { WebClient } from '@slack/web-api'
+import { WebClient } from "@slack/web-api";
 
 const client = new WebClient(token, {
-  slackApiUrl: 'http://localhost:4003/api/',
-})
+  slackApiUrl: "http://localhost:4003/api/",
+});
 ```
 
 All Web API endpoints require `Authorization: Bearer <token>`.
@@ -86,7 +86,7 @@ On first authorization per user/client pair, a `user` JSON blob is included in t
 
 ## Microsoft Entra ID
 
-The Microsoft emulator supports OIDC discovery, authorization code flow, PKCE, and client credentials grants. It also provides a Microsoft Graph `/v1.0/me` endpoint.
+The Microsoft emulator supports OIDC discovery, authorization code flow, PKCE, client credentials grants, and Microsoft Graph users, mail, calendar, and OneDrive routes.
 
 ```bash
 curl http://localhost:4005/.well-known/openid-configuration
