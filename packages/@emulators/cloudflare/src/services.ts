@@ -25,7 +25,13 @@ import {
 import { googlePlugin, manifest as googleManifest, seedFromConfig as googleSeed } from "@emulators/google";
 import { manifest as oktaManifest, oktaPlugin, seedFromConfig as oktaSeed } from "@emulators/okta";
 import { manifest as microsoftManifest, microsoftPlugin, seedFromConfig as microsoftSeed } from "@emulators/microsoft";
-import { mcpPlugin, setMcpAuthConfig, setMcpScopeConfig } from "@emulators/mcp";
+import {
+  manifest as mcpManifest,
+  mcpPlugin,
+  seedFromConfig as mcpSeed,
+  setMcpAuthConfig,
+  setMcpScopeConfig,
+} from "@emulators/mcp";
 import { manifest as spotifyManifest, seedFromConfig as spotifySeed, spotifyPlugin } from "@emulators/spotify";
 import { manifest as slackManifest, seedFromConfig as slackSeed, slackPlugin } from "@emulators/slack";
 import { applePlugin, manifest as appleManifest, seedFromConfig as appleSeed } from "@emulators/apple";
@@ -116,6 +122,31 @@ export const SERVICES: Record<string, ServiceEntry> = {
     // scopes so a discovering client falls back to the authorization-server
     // metadata (RFC 8414) — and the discovered set is deliberately distinct from
     // the historical default so a test can prove which document was read.
+    applyPreset: (store, _baseUrl, preset) => {
+      setMcpAuthConfig(store, { auth: preset });
+      if (preset === "scope-discovery") {
+        setMcpScopeConfig(store, {
+          scopes: ["channels:history", "users:read"],
+          scopeSource: "authorization-server",
+        });
+      } else {
+        setMcpScopeConfig(store, {});
+      }
+    },
+  },
+  mcp: {
+    plugin: mcpPlugin,
+    manifest: mcpManifest,
+    seedFromConfig: mcpSeed,
+    defaultFallback: (cfg) => ({
+      login: (cfg?.users as Array<{ login?: string }> | undefined)?.[0]?.login ?? "admin",
+      id: 1,
+      scopes: ["repo", "read:user"],
+    }),
+    ensureUser: (store, baseUrl, login) => {
+      mcpSeed(store, baseUrl, { users: [{ login }] });
+      return getGitHubStore(store).users.findOneBy("login", login)?.id ?? 1;
+    },
     applyPreset: (store, _baseUrl, preset) => {
       setMcpAuthConfig(store, { auth: preset });
       if (preset === "scope-discovery") {

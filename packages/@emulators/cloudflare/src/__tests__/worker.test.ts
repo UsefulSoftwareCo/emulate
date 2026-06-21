@@ -170,6 +170,7 @@ describe("cloudflare worker routing", () => {
     const { services } = (await res.json()) as { services: Array<{ id: string }> };
     const ids = services.map((s) => s.id);
     expect(ids).toContain("github");
+    expect(ids).toContain("mcp");
     expect(ids).toContain("stripe");
   });
 
@@ -294,6 +295,38 @@ describe("cloudflare durable object control plane", () => {
     const body = (await res.json()) as { instance: { instance?: string; service: string } };
     expect(body.instance.instance).toBe("my-run");
     expect(body.instance.service).toBe("github");
+  });
+
+  it("serves the standalone MCP image fixture service", async () => {
+    const { state } = makeState();
+    const durableObject = new EmulatorDurableObject(state, {});
+    const res = await durableObject.fetch(
+      new Request("https://emulators.dev/mcp?token=demo-token", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-emulator-service": "mcp",
+          "x-emulator-instance": "query",
+          "x-emulator-base-url": "https://emulators.dev/mcp/query",
+          "x-emulator-mcp-mode": "query",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "tools/call",
+          params: { name: "get_test_image", arguments: {} },
+        }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      result?: { content?: Array<{ type?: string; mimeType?: string; data?: string }> };
+    };
+    expect(body.result?.content?.[0]).toMatchObject({
+      type: "image",
+      mimeType: "image/png",
+    });
+    expect(Buffer.from(body.result?.content?.[0]?.data ?? "", "base64").byteLength).toBe(70);
   });
 
   it("sheds old history instead of failing mints when the state value would overflow the cap", async () => {

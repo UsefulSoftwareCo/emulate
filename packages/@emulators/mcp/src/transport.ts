@@ -52,9 +52,8 @@ function handleMessage(store: Store, baseUrl: string, authUser: AuthUser, msg: J
       const args = (params.arguments ?? {}) as Record<string, unknown>;
       try {
         const result = callTool(store, baseUrl, authUser, name, args);
-        const text = JSON.stringify(result.structured, null, 2);
         return rpcResult(id, {
-          content: [{ type: "text", text }],
+          content: result.content ?? [{ type: "text", text: JSON.stringify(result.structured, null, 2) }],
           structuredContent: result.structured,
           isError: result.isError ?? false,
         });
