@@ -8,10 +8,14 @@ export interface ToolDefinition {
   inputSchema: Record<string, unknown>;
 }
 
+type ToolContentBlock = { type: "text"; text: string } | { type: "image"; data: string; mimeType: string };
+
 // Result of a tool invocation. `structuredContent` is surfaced as the structured
-// payload; `text` is the human-readable JSON the MCP `content` array carries.
+// payload; `content`, when present, is surfaced as native MCP content. Tools
+// without native content get a human-readable JSON text block from `structured`.
 export interface ToolResult {
   structured: unknown;
+  content?: ToolContentBlock[];
   isError?: boolean;
 }
 
@@ -180,6 +184,16 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "get_test_image",
+    description: "Return a deterministic PNG fixture as native MCP image content.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
+  {
+    name: "get_test_image_with_metadata",
+    description: "Return text metadata followed by the deterministic PNG fixture.",
+    inputSchema: { type: "object", properties: {}, additionalProperties: false },
+  },
 ];
 
 export class ToolError extends Error {}
@@ -284,7 +298,50 @@ const HANDLERS: Record<string, (ctx: ToolContext, args: Record<string, unknown> 
       .map((r) => formatRepo(r, ctx.gh, ctx.baseUrl));
     return { structured: { total_count: matches.length, items: matches } };
   },
+
+  get_test_image() {
+    const metadata = testImageMetadata();
+    return {
+      structured: metadata,
+      content: [
+        {
+          type: "image",
+          data: TEST_IMAGE_PNG_BASE64,
+          mimeType: TEST_IMAGE_MIME_TYPE,
+        },
+      ],
+    };
+  },
+
+  get_test_image_with_metadata() {
+    const metadata = testImageMetadata();
+    return {
+      structured: metadata,
+      content: [
+        {
+          type: "text",
+          text: `Deterministic image fixture: ${metadata.name} (${metadata.mimeType}, ${metadata.byteLength} bytes)`,
+        },
+        {
+          type: "image",
+          data: TEST_IMAGE_PNG_BASE64,
+          mimeType: TEST_IMAGE_MIME_TYPE,
+        },
+      ],
+    };
+  },
 };
+
+export const TEST_IMAGE_MIME_TYPE = "image/png";
+export const TEST_IMAGE_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAFgwJ/l8N1wwAAAABJRU5ErkJggg==";
+
+const testImageMetadata = () => ({
+  name: "mcp-image-fixture.png",
+  mimeType: TEST_IMAGE_MIME_TYPE,
+  byteLength: Buffer.from(TEST_IMAGE_PNG_BASE64, "base64").byteLength,
+  sha256: "442486dc2c683393153d5a425628742a697977e68e1138d3cc38229fdf6331c4",
+});
 
 function nextIssueNumber(gh: GitHubStore, repoId: number): number {
   const issues = gh.issues.findBy("repo_id", repoId);

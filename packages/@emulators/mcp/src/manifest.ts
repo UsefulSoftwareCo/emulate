@@ -24,7 +24,19 @@ export const manifest: ServiceManifest = {
       kind: "mcp",
       title: "GitHub MCP tool subset",
       coverage: "hand-authored",
-      operations: [{ operationId: "get_me", status: "hand-authored", summary: "Return the authenticated user." }],
+      operations: [
+        { operationId: "get_me", status: "hand-authored", summary: "Return the authenticated user." },
+        {
+          operationId: "get_test_image",
+          status: "hand-authored",
+          summary: "Return a deterministic PNG fixture as native MCP image content.",
+        },
+        {
+          operationId: "get_test_image_with_metadata",
+          status: "hand-authored",
+          summary: "Return text metadata followed by the deterministic PNG fixture.",
+        },
+      ],
     },
     {
       kind: "oauth-metadata",

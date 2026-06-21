@@ -140,7 +140,7 @@ github:
 
 ## Deployed Instances
 
-All services are available on host-based routing when deployed: `github`, `vercel`, `google`, `okta`, `microsoft`, `spotify`, `slack`, `apple`, `aws`, `resend`, `stripe`, `mongoatlas`, `clerk`, `x`, `workos`, and `autumn`. Each one supports three addressing forms:
+All services are available on host-based routing when deployed: `github`, `mcp`, `vercel`, `google`, `okta`, `microsoft`, `spotify`, `slack`, `apple`, `aws`, `resend`, `stripe`, `mongoatlas`, `clerk`, `x`, `workos`, and `autumn`. Each one supports three addressing forms:
 
 ```text
 https://github.emulators.dev                     # service host (no instance)
