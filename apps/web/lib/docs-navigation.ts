@@ -10,6 +10,7 @@ export const allDocsPages: NavItem[] = [
   { name: "Next.js Integration", href: "/docs/nextjs" },
   { name: "Vercel API", href: "/docs/vercel" },
   { name: "GitHub API", href: "/docs/github" },
+  { name: "GitLab API", href: "/docs/gitlab" },
   { name: "Google API", href: "/docs/google" },
   { name: "Slack API", href: "/docs/slack" },
   { name: "Apple Sign In", href: "/docs/apple" },

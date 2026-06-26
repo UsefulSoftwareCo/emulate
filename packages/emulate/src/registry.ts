@@ -56,6 +56,9 @@ const SERVICE_NAME_LIST = [
   "autumn",
   "posthog",
   "mcp",
+  // gitlab is appended last so adding it leaves every other service's default
+  // multi-service port (basePort + index) unchanged.
+  "gitlab",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -112,6 +115,9 @@ export function issueServiceCredential(
 }
 
 function defaultToken(service: ServiceName, type: string): string {
+  // GitLab personal access tokens are prefixed glpat- so the issued credential
+  // reads like a real one, even though the emulator does not validate it.
+  if (service === "gitlab") return `glpat-${randomId().slice(0, 20)}`;
   const prefix = type === "api-key" ? apiKeyPrefix(service) : `emu_${service}`;
   return `${prefix}_${randomId()}`;
 }
@@ -391,6 +397,24 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
           },
         ],
       },
+    },
+  },
+
+  gitlab: {
+    label: "GitLab GraphQL API emulator",
+    endpoints:
+      "full real GraphQL schema (introspection + validation), metadata and echo queries, unauthenticated currentUser",
+    async load() {
+      const mod = await import("@emulators/gitlab");
+      return { plugin: mod.gitlabPlugin, manifest: mod.manifest, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback() {
+      // GitLab's GraphQL endpoint is public; this is a cosmetic fallback identity
+      // since the emulator does not resolve an authenticated user yet.
+      return { login: "root", id: 1, scopes: [] };
+    },
+    initConfig: {
+      gitlab: {},
     },
   },
 

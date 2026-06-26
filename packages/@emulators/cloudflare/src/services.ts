@@ -16,6 +16,7 @@ import {
   manifest as githubManifest,
   seedFromConfig as githubSeed,
 } from "@emulators/github";
+import { gitlabPlugin, manifest as gitlabManifest, seedFromConfig as gitlabSeed } from "@emulators/gitlab";
 import {
   getVercelStore,
   manifest as vercelManifest,
@@ -139,6 +140,15 @@ export const SERVICES: Record<string, ServiceEntry> = {
         setMcpScopeConfig(store, {});
       }
     },
+  },
+  // GitLab's public GraphQL API: one /api/graphql surface carrying the full real
+  // schema for faithful introspection and validation. Stateless and unauthenticated,
+  // so no ensureUser; defaultFallback is a cosmetic identity only.
+  gitlab: {
+    plugin: gitlabPlugin,
+    manifest: gitlabManifest,
+    seedFromConfig: gitlabSeed,
+    defaultFallback: () => ({ login: "root", id: 1, scopes: [] }),
   },
   mcp: {
     plugin: mcpPlugin,
@@ -400,6 +410,9 @@ function tokenPrefix(service: string, type: string): string {
   if (type === "api-key" && service === "stripe") return "sk_test";
   if (type === "api-key" && service === "clerk") return "sk_test";
   if (type === "api-key" && service === "resend") return "re";
+  // GitLab personal access tokens carry a glpat prefix; match it for recognizability
+  // even though the emulator does not validate the token.
+  if (service === "gitlab") return "glpat";
   return `emu_${service}`;
 }
 

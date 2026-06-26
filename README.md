@@ -30,7 +30,9 @@ All services start with sensible defaults. No config file needed:
 - **X** on `http://localhost:4013`
 - **WorkOS** on `http://localhost:4014`
 - **Autumn** on `http://localhost:4015`
-- **MCP** on `http://localhost:4016`
+- **PostHog** on `http://localhost:4016`
+- **MCP** on `http://localhost:4017`
+- **GitLab** on `http://localhost:4018` (full real GraphQL schema)
 
 Every running service also exposes a public control plane under `/_emulate`:
 
@@ -140,7 +142,7 @@ github:
 
 ## Deployed Instances
 
-All services are available on host-based routing when deployed: `github`, `mcp`, `vercel`, `google`, `okta`, `microsoft`, `spotify`, `slack`, `apple`, `aws`, `resend`, `stripe`, `mongoatlas`, `clerk`, `x`, `workos`, `autumn`, and `posthog`. Each one supports three addressing forms:
+All services are available on host-based routing when deployed: `github`, `gitlab`, `mcp`, `vercel`, `google`, `okta`, `microsoft`, `spotify`, `slack`, `apple`, `aws`, `resend`, `stripe`, `mongoatlas`, `clerk`, `x`, `workos`, `autumn`, and `posthog`. Each one supports three addressing forms:
 
 ```text
 https://github.emulators.dev                     # service host (no instance)
@@ -228,7 +230,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]));
 
 | Option    | Default      | Description                                                                                                                                                                                                                                                                                       |
 | --------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `service` | _(required)_ | Service name: `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'spotify'`, `'x'`, `'workos'`, `'autumn'`, or `'posthog'`                                                                           |
+| `service` | _(required)_ | Service name: `'vercel'`, `'github'`, `'gitlab'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'spotify'`, `'x'`, `'workos'`, `'autumn'`, or `'posthog'`                                                               |
 | `port`    | `4000`       | Port for the HTTP server                                                                                                                                                                                                                                                                          |
 | `seed`    | none         | Inline seed data (same shape as YAML config)                                                                                                                                                                                                                                                      |
 | `baseUrl` | none         | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -747,6 +749,28 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - `GET /emojis` - emoji URLs
 - `GET /zen` - random zen phrase
 - `GET /versions` - API versions
+
+## GitLab GraphQL API
+
+GitLab is modelled as a single GraphQL surface that mirrors `gitlab.com/api/graphql`. The emulator carries GitLab's full, real schema (4000+ types), printed to SDL from the live API, so introspection and validation behave exactly like the real endpoint: malformed operations are rejected with verbatim graphql-js validation errors, and the complete type system is introspectable. Resolver coverage is intentionally partial and declared honestly in the manifest.
+
+```bash
+npx emulate --service gitlab
+```
+
+When all services run together, GitLab uses `http://localhost:4018`.
+
+- `POST /api/graphql` - the GraphQL endpoint (queries, introspection, validation)
+
+Only a curated set of root fields return data today: `metadata` (instance version, revision, enterprise flag) and an `echo` query. `currentUser` resolves to null, matching GitLab's public, unauthenticated GraphQL endpoint. A Personal Access Token may be sent as an `Authorization: Bearer` header to match GitLab's shape, but it is not yet used to resolve an authenticated identity.
+
+```bash
+curl -s -X POST http://localhost:4018/api/graphql \
+  -H "content-type: application/json" \
+  -d '{"query":"{ metadata { version revision enterprise } }"}'
+```
+
+Because the full schema is real, this surface is well suited to testing GraphQL clients and generators against a large, production-shaped type system without calling gitlab.com. Use `/_emulate/manifest` for the declared coverage and `/_emulate/ledger` to inspect calls.
 
 ## Google OAuth + Gmail, Calendar, and Drive APIs
 

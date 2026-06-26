@@ -1,0 +1,37 @@
+# GitLab
+
+GitLab GraphQL API emulation carrying GitLab's full, real schema. The emulator mirrors `gitlab.com/api/graphql`, so introspection and validation behave exactly like the live endpoint.
+
+## Start
+
+```bash
+npx emulate --service gitlab
+```
+
+When all services run together, GitLab uses `http://localhost:4018`.
+
+## GraphQL
+
+The single provider surface is `POST /api/graphql`. It carries GitLab's complete published schema (4000+ types), printed to SDL from the live API and used as is for parsing, validation, and introspection.
+
+```bash
+curl -s -X POST http://localhost:4018/api/graphql \
+  -H "content-type: application/json" \
+  -d '{"query":"{ metadata { version revision enterprise } }"}'
+```
+
+Because the schema is the real one, malformed operations are rejected with verbatim graphql-js validation errors (for example, a composite field with no sub-selection, or a missing required argument). This makes the surface a faithful target for testing GraphQL clients and query generators against a large, production-shaped type system.
+
+## Coverage
+
+Resolver coverage is intentionally partial and declared honestly in the manifest:
+
+- `metadata` returns instance version, revision, and the enterprise flag.
+- `echo` returns its input, for a trivial round-trip check.
+- `currentUser` resolves to null, matching GitLab's public, unauthenticated GraphQL endpoint.
+
+A Personal Access Token may be sent as an `Authorization: Bearer` header to match GitLab's shape, but it is not yet used to resolve an authenticated identity. Unauthenticated requests are allowed.
+
+## Validation
+
+Use `/_emulate/ledger` to inspect GraphQL and introspection calls with sensitive fields redacted, and `/_emulate/manifest` for the declared surface coverage.

@@ -5,6 +5,7 @@ export const PAGE_TITLES: Record<string, string> = {
   nextjs: "Next.js Integration",
   vercel: "Vercel API",
   github: "GitHub API",
+  gitlab: "GitLab API",
   google: "Google API",
   slack: "Slack API",
   apple: "Apple Sign In",

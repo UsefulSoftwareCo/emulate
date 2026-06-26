@@ -1,5 +1,5 @@
 {
-  "name": "@emulators/vercel",
+  "name": "@emulators/gitlab",
   "version": "0.8.1",
   "license": "Apache-2.0",
   "type": "module",
@@ -15,7 +15,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/vercel-labs/emulate.git",
-    "directory": "packages/@emulators/vercel"
+    "directory": "packages/@emulators/gitlab"
   },
   "bugs": {
     "url": "https://github.com/vercel-labs/emulate/issues"
@@ -35,7 +35,8 @@
     "lint": "eslint src"
   },
   "dependencies": {
-    "@emulators/core": "workspace:*"
+    "@emulators/core": "workspace:*",
+    "graphql": "^16.9.0"
   },
   "devDependencies": {
     "tsup": "^8",
