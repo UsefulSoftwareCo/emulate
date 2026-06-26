@@ -44,6 +44,12 @@ import {
   seedFromConfig as mongoatlasSeed,
 } from "@emulators/mongoatlas";
 import { clerkPlugin, manifest as clerkManifest, seedFromConfig as clerkSeed } from "@emulators/clerk";
+import {
+  getPostHogStore,
+  manifest as posthogManifest,
+  posthogPlugin,
+  seedFromConfig as posthogSeed,
+} from "@emulators/posthog";
 import { getXStore, manifest as xManifest, seedFromConfig as xSeed, xPlugin } from "@emulators/x";
 import {
   getWorkosStore,
@@ -284,6 +290,20 @@ export const SERVICES: Record<string, ServiceEntry> = {
       scopes: [],
     }),
   },
+  posthog: {
+    plugin: posthogPlugin,
+    manifest: posthogManifest,
+    seedFromConfig: posthogSeed,
+    defaultFallback: (cfg) => ({
+      login: (cfg?.users as Array<{ email?: string }> | undefined)?.[0]?.email ?? "admin@example.com",
+      id: 1,
+      scopes: ["project:read", "event:read", "user:read"],
+    }),
+    ensureUser: (store, baseUrl, login) => {
+      posthogSeed(store, baseUrl, { users: [{ email: login, name: login }] });
+      return getPostHogStore(store).users.findOneBy("email", login)?.id ?? 1;
+    },
+  },
   // X (Twitter) API v2 — its real auth strategies: app-only Bearer (client
   // credentials) and OAuth 2.0 Authorization Code with PKCE (confidential clients
   // use HTTP Basic, public clients send client_id + PKCE only). Tokens are
@@ -426,6 +446,19 @@ function credentialSeed(
   if (service === "spotify") {
     return { clients: [{ client_id: clientId, client_secret: clientSecret, name }] };
   }
+  if (service === "posthog") {
+    return {
+      oauth_clients: [
+        {
+          client_id: clientId,
+          client_secret: clientSecret,
+          client_name: name,
+          redirect_uris: redirectUris,
+          token_endpoint_auth_method: "client_secret_post",
+        },
+      ],
+    };
+  }
   if (service === "okta") {
     return {
       oauth_clients: [
@@ -486,6 +519,7 @@ function tokenUrlFor(service: string, baseUrl: string): string | undefined {
     spotify: "/api/token",
     clerk: "/oauth/token",
     x: "/2/oauth2/token",
+    posthog: "/oauth/token/",
   };
   return paths[service] ? `${baseUrl}${paths[service]}` : undefined;
 }
@@ -501,6 +535,7 @@ function authorizationUrlFor(service: string, baseUrl: string): string | undefin
     vercel: "/integrations/oauth/authorize",
     clerk: "/oauth/authorize",
     x: "/2/oauth2/authorize",
+    posthog: "/oauth/authorize/",
   };
   return paths[service] ? `${baseUrl}${paths[service]}` : undefined;
 }

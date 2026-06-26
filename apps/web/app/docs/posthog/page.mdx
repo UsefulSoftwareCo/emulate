@@ -1,0 +1,31 @@
+# PostHog
+
+PostHog API emulation focused on OpenAPI OAuth discovery and Client ID Metadata Document OAuth.
+
+## OpenAPI
+
+Use the PostHog-shaped schema endpoint:
+
+```bash
+http://localhost:4016/api/schema/
+```
+
+The schema intentionally declares only PostHog's bearer security scheme. OAuth is discovered from provider metadata, matching the real PostHog flow.
+
+## OAuth Discovery
+
+- `GET /.well-known/oauth-protected-resource` advertises the resource and authorization server.
+- `GET /.well-known/oauth-authorization-server` advertises the authorization and token endpoints.
+- The authorization server metadata includes `client_id_metadata_document_supported: true`.
+- The emulator rejects non-HTTPS `client_id` metadata URLs unless they are loopback HTTP URLs for local testing.
+
+## API
+
+- `GET /api/projects/` — list projects
+- `GET /api/projects/:project_id/events/` — list events
+- `POST /api/projects/:project_id/events/` — create an event
+- `GET /api/users/@me/` — get the authenticated user
+
+## Validation
+
+Use `/_emulate/ledger` to inspect OpenAPI, metadata, OAuth, token, and API calls with sensitive fields redacted.

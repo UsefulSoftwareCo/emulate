@@ -11,38 +11,41 @@ npm install emulate
 ```
 
 ```typescript
-import { createEmulator } from 'emulate'
+import { createEmulator } from "emulate";
 
-const github = await createEmulator({ service: 'github', port: 4001 })
-const vercel = await createEmulator({ service: 'vercel', port: 4002 })
+const github = await createEmulator({ service: "github", port: 4001 });
+const vercel = await createEmulator({ service: "vercel", port: 4002 });
 
-github.url   // 'http://localhost:4001'
-vercel.url   // 'http://localhost:4002'
+github.url; // 'http://localhost:4001'
+vercel.url; // 'http://localhost:4002'
 
-await github.close()
-await vercel.close()
+await github.close();
+await vercel.close();
 ```
 
 ### Vitest / Jest setup
 
 ```typescript
 // vitest.setup.ts
-import { createEmulator, type Emulator } from 'emulate'
+import { createEmulator, type Emulator } from "emulate";
 
-let github: Emulator
-let vercel: Emulator
+let github: Emulator;
+let vercel: Emulator;
 
 beforeAll(async () => {
-  ;[github, vercel] = await Promise.all([
-    createEmulator({ service: 'github', port: 4001 }),
-    createEmulator({ service: 'vercel', port: 4002 }),
-  ])
-  process.env.GITHUB_EMULATOR_URL = github.url
-  process.env.VERCEL_EMULATOR_URL = vercel.url
-})
+  [github, vercel] = await Promise.all([
+    createEmulator({ service: "github", port: 4001 }),
+    createEmulator({ service: "vercel", port: 4002 }),
+  ]);
+  process.env.GITHUB_EMULATOR_URL = github.url;
+  process.env.VERCEL_EMULATOR_URL = vercel.url;
+});
 
-afterEach(() => { github.reset(); vercel.reset() })
-afterAll(() => Promise.all([github.close(), vercel.close()]))
+afterEach(() => {
+  github.reset();
+  vercel.reset();
+});
+afterAll(() => Promise.all([github.close(), vercel.close()]));
 ```
 
 ### createEmulator options
@@ -57,24 +60,46 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
   </thead>
   <tbody>
     <tr>
-      <td><code>service</code></td>
-      <td><em>(required)</em></td>
-      <td>Service name: <code>'vercel'</code>, <code>'github'</code>, <code>'google'</code>, <code>'slack'</code>, <code>'apple'</code>, <code>'microsoft'</code>, <code>'aws'</code>, <code>'okta'</code>, <code>'mongoatlas'</code>, <code>'resend'</code>, or <code>'stripe'</code></td>
+      <td>
+        <code>service</code>
+      </td>
+      <td>
+        <em>(required)</em>
+      </td>
+      <td>
+        Service name: <code>'vercel'</code>, <code>'github'</code>, <code>'google'</code>, <code>'slack'</code>,{" "}
+        <code>'apple'</code>, <code>'microsoft'</code>, <code>'aws'</code>, <code>'okta'</code>,{" "}
+        <code>'mongoatlas'</code>, <code>'resend'</code>, or <code>'stripe'</code>
+      </td>
     </tr>
     <tr>
-      <td><code>port</code></td>
-      <td><code>4000</code></td>
+      <td>
+        <code>port</code>
+      </td>
+      <td>
+        <code>4000</code>
+      </td>
       <td>Port for the HTTP server</td>
     </tr>
     <tr>
-      <td><code>seed</code></td>
+      <td>
+        <code>seed</code>
+      </td>
       <td>none</td>
       <td>Inline seed data (same shape as YAML config)</td>
     </tr>
     <tr>
-      <td><code>baseUrl</code></td>
+      <td>
+        <code>baseUrl</code>
+      </td>
       <td>none</td>
-      <td>Override the advertised base URL (used in OAuth redirects, webhook URLs, etc.). Per-service <code>baseUrl</code> in seed config takes highest priority, then this option, then the <code>EMULATE_BASE_URL</code> env var (supports <code>{'{service}'}</code> template), then <code>PORTLESS_URL</code> (supports <code>{'{service}'}</code>, automatically set by the <code>portless</code> CLI wrapper), then <code>{`http://localhost:<port>`}</code>.</td>
+      <td>
+        Override the advertised base URL (used in OAuth redirects, webhook URLs, etc.). Per-service <code>baseUrl</code>{" "}
+        in seed config takes highest priority, then this option, then the <code>EMULATE_BASE_URL</code> env var
+        (supports <code>{"{service}"}</code> template), then <code>PORTLESS_URL</code> (supports{" "}
+        <code>{"{service}"}</code>, automatically set by the <code>portless</code> CLI wrapper), then{" "}
+        <code>{`http://localhost:<port>`}</code>.
+      </td>
     </tr>
   </tbody>
 </table>
@@ -90,15 +115,21 @@ afterAll(() => Promise.all([github.close(), vercel.close()]))
   </thead>
   <tbody>
     <tr>
-      <td><code>url</code></td>
+      <td>
+        <code>url</code>
+      </td>
       <td>Base URL of the running server</td>
     </tr>
     <tr>
-      <td><code>reset()</code></td>
+      <td>
+        <code>reset()</code>
+      </td>
       <td>Wipe the store and replay seed data</td>
     </tr>
     <tr>
-      <td><code>close()</code></td>
+      <td>
+        <code>close()</code>
+      </td>
       <td>Shut down the HTTP server, returns a Promise</td>
     </tr>
   </tbody>
@@ -122,19 +153,90 @@ npm install @emulators/github @emulators/google @emulators/stripe
     </tr>
   </thead>
   <tbody>
-    <tr><td><code>@emulators/vercel</code></td><td>Vercel API</td></tr>
-    <tr><td><code>@emulators/github</code></td><td>GitHub API</td></tr>
-    <tr><td><code>@emulators/google</code></td><td>Google OAuth, Gmail, Calendar, Drive</td></tr>
-    <tr><td><code>@emulators/slack</code></td><td>Slack Web API, OAuth v2, webhooks</td></tr>
-    <tr><td><code>@emulators/apple</code></td><td>Apple Sign In / OIDC</td></tr>
-    <tr><td><code>@emulators/microsoft</code></td><td>Microsoft Entra ID, Graph API</td></tr>
-    <tr><td><code>@emulators/aws</code></td><td>AWS S3, SQS, IAM, STS</td></tr>
-    <tr><td><code>@emulators/okta</code></td><td>Okta identity provider / OIDC</td></tr>
-    <tr><td><code>@emulators/mongoatlas</code></td><td>MongoDB Atlas Admin API + Data API</td></tr>
-    <tr><td><code>@emulators/resend</code></td><td>Resend email API</td></tr>
-    <tr><td><code>@emulators/stripe</code></td><td>Stripe billing and payments API</td></tr>
-    <tr><td><code>@emulators/core</code></td><td>Shared store, middleware, and utilities</td></tr>
-    <tr><td><code>@emulators/adapter-next</code></td><td>Next.js App Router integration</td></tr>
+    <tr>
+      <td>
+        <code>@emulators/vercel</code>
+      </td>
+      <td>Vercel API</td>
+    </tr>
+    <tr>
+      <td>
+        <code>@emulators/github</code>
+      </td>
+      <td>GitHub API</td>
+    </tr>
+    <tr>
+      <td>
+        <code>@emulators/google</code>
+      </td>
+      <td>Google OAuth, Gmail, Calendar, Drive</td>
+    </tr>
+    <tr>
+      <td>
+        <code>@emulators/slack</code>
+      </td>
+      <td>Slack Web API, OAuth v2, webhooks</td>
+    </tr>
+    <tr>
+      <td>
+        <code>@emulators/apple</code>
+      </td>
+      <td>Apple Sign In / OIDC</td>
+    </tr>
+    <tr>
+      <td>
+        <code>@emulators/microsoft</code>
+      </td>
+      <td>Microsoft Entra ID, Graph API</td>
+    </tr>
+    <tr>
+      <td>
+        <code>@emulators/aws</code>
+      </td>
+      <td>AWS S3, SQS, IAM, STS</td>
+    </tr>
+    <tr>
+      <td>
+        <code>@emulators/okta</code>
+      </td>
+      <td>Okta identity provider / OIDC</td>
+    </tr>
+    <tr>
+      <td>
+        <code>@emulators/mongoatlas</code>
+      </td>
+      <td>MongoDB Atlas Admin API + Data API</td>
+    </tr>
+    <tr>
+      <td>
+        <code>@emulators/resend</code>
+      </td>
+      <td>Resend email API</td>
+    </tr>
+    <tr>
+      <td>
+        <code>@emulators/stripe</code>
+      </td>
+      <td>Stripe billing and payments API</td>
+    </tr>
+    <tr>
+      <td>
+        <code>@emulators/posthog</code>
+      </td>
+      <td>PostHog API, OpenAPI OAuth discovery, CIMD OAuth</td>
+    </tr>
+    <tr>
+      <td>
+        <code>@emulators/core</code>
+      </td>
+      <td>Shared store, middleware, and utilities</td>
+    </tr>
+    <tr>
+      <td>
+        <code>@emulators/adapter-next</code>
+      </td>
+      <td>Next.js App Router integration</td>
+    </tr>
   </tbody>
 </table>
 
@@ -143,8 +245,8 @@ npm install @emulators/github @emulators/google @emulators/stripe
 Each scoped package exports its service plugin and seed helpers:
 
 ```typescript
-import * as github from '@emulators/github'
-import * as stripe from '@emulators/stripe'
+import * as github from "@emulators/github";
+import * as stripe from "@emulators/stripe";
 ```
 
 These are the same modules used internally by the CLI and the [Next.js adapter](/docs/nextjs). See the Next.js Integration page for a full example of using scoped packages with `createEmulateHandler`.

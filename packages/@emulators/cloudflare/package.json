@@ -45,6 +45,7 @@
     "@emulators/stripe": "workspace:*",
     "@emulators/mongoatlas": "workspace:*",
     "@emulators/clerk": "workspace:*",
+    "@emulators/posthog": "workspace:*",
     "@emulators/x": "workspace:*",
     "@emulators/workos": "workspace:*",
     "@emulators/autumn": "workspace:*"

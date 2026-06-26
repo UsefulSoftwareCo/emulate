@@ -16,6 +16,7 @@ export const PAGE_TITLES: Record<string, string> = {
   stripe: "Stripe",
   clerk: "Clerk",
   spotify: "Spotify",
+  posthog: "PostHog",
   authentication: "Authentication",
   manifest: "Service Manifest",
   ledger: "Request Ledger",

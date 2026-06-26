@@ -54,6 +54,7 @@ const SERVICE_NAME_LIST = [
   "x",
   "workos",
   "autumn",
+  "posthog",
   "mcp",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
@@ -192,6 +193,19 @@ function credentialSeed(
   if (service === "spotify") {
     return { clients: [{ client_id: clientId, client_secret: clientSecret, name }] };
   }
+  if (service === "posthog") {
+    return {
+      oauth_clients: [
+        {
+          client_id: clientId,
+          client_secret: clientSecret,
+          client_name: name,
+          redirect_uris: redirectUris,
+          token_endpoint_auth_method: "client_secret_post",
+        },
+      ],
+    };
+  }
   if (service === "clerk") {
     return {
       oauth_applications: [{ client_id: clientId, client_secret: clientSecret, name, redirect_uris: redirectUris }],
@@ -225,6 +239,7 @@ function tokenUrlFor(service: ServiceName, baseUrl: string): string | undefined 
     spotify: "/api/token",
     clerk: "/oauth/token",
     x: "/2/oauth2/token",
+    posthog: "/oauth/token/",
   };
   const path = paths[service];
   return path ? `${baseUrl}${path}` : undefined;
@@ -241,6 +256,7 @@ function authorizationUrlFor(service: ServiceName, baseUrl: string): string | un
     vercel: "/integrations/oauth/authorize",
     clerk: "/oauth/authorize",
     x: "/2/oauth2/authorize",
+    posthog: "/oauth/authorize/",
   };
   const path = paths[service];
   return path ? `${baseUrl}${path}` : undefined;
@@ -410,6 +426,35 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
           },
         ],
         scopes: ["repo", "read:user"],
+      },
+    },
+  },
+
+  posthog: {
+    label: "PostHog API emulator",
+    endpoints:
+      "OpenAPI schema, OAuth protected-resource metadata, authorization-server metadata, Client ID Metadata Document OAuth, projects, users, events",
+    async load() {
+      const mod = await import("@emulators/posthog");
+      return {
+        plugin: mod.posthogPlugin,
+        manifest: mod.manifest,
+        seedFromConfig: mod.seedFromConfig,
+        ensureUser(store: Store, baseUrl: string, login: string): number {
+          mod.seedFromConfig(store, baseUrl, { users: [{ email: login, name: login }] });
+          return mod.getPostHogStore(store).users.findOneBy("email", login)?.id ?? 1;
+        },
+      };
+    },
+    defaultFallback(cfg) {
+      const firstEmail = (cfg?.users as Array<{ email?: string }> | undefined)?.[0]?.email ?? "admin@example.com";
+      return { login: firstEmail, id: 1, scopes: ["project:read", "event:read", "user:read"] };
+    },
+    initConfig: {
+      posthog: {
+        users: [{ email: "admin@example.com", name: "Admin User" }],
+        projects: [{ id: 1, name: "Demo Project" }],
+        events: [{ project_id: 1, event: "$pageview", distinct_id: "user_1", properties: { path: "/" } }],
       },
     },
   },

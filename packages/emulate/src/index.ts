@@ -56,7 +56,7 @@ Global catalog:
 Hosted services:
   Available services include vercel, github, google, slack, apple, microsoft,
   okta, aws, resend, stripe, mongoatlas, clerk, spotify, x, workos, autumn,
-  and mcp.
+  posthog, and mcp.
   Service host:    <service>.emulators.dev (useful without an instance; serves
                    a service-level /_emulate control plane)
   Instance host:   <service>.<instance>.emulators.dev

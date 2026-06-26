@@ -73,6 +73,7 @@
     "@emulators/resend": "workspace:*",
     "@emulators/stripe": "workspace:*",
     "@emulators/clerk": "workspace:*",
+    "@emulators/posthog": "workspace:*",
     "@emulators/spotify": "workspace:*",
     "@emulators/x": "workspace:*",
     "tsup": "^8",
