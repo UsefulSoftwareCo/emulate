@@ -1,5 +1,5 @@
 {
-  "name": "emulate",
+  "name": "@executor-js/emulate",
   "version": "0.8.1",
   "description": "Local drop-in replacement services for CI and no-network sandboxes",
   "license": "Apache-2.0",

@@ -33,8 +33,8 @@ jobs:
           LOCAL_VERSION=$(node -p "require('./packages/emulate/package.json').version")
           SHOULD_RELEASE=false
 
-          REGISTRY_VERSION=$(npm view emulate version 2>/dev/null || echo "0.0.0")
-          echo "emulate — local: $LOCAL_VERSION, registry: $REGISTRY_VERSION"
+          REGISTRY_VERSION=$(npm view @executor-js/emulate version 2>/dev/null || echo "0.0.0")
+          echo "@executor-js/emulate — local: $LOCAL_VERSION, registry: $REGISTRY_VERSION"
           if [ "$LOCAL_VERSION" != "$REGISTRY_VERSION" ]; then
             SHOULD_RELEASE=true
           fi
@@ -99,7 +99,7 @@ jobs:
             fi
           }
 
-          publish_pkg packages/emulate emulate
+          publish_pkg packages/emulate @executor-js/emulate
 
           for pkg in $EMULATOR_PACKAGES; do
             publish_pkg "packages/@emulators/$pkg" "@emulators/$pkg"
