@@ -11,6 +11,7 @@
 ### Bug Fixes
 
 - **WorkOS invitation memberships** — sending an organization invitation now also creates a pending organization membership (and the invited user when one does not exist yet), matching real WorkOS. `listOrganizationMemberships` with status `pending` returns invited but not yet joined people, so consumers can list invited members and count seats accurately. Accepting the invitation activates that membership instead of leaving a duplicate.
+- **Publishable `emulate` package** — the published package no longer declares the bundled `@emulators/workos` and `@emulators/autumn` workspace packages as runtime dependencies (they are bundled, so it now lists them as dev dependencies like the other emulators), and it now declares the third-party SDKs the bundle resolves at runtime (`@aws-sdk/*`, `googleapis`, `@octokit/rest`, `@workos-inc/node`, `stripe`, and others). A clean `npm install` of the tarball now resolves and boots every service emulator.
 <!-- release:end -->
 
 ## 0.7.5

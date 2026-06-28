@@ -52,10 +52,27 @@
     "lint": "eslint src"
   },
   "dependencies": {
-    "@emulators/autumn": "workspace:*",
-    "@emulators/workos": "workspace:*",
+    "@aws-sdk/client-s3": "^3.1031.0",
+    "@aws-sdk/client-sqs": "^3.1075.0",
+    "@azure/msal-node": "^5.3.0",
+    "@clerk/backend": "^3.8.4",
+    "@octokit/rest": "^22.0.1",
+    "@okta/okta-auth-js": "^8.0.1",
+    "@slack/web-api": "^7.16.0",
+    "@vercel/sdk": "^1.28.4",
+    "@workos-inc/node": "^8.13.0",
+    "atlas-api-client": "^0.3.0",
+    "autumn-js": "^1.2.8",
     "commander": "^14",
+    "googleapis": "^173.0.0",
+    "graphql": "^16.9.0",
+    "graphql-request": "^7.4.0",
+    "openid-client": "^6.8.4",
     "picocolors": "^1.1.1",
+    "resend": "^6.16.0",
+    "spotify-web-api-node": "^5.0.2",
+    "stripe": "^22.3.0",
+    "twitter-api-v2": "^1.29.0",
     "yaml": "^2"
   },
   "devDependencies": {
@@ -78,6 +95,8 @@
     "@emulators/spotify": "workspace:*",
     "@emulators/x": "workspace:*",
     "tsup": "^8",
-    "typescript": "^5.7"
+    "typescript": "^5.7",
+    "@emulators/autumn": "workspace:*",
+    "@emulators/workos": "workspace:*"
   }
 }
