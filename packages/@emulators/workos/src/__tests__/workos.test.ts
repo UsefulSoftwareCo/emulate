@@ -126,6 +126,32 @@ describe("workos emulator with the real @workos-inc/node SDK", () => {
     }
   });
 
+  it("creates a pending organization membership when an invitation is sent", async () => {
+    const org = await workos.organizations.createOrganization({ name: "Invite Org" });
+    const invitation = await workos.userManagement.sendInvitation({
+      email: "invitee@example.com",
+      organizationId: org.id,
+    });
+    expect(invitation.state).toBe("pending");
+
+    // Real WorkOS surfaces the invited user as a PENDING organization
+    // membership, so consumers can list invited members and count seats.
+    const memberships = await workos.userManagement.listOrganizationMemberships({
+      organizationId: org.id,
+      statuses: ["pending"] as never,
+    });
+    expect(memberships.data).toHaveLength(1);
+    expect(memberships.data[0]!.status).toBe("pending");
+    const invitedUser = await workos.userManagement.getUser(memberships.data[0]!.userId);
+    expect(invitedUser.email).toBe("invitee@example.com");
+
+    // The invitation itself is also listed, pending.
+    const invitations = await workos.userManagement.listInvitations({
+      organizationId: org.id,
+    });
+    expect(invitations.data.map((i) => i.email)).toContain("invitee@example.com");
+  });
+
   it("round-trips vault objects through workos.vault", async () => {
     const metadata = await workos.vault.createObject({
       name: "executor/secrets/test",

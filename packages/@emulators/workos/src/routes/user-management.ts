@@ -308,16 +308,35 @@ export function userManagementRoutes(ctx: RouteContext): void {
     if (!ws().organizations.findOneBy("workos_id", organizationId)) {
       return workosError(c, 404, "entity_not_found", "Organization not found.");
     }
+    const roleSlug = typeof body.role_slug === "string" ? body.role_slug : null;
     const invitation = ws().invitations.insert({
       workos_id: workosId("invitation"),
       email,
       organization_id: organizationId,
       inviter_user_id: typeof body.inviter_user_id === "string" ? body.inviter_user_id : null,
-      role_slug: typeof body.role_slug === "string" ? body.role_slug : null,
+      role_slug: roleSlug,
       state: "pending",
       token: randomToken("invite"),
       expires_at: new Date(Date.now() + 7 * 24 * 3600 * 1000).toISOString(),
     });
+    // Real WorkOS also creates a PENDING organization membership for the invited
+    // user (creating the user record when one does not exist yet), so
+    // listOrganizationMemberships with status "pending" returns invited but not
+    // yet joined people. Mirror that here so consumers can list invited members
+    // and count seats accurately.
+    const invitedUser = ensureUserByEmail(ws(), email);
+    const existingMembership = ws()
+      .memberships.findBy("user_id", invitedUser.workos_id)
+      .find((m) => m.organization_id === organizationId);
+    if (!existingMembership) {
+      ws().memberships.insert({
+        workos_id: workosId("om"),
+        user_id: invitedUser.workos_id,
+        organization_id: organizationId,
+        status: "pending",
+        role_slug: roleSlug ?? "member",
+      });
+    }
     return c.json(serializeInvitation(invitation), 201);
   });
 
@@ -333,7 +352,12 @@ export function userManagementRoutes(ctx: RouteContext): void {
       const already = ws()
         .memberships.findBy("user_id", user.workos_id)
         .find((m) => m.organization_id === invitation.organization_id);
-      if (!already) {
+      if (already) {
+        // The invite created a pending membership; accepting activates it.
+        if (already.status !== "active") {
+          ws().memberships.update(already.id, { status: "active" });
+        }
+      } else {
         ws().memberships.insert({
           workos_id: workosId("om"),
           user_id: user.workos_id,

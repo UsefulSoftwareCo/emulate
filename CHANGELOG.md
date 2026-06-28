@@ -7,6 +7,10 @@
 ### New Features
 
 - **GitLab GraphQL emulator** — a new `gitlab` emulator serves GitLab's full GraphQL schema with real graphql-js introspection and validation. It loads the complete published SDL (4000+ types) so generated GraphQL clients see the same surface they would in production, and rejects malformed operations with verbatim graphql-js validation errors. The hosted `gitlab.emulators.dev` host and `createEmulator({ service: "gitlab" })` both expose the schema at `/api/graphql`, with metadata and echo queries resolving and an honest unauthenticated `currentUser`.
+
+### Bug Fixes
+
+- **WorkOS invitation memberships** — sending an organization invitation now also creates a pending organization membership (and the invited user when one does not exist yet), matching real WorkOS. `listOrganizationMemberships` with status `pending` returns invited but not yet joined people, so consumers can list invited members and count seats accurately. Accepting the invitation activates that membership instead of leaving a duplicate.
 <!-- release:end -->
 
 ## 0.7.5
