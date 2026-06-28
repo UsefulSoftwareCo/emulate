@@ -14,6 +14,19 @@ function serviceCatalogEntries() {
   }));
 }
 
+// The catalog is a static registry, so inline it into the served SPA HTML: the
+// console renders the grid on first paint, with no client fetch and no loading
+// state. JSON `<` is escaped so a description can never break out of the script.
+async function serveCatalogConsole(ctx: { origin: string; protocol: string; hostSuffix: string }): Promise<Response> {
+  const json = (await servicesCatalog(serviceCatalogEntries(), ctx).text()).replace(/</g, "\\u003c");
+  return html(
+    consoleHtml.replace(
+      '<div id="root"></div>',
+      `<script>window.__EMULATE_SERVICES__=${json}</script><div id="root"></div>`,
+    ),
+  );
+}
+
 interface EmulatorNamespace {
   idFromName(name: string): unknown;
   get(id: unknown): { fetch(request: Request): Promise<Response> };
@@ -183,7 +196,8 @@ export default {
     // Apex root or bare `/<service>` → the catalog. Browser → SPA; agent → a
     // server-rendered list of emulators (readable without running JS).
     if (!service || !instance) {
-      if (isBrowserNavigation(request)) return html(consoleHtml);
+      if (isBrowserNavigation(request))
+        return serveCatalogConsole({ origin: apexOrigin, protocol: url.protocol, hostSuffix: suffix });
       if (wantsJson(request)) {
         return servicesCatalog(serviceCatalogEntries(), {
           origin: apexOrigin,

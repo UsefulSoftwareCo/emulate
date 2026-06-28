@@ -42,7 +42,7 @@ export default function App() {
         <div className="shell">
           <div className="row">
             <Link to="/" className="brand">
-              <span className="dot" /> Emulate
+              emulate
             </Link>
             <nav className="nav">{route.service && <a href="https://emulators.dev">All emulators</a>}</nav>
           </div>

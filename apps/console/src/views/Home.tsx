@@ -1,22 +1,26 @@
 import { useEffect, useState } from "react";
-import { fetchServices, serviceHost } from "../api";
+import { fetchServices, injectedServices, serviceHost } from "../api";
 import type { CatalogEntry } from "../types";
 import { ServiceIcon } from "../App";
 
 export default function Home() {
-  const [services, setServices] = useState<CatalogEntry[] | null>(null);
+  // The worker inlines the static catalog, so it's present on first paint (no
+  // loading state). Fall back to fetching only when it wasn't injected (dev).
+  const [services, setServices] = useState<CatalogEntry[] | null>(() => injectedServices());
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (services) return;
     fetchServices()
       .then((r) => setServices(r.services))
       .catch((e) => setError(String(e)));
-  }, []);
+  }, [services]);
 
   return (
     <>
       <div className="hero">
         <div>
+          <p className="eyebrow">Service catalog</p>
           <h1>Emulate</h1>
           <p className="lead">
             Stateful integration emulators for real developer APIs. Pick a service, create an isolated instance, copy a
@@ -36,7 +40,10 @@ export default function Home() {
       </p>
 
       {error && <div className="empty">Could not load the service catalog ({error}).</div>}
-      {!services && !error && <div className="empty">Loading services...</div>}
+
+      {services && services.length > 0 && (
+        <p className="eyebrow">All emulators · {services.length}</p>
+      )}
 
       <div className="service-grid">
         {(services ?? []).map((s) => (

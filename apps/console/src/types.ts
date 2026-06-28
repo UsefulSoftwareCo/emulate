@@ -108,6 +108,13 @@ export interface CatalogEntry {
   manifest: string;
 }
 
+declare global {
+  interface Window {
+    // Catalog inlined into the served HTML by the worker (static registry).
+    __EMULATE_SERVICES__?: { services: CatalogEntry[] };
+  }
+}
+
 export interface LedgerEntry {
   id: string;
   correlationId: string;

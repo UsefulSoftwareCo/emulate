@@ -91,7 +91,17 @@ async function getJson<T>(url: string): Promise<T> {
 
 // Control-plane fetchers -------------------------------------------------------
 
-export const fetchServices = (): Promise<{ services: CatalogEntry[] }> => getJson(`${ORIGIN}/_emulate/services`);
+// The catalog is a static registry the worker inlines into the served HTML
+// (window.__EMULATE_SERVICES__), so the console has it on first paint with no
+// fetch. Read it synchronously; only fall back to the endpoint in dev.
+export const injectedServices = (): CatalogEntry[] | null =>
+  (typeof window !== "undefined" && window.__EMULATE_SERVICES__?.services) || null;
+
+export const fetchServices = (): Promise<{ services: CatalogEntry[] }> => {
+  const inlined = injectedServices();
+  if (inlined) return Promise.resolve({ services: inlined });
+  return getJson(`${ORIGIN}/_emulate/services`);
+};
 
 export const fetchManifest = (service: string, instance: string): Promise<ManifestResponse> =>
   getJson(`${controlBase(service, instance)}/manifest`);
