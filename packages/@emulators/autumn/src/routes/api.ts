@@ -1,75 +1,45 @@
 import type { RouteContext } from "@emulators/core";
 
-import { getAutumnStore, type AutumnStore } from "../store.js";
-import type { AutumnCustomer } from "../entities.js";
-
-function serializeCustomer(customer: AutumnCustomer): Record<string, unknown> {
-  return {
-    id: customer.customer_id,
-    created_at: Date.parse(customer.created_at),
-    name: customer.name,
-    email: customer.email,
-    fingerprint: null,
-    stripe_id: `cus_emulate_${customer.id}`,
-    env: "sandbox",
-    metadata: {},
-    subscriptions: customer.subscriptions,
-    products: [],
-    features: {},
-    invoices: [],
-    purchases: [],
-    balances: {},
-    flags: {},
-    billing_controls: {},
-  };
-}
-
-function ensureCustomer(as: AutumnStore, id: string, data: { name?: unknown; email?: unknown }): AutumnCustomer {
-  const existing = as.customers.findOneBy("customer_id", id);
-  if (existing) return existing;
-  return as.customers.insert({
-    customer_id: id,
-    name: typeof data.name === "string" ? data.name : null,
-    email: typeof data.email === "string" ? data.email : null,
-    subscriptions: [],
-  });
-}
+import { getAutumnStore } from "../store.js";
+import { ensureCustomer, serializeCustomer, serializePlan, activateSubscription } from "../serialize.js";
 
 /** Autumn v1 RPC-style API (paths mirror autumn-js: /v1/<group>.<method>). */
 export function autumnApiRoutes(ctx: RouteContext): void {
-  const { app, store } = ctx;
+  const { app, store, baseUrl } = ctx;
   const as = () => getAutumnStore(store);
 
   app.post("/v1/customers.get_or_create", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-    const id = String(body.customer_id ?? body.id ?? "");
+    const id = String(body.customer_id ?? body.customerId ?? body.id ?? "");
     if (!id) return c.json({ message: "customer_id is required", code: "invalid_request" }, 400);
     const data = (body.customer_data as Record<string, unknown> | undefined) ?? body;
     const customer = ensureCustomer(as(), id, data);
-    return c.json(serializeCustomer(customer));
+    return c.json(serializeCustomer(as(), customer));
   });
 
   app.post("/v1/customers.list", async (c) => {
-    const customers = as().customers.all().map(serializeCustomer);
+    const store = as();
+    const customers = store.customers.all().map((customer) => serializeCustomer(store, customer));
     return c.json({ list: customers, total: customers.length, offset: 0, limit: 100 });
   });
 
   app.post("/v1/customers.update", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-    const id = String(body.customer_id ?? body.id ?? "");
-    const customer = as().customers.findOneBy("customer_id", id);
+    const id = String(body.customer_id ?? body.customerId ?? body.id ?? "");
+    const store = as();
+    const customer = store.customers.findOneBy("customer_id", id);
     if (!customer) return c.json({ message: "Customer not found", code: "not_found" }, 404);
-    const updated = as().customers.update(customer.id, {
+    const updated = store.customers.update(customer.id, {
       name: typeof body.name === "string" ? body.name : customer.name,
       email: typeof body.email === "string" ? body.email : customer.email,
     })!;
-    return c.json(serializeCustomer(updated));
+    return c.json(serializeCustomer(store, updated));
   });
 
   app.post("/v1/balances.track", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
-    const customerId = String(body.customer_id ?? "");
-    const featureId = String(body.feature_id ?? body.event_name ?? "");
+    const customerId = String(body.customer_id ?? body.customerId ?? "");
+    const featureId = String(body.feature_id ?? body.featureId ?? body.event_name ?? "");
     if (!customerId || !featureId) {
       return c.json({ message: "customer_id and feature_id are required", code: "invalid_request" }, 400);
     }
@@ -87,8 +57,70 @@ export function autumnApiRoutes(ctx: RouteContext): void {
     });
   });
 
-  app.post("/v1/plans.list", async (c) => c.json({ list: [], total: 0, offset: 0, limit: 100 }));
+  // The plan catalog, scoped to the calling customer. The backend handler
+  // injects `customer_id` into every request, so eligibility is per-customer:
+  // a card-required trial reads as "Start free trial" until it is attached.
+  app.post("/v1/plans.list", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const customerId = String(body.customer_id ?? body.customerId ?? "");
+    const store = as();
+    const customer = customerId ? ensureCustomer(store, customerId, body) : undefined;
+    const list = store.plans
+      .all()
+      .sort((a, b) => a.order - b.order)
+      .map((plan) => serializePlan(store, customer, plan));
+    return c.json({ list });
+  });
+
+  // Open a checkout for a paid plan or a card-required trial. Returns a
+  // `payment_url` to the hosted checkout page; the subscription is NOT active
+  // yet (it activates only when the checkout settles, like a Stripe webhook).
+  app.post("/v1/billing.attach", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const customerId = String(body.customer_id ?? body.customerId ?? "");
+    const planId = String(body.plan_id ?? body.product_id ?? body.planId ?? body.productId ?? "");
+    const successUrl = String(body.success_url ?? body.successUrl ?? "");
+    if (!customerId || !planId) {
+      return c.json({ message: "customer_id and plan_id are required", code: "invalid_request" }, 400);
+    }
+    const store = as();
+    const customer = ensureCustomer(store, customerId, body);
+    const plan = store.plans.findOneBy("plan_id", planId);
+    const requiresPayment = plan ? plan.price != null || plan.free_trial?.card_required === true : true;
+
+    if (requiresPayment) {
+      const session = store.checkouts.insert({
+        session_id: "",
+        customer_id: customerId,
+        plan_id: planId,
+        success_url: successUrl,
+        status: "pending",
+      });
+      const sessionId = `cs_emulate_${session.id}`;
+      store.checkouts.update(session.id, { session_id: sessionId });
+      return c.json({
+        customer_id: customerId,
+        payment_url: `${baseUrl}/checkout/${sessionId}`,
+        invoice: null,
+        required_action: null,
+      });
+    }
+
+    // Free or no-card plan: attach takes effect immediately, no redirect.
+    if (plan) activateSubscription(store, customer, plan, { trial: false });
+    return c.json({ customer_id: customerId, payment_url: null, invoice: null, required_action: null });
+  });
+
+  app.post("/v1/billing.open_customer_portal", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const customerId = String(body.customer_id ?? body.customerId ?? "");
+    if (!customerId) return c.json({ message: "customer_id is required", code: "invalid_request" }, 400);
+    ensureCustomer(as(), customerId, body);
+    return c.json({ customer_id: customerId, url: `${baseUrl}/checkout/portal/${customerId}` });
+  });
+
   app.post("/v1/features.list", async (c) => c.json({ list: [], total: 0, offset: 0, limit: 100 }));
+
   app.post("/v1/events.list", async (c) => {
     const events = as()
       .events.all()
