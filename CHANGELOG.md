@@ -1,8 +1,16 @@
 # Changelog
 
-## 0.8.1
+## 0.9.0
 
 <!-- release:start -->
+
+### New Features
+
+- **Autumn checkout and free-trial flow** — the Autumn emulator now backs a real billing UI end to end. `plans.list` returns a seedable plan catalog with per-customer eligibility (`attach_action`, `status`, `trialing`, `trial_available`), `billing.attach` and `billing.open_customer_portal` are supported, and a paid plan or a card-required free trial routes attach through a hosted checkout page. Completing checkout redirects to the app's `success_url` without activating the subscription; activation lands when the checkout settles (`POST /checkout/settle`), mirroring Stripe's `checkout.session.completed` webhook arriving after the redirect. `customers.get_or_create` now returns SDK-shaped subscriptions and per-feature balances. This makes the "billing page stays stale until a reload after checkout" race reproducible in tests.
+
+<!-- release:end -->
+
+## 0.8.1
 
 ### New Features
 
@@ -12,7 +20,6 @@
 
 - **WorkOS invitation memberships** — sending an organization invitation now also creates a pending organization membership (and the invited user when one does not exist yet), matching real WorkOS. `listOrganizationMemberships` with status `pending` returns invited but not yet joined people, so consumers can list invited members and count seats accurately. Accepting the invitation activates that membership instead of leaving a duplicate.
 - **Publishable `emulate` package** — the published package no longer declares the bundled `@emulators/workos` and `@emulators/autumn` workspace packages as runtime dependencies (they are bundled, so it now lists them as dev dependencies like the other emulators), and it now declares the third-party SDKs the bundle resolves at runtime (`@aws-sdk/*`, `googleapis`, `@octokit/rest`, `@workos-inc/node`, `stripe`, and others). A clean `npm install` of the tarball now resolves and boots every service emulator.
-<!-- release:end -->
 
 ## 0.7.5
 
