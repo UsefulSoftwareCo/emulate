@@ -20,11 +20,7 @@ function freeTrialMs(ft: { duration_length: number; duration_type: string }): nu
   }
 }
 
-export function ensureCustomer(
-  as: AutumnStore,
-  id: string,
-  data: { name?: unknown; email?: unknown },
-): AutumnCustomer {
+export function ensureCustomer(as: AutumnStore, id: string, data: { name?: unknown; email?: unknown }): AutumnCustomer {
   const existing = as.customers.findOneBy("customer_id", id);
   if (existing) return existing;
   return as.customers.insert({
@@ -182,8 +178,7 @@ function eligibilityFor(as: AutumnStore, customer: AutumnCustomer, plan: AutumnP
 
   const paidPlan = paidSub ? as.plans.findOneBy("plan_id", paidSub.plan_id) : undefined;
   const trialUsed = (customer.trials_used ?? []).includes(plan.plan_id);
-  const attachAction =
-    paidSub && paidPlan ? (plan.order > paidPlan.order ? "upgrade" : "downgrade") : "upgrade";
+  const attachAction = paidSub && paidPlan ? (plan.order > paidPlan.order ? "upgrade" : "downgrade") : "upgrade";
   return {
     canceling: false,
     trialing: false,
