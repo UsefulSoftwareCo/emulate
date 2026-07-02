@@ -74,6 +74,24 @@ function usageFor(as: AutumnStore, customerId: string, featureId: string): numbe
     .reduce((sum, e) => sum + (e.value ?? 0), 0);
 }
 
+/** The emulator has no first-class feature registry (plan items only carry a
+ *  `feature_id`), so synthesize the minimal, honest `feature` object autumn-js
+ *  requires on every balance/flag entry. autumn-js 1.2.8's `customerToFeatures`
+ *  throws unless `balances.feature` (or `flags.feature`) is present, and the
+ *  SDK's own backend route always requests `expand: ["balances.feature"]` on
+ *  `customers.get_or_create`, so this is included unconditionally rather than
+ *  gated on a request `expand` param. */
+function serializeBalanceFeature(featureId: string): Record<string, unknown> {
+  return {
+    id: featureId,
+    name: featureId,
+    type: "metered",
+    consumable: true,
+    event_names: [featureId],
+    archived: false,
+  };
+}
+
 function serializeSubscription(sub: AutumnSubscription): Record<string, unknown> {
   return {
     id: sub.id ?? `sub_emulate_${sub.plan_id}`,
@@ -102,6 +120,7 @@ function balancesFor(as: AutumnStore, customer: AutumnCustomer): Record<string, 
     const usage = usageFor(as, customer.customer_id, item.feature_id);
     balances[item.feature_id] = {
       feature_id: item.feature_id,
+      feature: serializeBalanceFeature(item.feature_id),
       granted,
       remaining: unlimited ? 0 : Math.max(0, granted - usage),
       usage,
