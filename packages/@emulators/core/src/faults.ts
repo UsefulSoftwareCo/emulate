@@ -87,10 +87,7 @@ export class FaultRegistry {
   }
 }
 
-export function createFaultMiddleware(
-  faults: FaultRegistry,
-  manifest: ServiceManifest,
-): MiddlewareHandler<AppEnv> {
+export function createFaultMiddleware(faults: FaultRegistry, manifest: ServiceManifest): MiddlewareHandler<AppEnv> {
   const operations = manifest.specs.flatMap((spec) => spec.operations ?? []);
 
   return async (c, next) => {
@@ -123,10 +120,9 @@ export function createFaultMiddleware(
   };
 }
 
-export function faultLedgerFields(c: { get: (key: "fault") => FaultLedgerMarker | undefined }): Pick<
-  LedgerEntry,
-  "faulted" | "faultId"
-> {
+export function faultLedgerFields(c: {
+  get: (key: "fault") => FaultLedgerMarker | undefined;
+}): Pick<LedgerEntry, "faulted" | "faultId"> {
   const fault = c.get("fault");
   return fault ? { faulted: true, faultId: fault.faultId } : {};
 }
@@ -148,7 +144,11 @@ function validateFaultInput(input: FaultArmInput): void {
     throw new Error("Fault response.status must be an HTTP status code.");
   }
   if (input.response.headers !== undefined) {
-    if (!input.response.headers || typeof input.response.headers !== "object" || Array.isArray(input.response.headers)) {
+    if (
+      !input.response.headers ||
+      typeof input.response.headers !== "object" ||
+      Array.isArray(input.response.headers)
+    ) {
       throw new Error("Fault response.headers must be an object.");
     }
     for (const [key, value] of Object.entries(input.response.headers)) {
@@ -180,7 +180,11 @@ function matchesFault(fault: ArmedFault, request: FaultRequest): boolean {
   return true;
 }
 
-function resolveOperation(operations: OperationCoverage[], method: string, path: string): OperationCoverage | undefined {
+function resolveOperation(
+  operations: OperationCoverage[],
+  method: string,
+  path: string,
+): OperationCoverage | undefined {
   return operations.find((operation) => {
     if (!operation.method || !operation.path) return false;
     if (operation.method.toUpperCase() !== method.toUpperCase()) return false;
