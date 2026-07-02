@@ -41,9 +41,7 @@ export default function Home() {
 
       {error && <div className="empty">Could not load the service catalog ({error}).</div>}
 
-      {services && services.length > 0 && (
-        <p className="eyebrow">All emulators · {services.length}</p>
-      )}
+      {services && services.length > 0 && <p className="eyebrow">All emulators · {services.length}</p>}
 
       <div className="service-grid">
         {(services ?? []).map((s) => (
