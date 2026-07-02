@@ -370,6 +370,9 @@ describe("workos emulator with the real @workos-inc/node SDK", () => {
       oauth: { default_access_token_ttl_seconds: 5 },
     });
     const server = serve({ fetch: app.fetch, port: PORT + 1 });
+    // serve() returns before the socket is listening; without this wait the
+    // first fetch races the listen and fails with ECONNREFUSED on slow runners.
+    await new Promise<void>((resolve) => server.once("listening", resolve));
     try {
       const base = `http://localhost:${PORT + 1}`;
       const registered = (await (
