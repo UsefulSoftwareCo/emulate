@@ -7,6 +7,7 @@ import type { ConnectionVars, EmulatorInstanceInfo, ResolvedConnection, ServiceM
 import { coverageReport, enrichManifest, resolveConnections } from "./manifest.js";
 import type { TokenMap } from "./middleware/auth.js";
 import { escapeHtml, renderCardPage } from "./ui.js";
+import type { FaultArmInput, FaultRegistry } from "./faults.js";
 
 export interface CredentialRequest {
   type?: string;
@@ -39,6 +40,7 @@ export interface ControlPlaneOptions {
   store: Store;
   webhooks: WebhookDispatcher;
   ledger: RequestLedger;
+  faults: FaultRegistry;
   tokenMap?: TokenMap;
   /** True when the host persists the ledger across eviction (e.g. a Durable Object). */
   ledgerPersistent?: boolean;
@@ -97,7 +99,7 @@ function connectionVars(
 }
 
 export function registerControlPlane(app: Hono<AppEnv>, options: ControlPlaneOptions): void {
-  const { instance, store, webhooks, ledger } = options;
+  const { instance, store, webhooks, ledger, faults } = options;
   const manifest = enrichManifest(options.manifest, { ledgerPersistent: options.ledgerPersistent });
   const hostSuffix = options.hostSuffix ?? "emulators.dev";
 
@@ -137,6 +139,24 @@ export function registerControlPlane(app: Hono<AppEnv>, options: ControlPlaneOpt
     ledger.clear();
     return c.json({ ok: true });
   });
+  app.get("/_emulate/faults", (c) => c.json({ faults: faults.list() }));
+  app.post("/_emulate/faults", async (c) => {
+    const body = (await c.req.json().catch(() => undefined)) as FaultArmInput | undefined;
+    try {
+      const fault = faults.arm(body as FaultArmInput);
+      return c.json({ fault });
+    } catch (err) {
+      return c.json({ error: "invalid_fault", message: err instanceof Error ? err.message : "Invalid fault." }, 400);
+    }
+  });
+  app.delete("/_emulate/faults", (c) => {
+    faults.clear();
+    return c.json({ ok: true });
+  });
+  app.delete("/_emulate/faults/:id", (c) => {
+    const removed = faults.clear(c.req.param("id"));
+    return c.json({ ok: true, removed });
+  });
   app.get("/_emulate/logs", (c) => c.json({ webhooks: webhooks.getDeliveries(), requests: ledger.list(100) }));
   app.post("/_emulate/reset", async (c) => {
     if (options.reset) {
@@ -146,6 +166,7 @@ export function registerControlPlane(app: Hono<AppEnv>, options: ControlPlaneOpt
       webhooks.clear();
       ledger.clear();
     }
+    faults.clear();
     return c.json({ ok: true });
   });
   app.post("/_emulate/seed", async (c) => {
@@ -251,7 +272,7 @@ function renderConnectionsHtml(connections: ResolvedConnection[]): string {
 }
 
 function controlLinks(): string {
-  const routes = ["manifest", "quickstart", "specs", "coverage", "connections", "state", "ledger", "logs"];
+  const routes = ["manifest", "quickstart", "specs", "coverage", "connections", "state", "ledger", "faults", "logs"];
   return routes.map((r) => `<a href="/_emulate/${r}">${r}</a>`).join(" | ");
 }
 
@@ -274,9 +295,16 @@ export function renderQuickstart(manifest: ServiceManifest, instance: EmulatorIn
     `- ${instance.controlBaseUrl}/connections`,
     `- ${instance.controlBaseUrl}/state`,
     `- ${instance.controlBaseUrl}/ledger`,
+    `- ${instance.controlBaseUrl}/faults`,
     `- POST ${instance.controlBaseUrl}/credentials`,
     `- POST ${instance.controlBaseUrl}/seed`,
     `- POST ${instance.controlBaseUrl}/reset`,
+    "",
+    "Fault injection:",
+    "Arm a one-shot provider failure with a glob pathPattern, then inspect /ledger for faulted: true.",
+    `curl -s -X POST ${instance.controlBaseUrl}/faults \\`,
+    `  -H "content-type: application/json" \\`,
+    `  -d '{"match":{"method":"GET","pathPattern":"/v1/*"},"response":{"status":503,"body":{"error":"temporary"}}}'`,
     "",
     "Connect:",
     ...connections.flatMap((c) => ["", `## ${c.title}`, c.body]),

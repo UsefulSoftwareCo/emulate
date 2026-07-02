@@ -49,6 +49,10 @@ Every running service also exposes a public control plane under `/_emulate`:
 | `GET /_emulate/mcp`          | Return the MCP endpoint when the service exposes one                                                                                |
 | `GET /_emulate/ledger`       | Recent API calls with sensitive fields redacted                                                                                     |
 | `DELETE /_emulate/ledger`    | Clear the request ledger                                                                                                            |
+| `POST /_emulate/faults`      | Arm a one-shot or counted fault against matching provider requests                                                                  |
+| `GET /_emulate/faults`       | List armed faults with remaining counts                                                                                             |
+| `DELETE /_emulate/faults`    | Clear all armed faults                                                                                                               |
+| `DELETE /_emulate/faults/:id` | Clear one armed fault                                                                                                                |
 | `GET /_emulate/logs`         | Webhook deliveries plus recent requests                                                                                             |
 | `GET /_emulate/state`        | Current emulator store snapshot                                                                                                     |
 | `POST /_emulate/reset`       | Reset state, webhooks, and request logs, then replay seed data                                                                      |
@@ -60,7 +64,17 @@ The manifest is the machine-readable single source of truth for a service. Each 
 
 ### Request ledger
 
-The request ledger is a core feature, not a debug afterthought. Each entry records a correlation id (honored from `X-Correlation-Id` or `X-Request-Id`, echoed back in the `X-Correlation-Id` response header, otherwise generated), the matched route and operation id, method, host, path, query, sanitized request headers and body, the authenticated identity, the response status with a one-line summary, recorded side effects, webhook deliveries, and the request duration. On the hosted Cloudflare surface the ledger is persisted across Durable Object eviction, so it survives instance restarts.
+The request ledger is a core feature, not a debug afterthought. Each entry records a correlation id (honored from `X-Correlation-Id` or `X-Request-Id`, echoed back in the `X-Correlation-Id` response header, otherwise generated), the matched route and operation id, method, host, path, query, sanitized request headers and body, the authenticated identity, the response status with a one-line summary, recorded side effects, webhook deliveries, fault markers, and the request duration. On the hosted Cloudflare surface the ledger is persisted across Durable Object eviction, so it survives instance restarts.
+
+### Fault injection
+
+Tests and development harnesses can arm one-shot faults with `POST /_emulate/faults`. A fault matches all provided criteria: `operationId` when the emulator can resolve one from its service manifest, `method`, and `pathPattern`. `pathPattern` uses a simple glob where `*` matches any characters in the request path. Matching requests short-circuit with the configured response, decrement `remaining`, and are removed at zero. Faulted requests are still written to `/_emulate/ledger` with `faulted: true` and `faultId`.
+
+```bash
+curl -s -X POST "$EMULATOR_URL/_emulate/faults" \
+  -H "content-type: application/json" \
+  -d '{"match":{"method":"GET","pathPattern":"/v1/*"},"response":{"status":503,"body":{"error":"temporary"}}}'
+```
 
 Credential creation follows each service's real shape. For example, GitHub can mint a bearer token for a user, Spotify creates a client credentials app, Google/Microsoft/Apple/Okta/Clerk create OAuth/OIDC clients, Stripe and Resend create API-key style credentials, and AWS advertises provider-specific SDK credentials instead of pretending to be OAuth.
 
@@ -237,11 +251,14 @@ afterAll(() => Promise.all([github.close(), vercel.close()]));
 
 ### Instance methods
 
-| Method    | Description                                  |
-| --------- | -------------------------------------------- |
-| `url`     | Base URL of the running server               |
-| `reset()` | Wipe the store and replay seed data          |
-| `close()` | Shut down the HTTP server, returns a Promise |
+| Method            | Description                                  |
+| ----------------- | -------------------------------------------- |
+| `url`             | Base URL of the running server               |
+| `reset()`         | Wipe the store and replay seed data          |
+| `close()`         | Shut down the HTTP server, returns a Promise |
+| `faults.arm()`    | Arm a one-shot or counted fault              |
+| `faults.list()`   | List armed faults with remaining counts      |
+| `faults.clear()`  | Clear one fault by id, or all faults         |
 
 ## Configuration
 

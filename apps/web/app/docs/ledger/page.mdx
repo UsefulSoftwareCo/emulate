@@ -50,6 +50,10 @@ Each ledger entry records:
       <td>Provider operation id when the handler advertises one</td>
     </tr>
     <tr>
+      <td><code>faulted</code>, <code>faultId</code></td>
+      <td>Set when a response was injected by <code>/_emulate/faults</code>, so tests can prove the fault fired</td>
+    </tr>
+    <tr>
       <td><code>request</code></td>
       <td>Sanitized request <code>headers</code> and <code>body</code>, with <code>bodyTruncated</code> set when the body was clipped</td>
     </tr>
@@ -87,6 +91,10 @@ Sensitive headers such as `authorization`, `cookie`, `set-cookie`, `x-api-key`, 
 ## Correlation ids
 
 Set `X-Correlation-Id` (or `X-Request-Id`) on a request and the emulator stores it on the ledger entry and echoes it back on the `X-Correlation-Id` response header, so you can stitch an entry to a specific call in your test. When no id is supplied the emulator generates one.
+
+## Faulted requests
+
+`POST /_emulate/faults` arms a one-shot or counted response for matching provider requests. Match criteria are combined: `operationId` when the emulator can resolve one from the service manifest, `method`, and `pathPattern`. `pathPattern` is a glob where `*` matches any characters in the request path. A matched request short-circuits with the configured response, decrements the fault's remaining count, and is recorded here with `faulted: true` and `faultId`.
 
 ## Persistence
 

@@ -132,6 +132,24 @@ afterAll(() => Promise.all([github.close(), vercel.close()]));
       </td>
       <td>Shut down the HTTP server, returns a Promise</td>
     </tr>
+    <tr>
+      <td>
+        <code>faults.arm(input)</code>
+      </td>
+      <td>Arm a one-shot or counted fault against matching provider requests</td>
+    </tr>
+    <tr>
+      <td>
+        <code>faults.list()</code>
+      </td>
+      <td>List armed faults with remaining counts</td>
+    </tr>
+    <tr>
+      <td>
+        <code>faults.clear(id?)</code>
+      </td>
+      <td>Clear one armed fault, or all faults when no id is given</td>
+    </tr>
   </tbody>
 </table>
 

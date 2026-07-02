@@ -36,6 +36,6 @@ For local tests, loopback HTTP metadata URLs are accepted. Non-HTTPS, non-loopba
 
 Inspect `GET /_emulate/manifest` first to confirm supported surfaces, auth capabilities, and per-operation spec coverage. Use `GET /_emulate/openapi` for the OpenAPI document, `GET /_emulate/connections` for copyable snippets, and `GET /_emulate/quickstart` for setup notes.
 
-Inspect calls with `GET /_emulate/ledger`: each entry includes a correlation id, matched route, sanitized headers and body, authenticated identity, response status, side effects, and webhook deliveries. Use `POST /_emulate/seed` to add users, projects, and events, and `POST /_emulate/reset` to replay seeds.
+Inspect calls with `GET /_emulate/ledger`: each entry includes a correlation id, matched route, sanitized headers and body, authenticated identity, response status, side effects, and webhook deliveries. Use `POST /_emulate/seed` to add users, projects, and events, and `POST /_emulate/reset` to replay seeds. Use `POST /_emulate/faults` to arm one-shot failures; matching faulted requests show `faulted: true` and `faultId` in the ledger.
 
 Hosted PostHog is at `https://posthog.emulators.dev` with instance hosts of the form `posthog.<instance>.emulators.dev`. Per-service docs live at `https://docs.emulators.dev/posthog`.

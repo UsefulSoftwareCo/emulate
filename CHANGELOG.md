@@ -1,8 +1,16 @@
 # Changelog
 
-## 0.9.1
+## 0.10.0
 
 <!-- release:start -->
+
+### New Features
+
+- **One-shot fault injection** — every emulator's control plane can now arm failures against otherwise-real endpoints: `POST /_emulate/faults` with a match (`operationId`, `method`, and/or a `pathPattern` glob) and a response (`status`, optional `body`/`headers`/`delayMs`) makes the next `times` matching requests short-circuit with that response, then disarms. Faulted requests still land in the request ledger marked `faulted: true` with the `faultId`, so a test can prove the fault fired and that the caller's fallback ran. Typed surface on both `createEmulator` and `connectEmulator`: `client.faults.arm(...)`, `.list()`, `.clear(id?)`. `reset()` clears armed faults. This is the missing piece for exercising error paths (failed token exchanges, rejected dynamic client registrations, flaky upstreams) against real-shaped services instead of hand-written mocks.
+
+<!-- release:end -->
+
+## 0.9.1
 
 ### Bug Fixes
 

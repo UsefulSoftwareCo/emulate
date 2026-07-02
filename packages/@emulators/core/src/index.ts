@@ -73,6 +73,15 @@ export {
   type LedgerWebhookDelivery,
 } from "./ledger.js";
 export {
+  FaultRegistry,
+  createFaultMiddleware,
+  type ArmedFault,
+  type FaultArmInput,
+  type FaultLedgerMarker,
+  type FaultMatch,
+  type FaultResponse,
+} from "./faults.js";
+export {
   registerControlPlane,
   renderLandingPage,
   renderQuickstart,

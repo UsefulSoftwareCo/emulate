@@ -4,6 +4,7 @@
 // consumers never hand-roll fetch calls or re-cast response shapes the server
 // already types.
 import type { CredentialRequest, IssuedCredential } from "./control-plane.js";
+import type { ArmedFault, FaultArmInput } from "./faults.js";
 import type { LedgerEntry } from "./ledger.js";
 import type {
   EmulatorInstanceInfo,
@@ -118,6 +119,20 @@ export class EmulatorClient {
     },
     clear: async (): Promise<void> => {
       await this.#json("DELETE", "/_emulate/ledger");
+    },
+  };
+
+  readonly faults = {
+    arm: async (request: FaultArmInput): Promise<ArmedFault> => {
+      const body = await this.#json<{ fault: ArmedFault }>("POST", "/_emulate/faults", request);
+      return body.fault;
+    },
+    list: async (): Promise<ArmedFault[]> => {
+      const body = await this.#json<{ faults: ArmedFault[] }>("GET", "/_emulate/faults");
+      return body.faults;
+    },
+    clear: async (id?: string): Promise<void> => {
+      await this.#json("DELETE", id ? `/_emulate/faults/${encodeURIComponent(id)}` : "/_emulate/faults");
     },
   };
 

@@ -116,6 +116,30 @@ Every service exposes a public control plane under `/_emulate`.
     </tr>
     <tr>
       <td>
+        <code>POST /_emulate/faults</code>
+      </td>
+      <td>Arm a one-shot or counted fault against matching provider requests</td>
+    </tr>
+    <tr>
+      <td>
+        <code>GET /_emulate/faults</code>
+      </td>
+      <td>List armed faults with remaining counts</td>
+    </tr>
+    <tr>
+      <td>
+        <code>DELETE /_emulate/faults</code>
+      </td>
+      <td>Clear all armed faults</td>
+    </tr>
+    <tr>
+      <td>
+        <code>DELETE /_emulate/faults/:id</code>
+      </td>
+      <td>Clear one armed fault</td>
+    </tr>
+    <tr>
+      <td>
         <code>GET /_emulate/logs</code>
       </td>
       <td>Webhook deliveries plus the most recent provider requests</td>
