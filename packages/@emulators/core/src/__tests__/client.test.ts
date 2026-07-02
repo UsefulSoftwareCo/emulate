@@ -89,8 +89,6 @@ describe("EmulatorClient", () => {
     const { client } = makeClient();
     // This createServer has no runtime `seed` support wired beyond the no-op,
     // so an invalid body still 200s; use an unknown credential type instead.
-    await expect(client.credentials.mint({ type: "no-such-kind" })).rejects.toThrowError(
-      EmulatorControlError,
-    );
+    await expect(client.credentials.mint({ type: "no-such-kind" })).rejects.toThrowError(EmulatorControlError);
   });
 });

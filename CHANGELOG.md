@@ -1,8 +1,16 @@
 # Changelog
 
-## 0.9.0
+## 0.9.1
 
 <!-- release:start -->
+
+### Bug Fixes
+
+- **Autumn customer balances carry their feature** — 0.9.0's per-feature `balances` on `customers.get_or_create` omitted the nested `feature` object, but autumn-js's `useCustomer` always requests `expand: ["balances.feature"]` and asserts the expansion, so every consuming UI render threw `[customerToFeatures] please expand balances.feature` into the app's error boundary. Every balance entry now embeds its feature, matching the real API's expanded shape.
+
+<!-- release:end -->
+
+## 0.9.0
 
 ### New Features
 

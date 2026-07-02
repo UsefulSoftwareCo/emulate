@@ -20,11 +20,7 @@ function freeTrialMs(ft: { duration_length: number; duration_type: string }): nu
   }
 }
 
-export function ensureCustomer(
-  as: AutumnStore,
-  id: string,
-  data: { name?: unknown; email?: unknown },
-): AutumnCustomer {
+export function ensureCustomer(as: AutumnStore, id: string, data: { name?: unknown; email?: unknown }): AutumnCustomer {
   const existing = as.customers.findOneBy("customer_id", id);
   if (existing) return existing;
   return as.customers.insert({
@@ -74,6 +70,24 @@ function usageFor(as: AutumnStore, customerId: string, featureId: string): numbe
     .reduce((sum, e) => sum + (e.value ?? 0), 0);
 }
 
+/** The emulator has no first-class feature registry (plan items only carry a
+ *  `feature_id`), so synthesize the minimal, honest `feature` object autumn-js
+ *  requires on every balance/flag entry. autumn-js 1.2.8's `customerToFeatures`
+ *  throws unless `balances.feature` (or `flags.feature`) is present, and the
+ *  SDK's own backend route always requests `expand: ["balances.feature"]` on
+ *  `customers.get_or_create`, so this is included unconditionally rather than
+ *  gated on a request `expand` param. */
+function serializeBalanceFeature(featureId: string): Record<string, unknown> {
+  return {
+    id: featureId,
+    name: featureId,
+    type: "metered",
+    consumable: true,
+    event_names: [featureId],
+    archived: false,
+  };
+}
+
 function serializeSubscription(sub: AutumnSubscription): Record<string, unknown> {
   return {
     id: sub.id ?? `sub_emulate_${sub.plan_id}`,
@@ -102,6 +116,7 @@ function balancesFor(as: AutumnStore, customer: AutumnCustomer): Record<string, 
     const usage = usageFor(as, customer.customer_id, item.feature_id);
     balances[item.feature_id] = {
       feature_id: item.feature_id,
+      feature: serializeBalanceFeature(item.feature_id),
       granted,
       remaining: unlimited ? 0 : Math.max(0, granted - usage),
       usage,
@@ -163,8 +178,7 @@ function eligibilityFor(as: AutumnStore, customer: AutumnCustomer, plan: AutumnP
 
   const paidPlan = paidSub ? as.plans.findOneBy("plan_id", paidSub.plan_id) : undefined;
   const trialUsed = (customer.trials_used ?? []).includes(plan.plan_id);
-  const attachAction =
-    paidSub && paidPlan ? (plan.order > paidPlan.order ? "upgrade" : "downgrade") : "upgrade";
+  const attachAction = paidSub && paidPlan ? (plan.order > paidPlan.order ? "upgrade" : "downgrade") : "upgrade";
   return {
     canceling: false,
     trialing: false,

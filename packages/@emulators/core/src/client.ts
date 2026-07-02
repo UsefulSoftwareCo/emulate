@@ -98,10 +98,7 @@ export class EmulatorClient {
     if (query?.clientId) params.set("client_id", query.clientId);
     if (query?.clientSecret) params.set("client_secret", query.clientSecret);
     const qs = params.size > 0 ? `?${params}` : "";
-    const body = await this.#json<{ connections: ResolvedConnection[] }>(
-      "GET",
-      `/_emulate/connections${qs}`,
-    );
+    const body = await this.#json<{ connections: ResolvedConnection[] }>("GET", `/_emulate/connections${qs}`);
     return body.connections;
   }
 
@@ -126,11 +123,7 @@ export class EmulatorClient {
 
   readonly credentials = {
     mint: async (request: CredentialRequest = {}): Promise<IssuedCredential> => {
-      const body = await this.#json<{ credential: IssuedCredential }>(
-        "POST",
-        "/_emulate/credentials",
-        request,
-      );
+      const body = await this.#json<{ credential: IssuedCredential }>("POST", "/_emulate/credentials", request);
       return body.credential;
     },
   };
@@ -147,9 +140,7 @@ export class EmulatorClient {
     const url = `${this.baseUrl}${path}`;
     const response = await this.#fetch(url, {
       method,
-      ...(body === undefined
-        ? {}
-        : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+      ...(body === undefined ? {} : { headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
     });
     if (!response.ok) {
       throw new EmulatorControlError(method, url, response.status, await response.text());
