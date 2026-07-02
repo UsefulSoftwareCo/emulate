@@ -1,0 +1,2249 @@
+{
+  "tool": "google-api-parity",
+  "version": 1,
+  "base": "https://www.googleapis.com",
+  "runId": "1783019322303-4d2cc0",
+  "startedAt": "2026-07-02T19:08:42.304Z",
+  "endedAt": "2026-07-02T19:09:34.271Z",
+  "probeCount": 108,
+  "probes": [
+    {
+      "name": "userinfo.get",
+      "method": "GET",
+      "path": "/oauth2/v2/userinfo",
+      "status": 200,
+      "response": {
+        "id": "100282033943123843864",
+        "email": "rhysasb@gmail.com",
+        "verified_email": true,
+        "name": "Rhys Sullivan",
+        "given_name": "Rhys",
+        "family_name": "Sullivan",
+        "picture": "https://lh3.googleusercontent.com/a/ACg8ocJkWHfvLhhUrWMsVLZG6zW93cuth34fS99Hoo5hF_bMM3uZUw=s96-c"
+      },
+      "checks": {
+        "userinfo_has_email": true
+      }
+    },
+    {
+      "name": "gmail.labels.list.initial",
+      "method": "GET",
+      "path": "/gmail/v1/users/me/labels",
+      "status": 200,
+      "response": {
+        "labels": [
+          {
+            "id": "CHAT",
+            "name": "CHAT",
+            "messageListVisibility": "hide",
+            "labelListVisibility": "labelHide",
+            "type": "system"
+          },
+          {
+            "id": "SENT",
+            "name": "SENT",
+            "type": "system"
+          },
+          {
+            "id": "INBOX",
+            "name": "INBOX",
+            "messageListVisibility": "hide",
+            "labelListVisibility": "labelShow",
+            "type": "system"
+          },
+          {
+            "id": "IMPORTANT",
+            "name": "IMPORTANT",
+            "messageListVisibility": "hide",
+            "labelListVisibility": "labelHide",
+            "type": "system"
+          },
+          {
+            "id": "TRASH",
+            "name": "TRASH",
+            "messageListVisibility": "hide",
+            "labelListVisibility": "labelHide",
+            "type": "system"
+          },
+          {
+            "id": "DRAFT",
+            "name": "DRAFT",
+            "messageListVisibility": "hide",
+            "labelListVisibility": "labelHide",
+            "type": "system"
+          },
+          {
+            "id": "SPAM",
+            "name": "SPAM",
+            "messageListVisibility": "hide",
+            "labelListVisibility": "labelHide",
+            "type": "system"
+          },
+          {
+            "id": "CATEGORY_FORUMS",
+            "name": "CATEGORY_FORUMS",
+            "messageListVisibility": "hide",
+            "labelListVisibility": "labelHide",
+            "type": "system"
+          },
+          {
+            "id": "CATEGORY_UPDATES",
+            "name": "CATEGORY_UPDATES",
+            "messageListVisibility": "hide",
+            "labelListVisibility": "labelHide",
+            "type": "system"
+          },
+          {
+            "id": "CATEGORY_PERSONAL",
+            "name": "CATEGORY_PERSONAL",
+            "messageListVisibility": "hide",
+            "labelListVisibility": "labelHide",
+            "type": "system"
+          },
+          {
+            "id": "CATEGORY_PROMOTIONS",
+            "name": "CATEGORY_PROMOTIONS",
+            "messageListVisibility": "hide",
+            "labelListVisibility": "labelHide",
+            "type": "system"
+          },
+          {
+            "id": "CATEGORY_SOCIAL",
+            "name": "CATEGORY_SOCIAL",
+            "messageListVisibility": "hide",
+            "labelListVisibility": "labelHide",
+            "type": "system"
+          },
+          {
+            "id": "YELLOW_STAR",
+            "name": "YELLOW_STAR",
+            "type": "system"
+          },
+          {
+            "id": "STARRED",
+            "name": "STARRED",
+            "messageListVisibility": "hide",
+            "labelListVisibility": "labelShow",
+            "type": "system"
+          },
+          {
+            "id": "UNREAD",
+            "name": "UNREAD",
+            "type": "system"
+          }
+        ]
+      }
+    },
+    {
+      "name": "gmail.labels.create.lifecycle",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/labels",
+      "status": 200,
+      "response": {
+        "id": "Label_1",
+        "name": "parity-probe-label-lifecycle-1783019322303-4d2cc0",
+        "messageListVisibility": "show",
+        "labelListVisibility": "labelShow",
+        "color": {
+          "textColor": "#000000",
+          "backgroundColor": "#16a765"
+        }
+      }
+    },
+    {
+      "name": "gmail.labels.get.lifecycle",
+      "method": "GET",
+      "path": "/gmail/v1/users/me/labels/{labelId}",
+      "status": 200,
+      "response": {
+        "id": "Label_1",
+        "name": "parity-probe-label-lifecycle-1783019322303-4d2cc0",
+        "messageListVisibility": "show",
+        "labelListVisibility": "labelShow",
+        "type": "user",
+        "messagesTotal": 0,
+        "messagesUnread": 0,
+        "threadsTotal": 0,
+        "threadsUnread": 0,
+        "color": {
+          "textColor": "#000000",
+          "backgroundColor": "#16a765"
+        }
+      }
+    },
+    {
+      "name": "gmail.labels.put.lifecycle",
+      "method": "PUT",
+      "path": "/gmail/v1/users/me/labels/{labelId}",
+      "status": 200,
+      "response": {
+        "id": "Label_1",
+        "name": "parity-probe-label-lifecycle-put-1783019322303-4d2cc0",
+        "messageListVisibility": "show",
+        "labelListVisibility": "labelShow",
+        "color": {
+          "textColor": "#000000",
+          "backgroundColor": "#16a765"
+        }
+      }
+    },
+    {
+      "name": "gmail.labels.patch.lifecycle",
+      "method": "PATCH",
+      "path": "/gmail/v1/users/me/labels/{labelId}",
+      "status": 200,
+      "response": {
+        "id": "Label_1",
+        "name": "parity-probe-label-lifecycle-patch-1783019322303-4d2cc0",
+        "messageListVisibility": "show",
+        "labelListVisibility": "labelShow",
+        "type": "user",
+        "messagesTotal": 0,
+        "messagesUnread": 0,
+        "threadsTotal": 0,
+        "threadsUnread": 0,
+        "color": {
+          "textColor": "#000000",
+          "backgroundColor": "#16a765"
+        }
+      }
+    },
+    {
+      "name": "gmail.labels.create.duplicate",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/labels",
+      "status": 409,
+      "response": {
+        "error": {
+          "code": 409,
+          "message": "Label name exists or conflicts",
+          "errors": [
+            {
+              "message": "Label name exists or conflicts",
+              "domain": "global",
+              "reason": "aborted"
+            }
+          ],
+          "status": "ABORTED"
+        }
+      }
+    },
+    {
+      "name": "gmail.labels.delete.lifecycle",
+      "method": "DELETE",
+      "path": "/gmail/v1/users/me/labels/{labelId}",
+      "status": 204,
+      "response": null
+    },
+    {
+      "name": "gmail.labels.get.afterDelete",
+      "method": "GET",
+      "path": "/gmail/v1/users/me/labels/{labelId}",
+      "status": 404,
+      "response": {
+        "error": {
+          "code": 404,
+          "message": "Requested entity was not found.",
+          "errors": [
+            {
+              "message": "Requested entity was not found.",
+              "domain": "global",
+              "reason": "notFound"
+            }
+          ],
+          "status": "NOT_FOUND"
+        }
+      }
+    },
+    {
+      "name": "gmail.labels.create.message",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/labels",
+      "status": 200,
+      "response": {
+        "id": "Label_2",
+        "name": "parity-probe-label-message-1783019322303-4d2cc0",
+        "messageListVisibility": "show",
+        "labelListVisibility": "labelShow",
+        "color": {
+          "textColor": "#000000",
+          "backgroundColor": "#16a765"
+        }
+      }
+    },
+    {
+      "name": "gmail.labels.create.batch",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/labels",
+      "status": 200,
+      "response": {
+        "id": "Label_3",
+        "name": "parity-probe-label-batch-1783019322303-4d2cc0",
+        "messageListVisibility": "show",
+        "labelListVisibility": "labelShow",
+        "color": {
+          "textColor": "#000000",
+          "backgroundColor": "#16a765"
+        }
+      }
+    },
+    {
+      "name": "gmail.labels.create.thread",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/labels",
+      "status": 200,
+      "response": {
+        "id": "Label_4",
+        "name": "parity-probe-label-thread-1783019322303-4d2cc0",
+        "messageListVisibility": "show",
+        "labelListVisibility": "labelShow",
+        "color": {
+          "textColor": "#000000",
+          "backgroundColor": "#16a765"
+        }
+      }
+    },
+    {
+      "name": "gmail.labels.create.filter",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/labels",
+      "status": 200,
+      "response": {
+        "id": "Label_5",
+        "name": "parity-probe-label-filter-1783019322303-4d2cc0",
+        "messageListVisibility": "show",
+        "labelListVisibility": "labelShow",
+        "color": {
+          "textColor": "#000000",
+          "backgroundColor": "#16a765"
+        }
+      }
+    },
+    {
+      "name": "gmail.messages.insert",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages",
+      "status": 200,
+      "response": {
+        "id": "19f243bcf787b481",
+        "threadId": "19f243bcf787b481",
+        "labelIds": [
+          "SENT",
+          "INBOX"
+        ]
+      }
+    },
+    {
+      "name": "gmail.messages.import.page.a",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages/import",
+      "status": 200,
+      "response": {
+        "id": "19f243bcffe817d7"
+      }
+    },
+    {
+      "name": "gmail.messages.import.page.b",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages/import",
+      "status": 200,
+      "response": {
+        "id": "19f243bd8da9ec8f"
+      }
+    },
+    {
+      "name": "gmail.messages.send",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages/send",
+      "status": 200,
+      "response": {
+        "id": "19f243be15b03827",
+        "threadId": "19f243be15b03827",
+        "labelIds": [
+          "UNREAD",
+          "SENT",
+          "INBOX"
+        ]
+      },
+      "checks": {
+        "sent_message_has_sent_label": true
+      }
+    },
+    {
+      "name": "gmail.messages.get.full",
+      "method": "GET",
+      "path": "/gmail/v1/users/me/messages/{messageId}?format=full",
+      "status": 200,
+      "response": {
+        "id": "19f243bcf787b481",
+        "threadId": "19f243bcf787b481",
+        "labelIds": [
+          "SENT",
+          "INBOX"
+        ],
+        "snippet": "parity-probe-message-insert-1783019322303-4d2cc0",
+        "payload": {
+          "partId": "",
+          "mimeType": "text/plain",
+          "filename": "",
+          "headers": [
+            {
+              "name": "Received",
+              "value": "from 171149749557 named unknown by gmailapi.google.com with HTTPREST; Thu, 2 Jul 2026 12:08:47 -0700"
+            },
+            {
+              "name": "From",
+              "value": "rhysasb@gmail.com"
+            },
+            {
+              "name": "To",
+              "value": "rhysasb@gmail.com"
+            },
+            {
+              "name": "Subject",
+              "value": "parity-probe-message-insert-1783019322303-4d2cc0"
+            },
+            {
+              "name": "Message-ID",
+              "value": "<parity-probe-message-insert-1783019322303-4d2cc0@example.com>"
+            },
+            {
+              "name": "Date",
+              "value": "Thu, 02 Jul 2026 19:08:47 GMT"
+            },
+            {
+              "name": "MIME-Version",
+              "value": "1.0"
+            },
+            {
+              "name": "Content-Type",
+              "value": "text/plain; charset=utf-8"
+            }
+          ],
+          "body": {
+            "size": 51,
+            "data": "cGFyaXR5LXByb2JlLW1lc3NhZ2UtaW5zZXJ0LTE3ODMwMTkzMjIzMDMtNGQyY2MwCg0K"
+          }
+        },
+        "sizeEstimate": 453,
+        "historyId": "4962591",
+        "internalDate": "1783019327000"
+      }
+    },
+    {
+      "name": "gmail.messages.get.metadata",
+      "method": "GET",
+      "path": "/gmail/v1/users/me/messages/{messageId}?format=metadata&metadataHeaders=Subject",
+      "status": 200,
+      "response": {
+        "id": "19f243bcf787b481",
+        "threadId": "19f243bcf787b481",
+        "labelIds": [
+          "SENT",
+          "INBOX"
+        ],
+        "snippet": "parity-probe-message-insert-1783019322303-4d2cc0",
+        "payload": {
+          "mimeType": "text/plain",
+          "headers": [
+            {
+              "name": "Subject",
+              "value": "parity-probe-message-insert-1783019322303-4d2cc0"
+            }
+          ]
+        },
+        "sizeEstimate": 453,
+        "historyId": "4962591",
+        "internalDate": "1783019327000"
+      }
+    },
+    {
+      "name": "gmail.messages.get.raw",
+      "method": "GET",
+      "path": "/gmail/v1/users/me/messages/{messageId}?format=raw",
+      "status": 200,
+      "response": {
+        "id": "19f243bcf787b481",
+        "threadId": "19f243bcf787b481",
+        "labelIds": [
+          "SENT",
+          "INBOX"
+        ],
+        "snippet": "parity-probe-message-insert-1783019322303-4d2cc0",
+        "sizeEstimate": 453,
+        "raw": "UmVjZWl2ZWQ6IGZyb20gMTcxMTQ5NzQ5NTU3DQoJbmFtZWQgdW5rbm93bg0KCWJ5IGdtYWlsYXBpLmdvb2dsZS5jb20NCgl3aXRoIEhUVFBSRVNUOw0KCVRodSwgMiBKdWwgMjAyNiAxMjowODo0NyAtMDcwMA0KRnJvbTogcmh5c2FzYkBnbWFpbC5jb20NClRvOiByaHlzYXNiQGdtYWlsLmNvbQ0KU3ViamVjdDogcGFyaXR5LXByb2JlLW1lc3NhZ2UtaW5zZXJ0LTE3ODMwMTkzMjIzMDMtNGQyY2MwDQpNZXNzYWdlLUlEOiA8cGFyaXR5LXByb2JlLW1lc3NhZ2UtaW5zZXJ0LTE3ODMwMTkzMjIzMDMtNGQyY2MwQGV4YW1wbGUuY29tPg0KRGF0ZTogVGh1LCAwMiBKdWwgMjAyNiAxOTowODo0NyBHTVQNCk1JTUUtVmVyc2lvbjogMS4wDQpDb250ZW50LVR5cGU6IHRleHQvcGxhaW47IGNoYXJzZXQ9dXRmLTgNCg0KcGFyaXR5LXByb2JlLW1lc3NhZ2UtaW5zZXJ0LTE3ODMwMTkzMjIzMDMtNGQyY2MwCg0K",
+        "historyId": "4962591",
+        "internalDate": "1783019327000"
+      }
+    },
+    {
+      "name": "gmail.messages.get.minimal",
+      "method": "GET",
+      "path": "/gmail/v1/users/me/messages/{messageId}?format=minimal",
+      "status": 200,
+      "response": {
+        "id": "19f243bcf787b481",
+        "threadId": "19f243bcf787b481",
+        "labelIds": [
+          "SENT",
+          "INBOX"
+        ],
+        "snippet": "parity-probe-message-insert-1783019322303-4d2cc0",
+        "sizeEstimate": 453,
+        "historyId": "4962591",
+        "internalDate": "1783019327000"
+      }
+    },
+    {
+      "name": "gmail.messages.list.page1",
+      "method": "GET",
+      "path": "/gmail/v1/users/me/messages?maxResults=1&labelIds=INBOX&q={probe}",
+      "status": 200,
+      "response": {
+        "resultSizeEstimate": 0
+      },
+      "checks": {
+        "gmail_list_next_token_when_more_than_one": false
+      }
+    },
+    {
+      "name": "gmail.messages.list.page2",
+      "method": "GET",
+      "path": "/gmail/v1/users/me/messages?maxResults=1&labelIds=INBOX&q={probe}&pageToken={pageToken}",
+      "skipped": "requires Gmail list nextPageToken"
+    },
+    {
+      "name": "gmail.messages.modify.addLabel",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages/{messageId}/modify",
+      "status": 200,
+      "response": {
+        "id": "19f243bcf787b481",
+        "threadId": "19f243bcf787b481",
+        "labelIds": [
+          "Label_2",
+          "SENT",
+          "INBOX"
+        ]
+      },
+      "checks": {
+        "modify_add_response_has_label": true
+      }
+    },
+    {
+      "name": "gmail.messages.get.afterModifyAdd",
+      "method": "GET",
+      "path": "/gmail/v1/users/me/messages/{messageId}?format=full",
+      "status": 200,
+      "response": {
+        "id": "19f243bcf787b481",
+        "threadId": "19f243bcf787b481",
+        "labelIds": [
+          "Label_2",
+          "SENT",
+          "INBOX"
+        ],
+        "snippet": "parity-probe-message-insert-1783019322303-4d2cc0",
+        "payload": {
+          "partId": "",
+          "mimeType": "text/plain",
+          "filename": "",
+          "headers": [
+            {
+              "name": "Received",
+              "value": "from 171149749557 named unknown by gmailapi.google.com with HTTPREST; Thu, 2 Jul 2026 12:08:47 -0700"
+            },
+            {
+              "name": "From",
+              "value": "rhysasb@gmail.com"
+            },
+            {
+              "name": "To",
+              "value": "rhysasb@gmail.com"
+            },
+            {
+              "name": "Subject",
+              "value": "parity-probe-message-insert-1783019322303-4d2cc0"
+            },
+            {
+              "name": "Message-ID",
+              "value": "<parity-probe-message-insert-1783019322303-4d2cc0@example.com>"
+            },
+            {
+              "name": "Date",
+              "value": "Thu, 02 Jul 2026 19:08:47 GMT"
+            },
+            {
+              "name": "MIME-Version",
+              "value": "1.0"
+            },
+            {
+              "name": "Content-Type",
+              "value": "text/plain; charset=utf-8"
+            }
+          ],
+          "body": {
+            "size": 51,
+            "data": "cGFyaXR5LXByb2JlLW1lc3NhZ2UtaW5zZXJ0LTE3ODMwMTkzMjIzMDMtNGQyY2MwCg0K"
+          }
+        },
+        "sizeEstimate": 453,
+        "historyId": "4962693",
+        "internalDate": "1783019327000"
+      },
+      "checks": {
+        "gmail_label_add_reflected_in_get": true
+      }
+    },
+    {
+      "name": "gmail.history.list.afterLabelMutation",
+      "method": "GET",
+      "path": "/gmail/v1/users/me/history?startHistoryId={historyId}",
+      "skipped": "requires main message history id"
+    },
+    {
+      "name": "gmail.history.list.labelAdded",
+      "method": "GET",
+      "path": "/gmail/v1/users/me/history?startHistoryId={historyId}&historyTypes=labelAdded",
+      "skipped": "requires main message history id"
+    },
+    {
+      "name": "gmail.messages.modify.removeLabel",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages/{messageId}/modify",
+      "status": 200,
+      "response": {
+        "id": "19f243bcf787b481",
+        "threadId": "19f243bcf787b481",
+        "labelIds": [
+          "SENT",
+          "INBOX"
+        ]
+      }
+    },
+    {
+      "name": "gmail.messages.get.afterModifyRemove",
+      "method": "GET",
+      "path": "/gmail/v1/users/me/messages/{messageId}?format=full",
+      "status": 200,
+      "response": {
+        "id": "19f243bcf787b481",
+        "threadId": "19f243bcf787b481",
+        "labelIds": [
+          "SENT",
+          "INBOX"
+        ],
+        "snippet": "parity-probe-message-insert-1783019322303-4d2cc0",
+        "payload": {
+          "partId": "",
+          "mimeType": "text/plain",
+          "filename": "",
+          "headers": [
+            {
+              "name": "Received",
+              "value": "from 171149749557 named unknown by gmailapi.google.com with HTTPREST; Thu, 2 Jul 2026 12:08:47 -0700"
+            },
+            {
+              "name": "From",
+              "value": "rhysasb@gmail.com"
+            },
+            {
+              "name": "To",
+              "value": "rhysasb@gmail.com"
+            },
+            {
+              "name": "Subject",
+              "value": "parity-probe-message-insert-1783019322303-4d2cc0"
+            },
+            {
+              "name": "Message-ID",
+              "value": "<parity-probe-message-insert-1783019322303-4d2cc0@example.com>"
+            },
+            {
+              "name": "Date",
+              "value": "Thu, 02 Jul 2026 19:08:47 GMT"
+            },
+            {
+              "name": "MIME-Version",
+              "value": "1.0"
+            },
+            {
+              "name": "Content-Type",
+              "value": "text/plain; charset=utf-8"
+            }
+          ],
+          "body": {
+            "size": 51,
+            "data": "cGFyaXR5LXByb2JlLW1lc3NhZ2UtaW5zZXJ0LTE3ODMwMTkzMjIzMDMtNGQyY2MwCg0K"
+          }
+        },
+        "sizeEstimate": 453,
+        "historyId": "4962702",
+        "internalDate": "1783019327000"
+      },
+      "checks": {
+        "gmail_label_remove_reflected_in_get": true
+      }
+    },
+    {
+      "name": "gmail.messages.trash",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages/{messageId}/trash",
+      "status": 200,
+      "response": {
+        "id": "19f243bcf787b481",
+        "threadId": "19f243bcf787b481",
+        "labelIds": [
+          "TRASH",
+          "SENT"
+        ]
+      },
+      "checks": {
+        "trash_adds_trash_label": true
+      }
+    },
+    {
+      "name": "gmail.messages.untrash",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages/{messageId}/untrash",
+      "status": 200,
+      "response": {
+        "id": "19f243bcf787b481",
+        "threadId": "19f243bcf787b481",
+        "labelIds": [
+          "SENT"
+        ]
+      },
+      "checks": {
+        "untrash_removes_trash_label": true
+      }
+    },
+    {
+      "name": "gmail.messages.batchModify",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages/batchModify",
+      "status": 204,
+      "response": null
+    },
+    {
+      "name": "gmail.messages.send.attachment",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages/send",
+      "status": 200,
+      "response": {
+        "id": "19f243bf7bdfe4fb",
+        "threadId": "19f243bf7bdfe4fb",
+        "labelIds": [
+          "UNREAD",
+          "SENT",
+          "INBOX"
+        ]
+      }
+    },
+    {
+      "name": "gmail.messages.attachments.get",
+      "method": "GET",
+      "path": "/gmail/v1/users/me/messages/{messageId}/attachments/{attachmentId}",
+      "skipped": "requires sent attachment message and attachment id"
+    },
+    {
+      "name": "gmail.messages.insert.deleteFixture",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages",
+      "status": 200,
+      "response": {
+        "id": "19f243bf84ca09da",
+        "threadId": "19f243bf84ca09da",
+        "labelIds": [
+          "SENT"
+        ]
+      }
+    },
+    {
+      "name": "gmail.messages.delete.scopeLimited",
+      "method": "DELETE",
+      "path": "/gmail/v1/users/me/messages/{messageId}",
+      "scopeLimited": true,
+      "status": 403,
+      "response": {
+        "error": {
+          "code": 403,
+          "message": "Request had insufficient authentication scopes.",
+          "errors": [
+            {
+              "message": "Insufficient Permission",
+              "domain": "global",
+              "reason": "insufficientPermissions"
+            }
+          ],
+          "status": "PERMISSION_DENIED",
+          "details": [
+            {
+              "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+              "reason": "ACCESS_TOKEN_SCOPE_INSUFFICIENT",
+              "domain": "googleapis.com",
+              "metadata": {
+                "service": "gmail.googleapis.com",
+                "method": "caribou.api.proto.MailboxService.DeleteMessage"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "gmail.messages.insert.batchDeleteFixture.a",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages",
+      "status": 200,
+      "response": {
+        "id": "19f243bfa19a22ac",
+        "threadId": "19f243bfa19a22ac",
+        "labelIds": [
+          "SENT"
+        ]
+      }
+    },
+    {
+      "name": "gmail.messages.insert.batchDeleteFixture.b",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages",
+      "status": 200,
+      "response": {
+        "id": "19f243bfd7a0c14c",
+        "threadId": "19f243bfd7a0c14c",
+        "labelIds": [
+          "SENT"
+        ]
+      }
+    },
+    {
+      "name": "gmail.messages.batchDelete.scopeLimited",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages/batchDelete",
+      "scopeLimited": true,
+      "status": 403,
+      "response": {
+        "error": {
+          "code": 403,
+          "message": "Request had insufficient authentication scopes.",
+          "errors": [
+            {
+              "message": "Insufficient Permission",
+              "domain": "global",
+              "reason": "insufficientPermissions"
+            }
+          ],
+          "status": "PERMISSION_DENIED",
+          "details": [
+            {
+              "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+              "reason": "ACCESS_TOKEN_SCOPE_INSUFFICIENT",
+              "domain": "googleapis.com",
+              "metadata": {
+                "service": "gmail.googleapis.com",
+                "method": "caribou.api.proto.MailboxService.BatchDeleteMessages"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "gmail.drafts.create",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/drafts",
+      "status": 200,
+      "response": {
+        "id": "r-1565019580669250739",
+        "message": {
+          "id": "19f243c002ff9485",
+          "threadId": "19f243c002ff9485",
+          "labelIds": [
+            "DRAFT"
+          ]
+        }
+      }
+    },
+    {
+      "name": "gmail.drafts.list",
+      "method": "GET",
+      "path": "/gmail/v1/users/me/drafts",
+      "status": 200,
+      "response": {
+        "drafts": [
+          {
+            "id": "r-1565019580669250739",
+            "message": {
+              "id": "19f243c002ff9485",
+              "threadId": "19f243c002ff9485"
+            }
+          },
+          {
+            "id": "r6855205831000451395",
+            "message": {
+              "id": "19e416818c997cc2",
+              "threadId": "19e416818c997cc2"
+            }
+          },
+          {
+            "id": "1496401502323580133",
+            "message": {
+              "id": "14c4493cf35b9ce5",
+              "threadId": "14c4493cf35b9ce5"
+            }
+          },
+          {
+            "id": "1491857490852393878",
+            "message": {
+              "id": "14b4248c5ef02494",
+              "threadId": "14b4248c5ef02494"
+            }
+          }
+        ],
+        "resultSizeEstimate": 4
+      }
+    },
+    {
+      "name": "gmail.drafts.get.full",
+      "method": "GET",
+      "path": "/gmail/v1/users/me/drafts/{draftId}?format=full",
+      "status": 200,
+      "response": {
+        "id": "r-1565019580669250739",
+        "message": {
+          "id": "19f243c002ff9485",
+          "threadId": "19f243c002ff9485",
+          "labelIds": [
+            "DRAFT"
+          ],
+          "snippet": "parity-probe-draft-create-1783019322303-4d2cc0",
+          "payload": {
+            "partId": "",
+            "mimeType": "text/plain",
+            "filename": "",
+            "headers": [
+              {
+                "name": "Received",
+                "value": "from 171149749557 named unknown by gmailapi.google.com with HTTPREST; Thu, 2 Jul 2026 12:09:00 -0700"
+              },
+              {
+                "name": "From",
+                "value": "rhysasb@gmail.com"
+              },
+              {
+                "name": "To",
+                "value": "rhysasb@gmail.com"
+              },
+              {
+                "name": "Subject",
+                "value": "parity-probe-draft-create-1783019322303-4d2cc0"
+              },
+              {
+                "name": "Message-Id",
+                "value": "<CAPwk1Xx-h+S65JP8kz1QkRvnned_kt3V2MLHZo_dWoMrrLFPKQ@mail.gmail.com>"
+              },
+              {
+                "name": "Date",
+                "value": "Thu, 2 Jul 2026 12:09:00 -0700"
+              },
+              {
+                "name": "MIME-Version",
+                "value": "1.0"
+              },
+              {
+                "name": "Content-Type",
+                "value": "text/plain; charset=utf-8"
+              }
+            ],
+            "body": {
+              "size": 49,
+              "data": "cGFyaXR5LXByb2JlLWRyYWZ0LWNyZWF0ZS0xNzgzMDE5MzIyMzAzLTRkMmNjMAoNCg=="
+            }
+          },
+          "sizeEstimate": 456,
+          "historyId": "4962822",
+          "internalDate": "1783019340000"
+        }
+      }
+    },
+    {
+      "name": "gmail.drafts.get.raw",
+      "method": "GET",
+      "path": "/gmail/v1/users/me/drafts/{draftId}?format=raw",
+      "status": 200,
+      "response": {
+        "id": "r-1565019580669250739",
+        "message": {
+          "id": "19f243c002ff9485",
+          "threadId": "19f243c002ff9485",
+          "labelIds": [
+            "DRAFT"
+          ],
+          "snippet": "parity-probe-draft-create-1783019322303-4d2cc0",
+          "sizeEstimate": 456,
+          "raw": "UmVjZWl2ZWQ6IGZyb20gMTcxMTQ5NzQ5NTU3DQoJbmFtZWQgdW5rbm93bg0KCWJ5IGdtYWlsYXBpLmdvb2dsZS5jb20NCgl3aXRoIEhUVFBSRVNUOw0KCVRodSwgMiBKdWwgMjAyNiAxMjowOTowMCAtMDcwMA0KRnJvbTogcmh5c2FzYkBnbWFpbC5jb20NClRvOiByaHlzYXNiQGdtYWlsLmNvbQ0KU3ViamVjdDogcGFyaXR5LXByb2JlLWRyYWZ0LWNyZWF0ZS0xNzgzMDE5MzIyMzAzLTRkMmNjMA0KTWVzc2FnZS1JZDogPENBUHdrMVh4LWgrUzY1SlA4a3oxUWtSdm5uZWRfa3QzVjJNTEhab19kV29NcnJMRlBLUUBtYWlsLmdtYWlsLmNvbT4NCkRhdGU6IFRodSwgMiBKdWwgMjAyNiAxMjowOTowMCAtMDcwMA0KTUlNRS1WZXJzaW9uOiAxLjANCkNvbnRlbnQtVHlwZTogdGV4dC9wbGFpbjsgY2hhcnNldD11dGYtOA0KDQpwYXJpdHktcHJvYmUtZHJhZnQtY3JlYXRlLTE3ODMwMTkzMjIzMDMtNGQyY2MwCg0K",
+          "historyId": "4962822",
+          "internalDate": "1783019340000"
+        }
+      }
+    },
+    {
+      "name": "gmail.drafts.update",
+      "method": "PUT",
+      "path": "/gmail/v1/users/me/drafts/{draftId}",
+      "status": 200,
+      "response": {
+        "id": "r-1565019580669250739",
+        "message": {
+          "id": "19f243c06d8c1505",
+          "threadId": "19f243c06d8c1505",
+          "labelIds": [
+            "DRAFT"
+          ]
+        }
+      }
+    },
+    {
+      "name": "gmail.drafts.get.afterUpdate",
+      "method": "GET",
+      "path": "/gmail/v1/users/me/drafts/{draftId}?format=full",
+      "status": 200,
+      "response": {
+        "id": "r-1565019580669250739",
+        "message": {
+          "id": "19f243c06d8c1505",
+          "threadId": "19f243c06d8c1505",
+          "labelIds": [
+            "DRAFT"
+          ],
+          "snippet": "parity-probe-draft-updated-1783019322303-4d2cc0",
+          "payload": {
+            "partId": "",
+            "mimeType": "text/plain",
+            "filename": "",
+            "headers": [
+              {
+                "name": "Received",
+                "value": "from 171149749557 named unknown by gmailapi.google.com with HTTPREST; Thu, 2 Jul 2026 12:09:01 -0700"
+              },
+              {
+                "name": "From",
+                "value": "rhysasb@gmail.com"
+              },
+              {
+                "name": "To",
+                "value": "rhysasb@gmail.com"
+              },
+              {
+                "name": "Subject",
+                "value": "parity-probe-draft-updated-1783019322303-4d2cc0"
+              },
+              {
+                "name": "Message-Id",
+                "value": "<CAPwk1Xx4LptYA-7=L3xMfk8bL-Te+-xkqWz3CY2-Ued7S-8nMQ@mail.gmail.com>"
+              },
+              {
+                "name": "Date",
+                "value": "Thu, 2 Jul 2026 12:09:01 -0700"
+              },
+              {
+                "name": "MIME-Version",
+                "value": "1.0"
+              },
+              {
+                "name": "Content-Type",
+                "value": "text/plain; charset=utf-8"
+              }
+            ],
+            "body": {
+              "size": 50,
+              "data": "cGFyaXR5LXByb2JlLWRyYWZ0LXVwZGF0ZWQtMTc4MzAxOTMyMjMwMy00ZDJjYzAKDQo="
+            }
+          },
+          "sizeEstimate": 458,
+          "historyId": "4962834",
+          "internalDate": "1783019341000"
+        }
+      },
+      "checks": {
+        "draft_update_replaces_subject": true
+      }
+    },
+    {
+      "name": "gmail.drafts.send",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/drafts/send",
+      "status": 200,
+      "response": {
+        "id": "19f243c0bd2472fb",
+        "threadId": "19f243c06d8c1505",
+        "labelIds": [
+          "UNREAD",
+          "SENT",
+          "INBOX"
+        ]
+      },
+      "checks": {
+        "draft_send_message_has_sent_label": true
+      }
+    },
+    {
+      "name": "gmail.drafts.create.deleteFixture",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/drafts",
+      "status": 200,
+      "response": {
+        "id": "r-1761923521706809097",
+        "message": {
+          "id": "19f243c0df4b92c0",
+          "threadId": "19f243c0df4b92c0",
+          "labelIds": [
+            "DRAFT"
+          ]
+        }
+      }
+    },
+    {
+      "name": "gmail.drafts.delete",
+      "method": "DELETE",
+      "path": "/gmail/v1/users/me/drafts/{draftId}",
+      "status": 204,
+      "response": null
+    },
+    {
+      "name": "gmail.messages.insert.threadRoot",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages",
+      "status": 200,
+      "response": {
+        "id": "19f243c11cd53133",
+        "threadId": "19f243c11cd53133",
+        "labelIds": [
+          "SENT",
+          "INBOX"
+        ]
+      }
+    },
+    {
+      "name": "gmail.messages.insert.threadReply",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages",
+      "status": 200,
+      "response": {
+        "id": "19f243c146504482",
+        "threadId": "19f243c11cd53133",
+        "labelIds": [
+          "SENT",
+          "INBOX"
+        ]
+      }
+    },
+    {
+      "name": "gmail.threads.list",
+      "method": "GET",
+      "path": "/gmail/v1/users/me/threads?maxResults=10&labelIds=INBOX&q={probe}",
+      "status": 200,
+      "response": {
+        "threads": [
+          {
+            "id": "19f243c11cd53133",
+            "snippet": "Re: <b>parity</b>-<b>probe</b>-<b>thread</b>-<b>1783019322303</b>-<b>4d2cc0</b>",
+            "historyId": "4962923"
+          }
+        ],
+        "resultSizeEstimate": 1
+      }
+    },
+    {
+      "name": "gmail.threads.get.full",
+      "method": "GET",
+      "path": "/gmail/v1/users/me/threads/{threadId}?format=full",
+      "status": 200,
+      "response": {
+        "id": "19f243c11cd53133",
+        "historyId": "4962923",
+        "messages": [
+          {
+            "id": "19f243c11cd53133",
+            "threadId": "19f243c11cd53133",
+            "labelIds": [
+              "SENT",
+              "INBOX"
+            ],
+            "snippet": "parity-probe-thread-1783019322303-4d2cc0",
+            "payload": {
+              "partId": "",
+              "mimeType": "text/plain",
+              "filename": "",
+              "headers": [
+                {
+                  "name": "Received",
+                  "value": "from 171149749557 named unknown by gmailapi.google.com with HTTPREST; Thu, 2 Jul 2026 12:09:04 -0700"
+                },
+                {
+                  "name": "From",
+                  "value": "rhysasb@gmail.com"
+                },
+                {
+                  "name": "To",
+                  "value": "rhysasb@gmail.com"
+                },
+                {
+                  "name": "Subject",
+                  "value": "parity-probe-thread-1783019322303-4d2cc0"
+                },
+                {
+                  "name": "Message-ID",
+                  "value": "<parity-probe-thread-root-1783019322303-4d2cc0@example.com>"
+                },
+                {
+                  "name": "Date",
+                  "value": "Thu, 02 Jul 2026 19:09:03 GMT"
+                },
+                {
+                  "name": "MIME-Version",
+                  "value": "1.0"
+                },
+                {
+                  "name": "Content-Type",
+                  "value": "text/plain; charset=utf-8"
+                }
+              ],
+              "body": {
+                "size": 43,
+                "data": "cGFyaXR5LXByb2JlLXRocmVhZC0xNzgzMDE5MzIyMzAzLTRkMmNjMAoNCg=="
+              }
+            },
+            "sizeEstimate": 434,
+            "historyId": "4962904",
+            "internalDate": "1783019343000"
+          },
+          {
+            "id": "19f243c146504482",
+            "threadId": "19f243c11cd53133",
+            "labelIds": [
+              "SENT",
+              "INBOX"
+            ],
+            "snippet": "Re: parity-probe-thread-1783019322303-4d2cc0",
+            "payload": {
+              "partId": "",
+              "mimeType": "text/plain",
+              "filename": "",
+              "headers": [
+                {
+                  "name": "Received",
+                  "value": "from 171149749557 named unknown by gmailapi.google.com with HTTPREST; Thu, 2 Jul 2026 12:09:04 -0700"
+                },
+                {
+                  "name": "From",
+                  "value": "rhysasb@gmail.com"
+                },
+                {
+                  "name": "To",
+                  "value": "rhysasb@gmail.com"
+                },
+                {
+                  "name": "Subject",
+                  "value": "Re: parity-probe-thread-1783019322303-4d2cc0"
+                },
+                {
+                  "name": "Message-ID",
+                  "value": "<parity-probe-thread-reply-1783019322303-4d2cc0@example.com>"
+                },
+                {
+                  "name": "In-Reply-To",
+                  "value": "<parity-probe-thread-root-1783019322303-4d2cc0@example.com>"
+                },
+                {
+                  "name": "References",
+                  "value": "<parity-probe-thread-root-1783019322303-4d2cc0@example.com>"
+                },
+                {
+                  "name": "Date",
+                  "value": "Thu, 02 Jul 2026 19:09:04 GMT"
+                },
+                {
+                  "name": "MIME-Version",
+                  "value": "1.0"
+                },
+                {
+                  "name": "Content-Type",
+                  "value": "text/plain; charset=utf-8"
+                }
+              ],
+              "body": {
+                "size": 47,
+                "data": "UmU6IHBhcml0eS1wcm9iZS10aHJlYWQtMTc4MzAxOTMyMjMwMy00ZDJjYzAKDQo="
+              }
+            },
+            "sizeEstimate": 590,
+            "historyId": "4962923",
+            "internalDate": "1783019344000"
+          }
+        ]
+      }
+    },
+    {
+      "name": "gmail.threads.get.metadata",
+      "method": "GET",
+      "path": "/gmail/v1/users/me/threads/{threadId}?format=metadata&metadataHeaders=Subject",
+      "status": 200,
+      "response": {
+        "id": "19f243c11cd53133",
+        "historyId": "4962923",
+        "messages": [
+          {
+            "id": "19f243c11cd53133",
+            "threadId": "19f243c11cd53133",
+            "labelIds": [
+              "SENT",
+              "INBOX"
+            ],
+            "snippet": "parity-probe-thread-1783019322303-4d2cc0",
+            "payload": {
+              "mimeType": "text/plain",
+              "headers": [
+                {
+                  "name": "Subject",
+                  "value": "parity-probe-thread-1783019322303-4d2cc0"
+                }
+              ]
+            },
+            "sizeEstimate": 434,
+            "historyId": "4962904",
+            "internalDate": "1783019343000"
+          },
+          {
+            "id": "19f243c146504482",
+            "threadId": "19f243c11cd53133",
+            "labelIds": [
+              "SENT",
+              "INBOX"
+            ],
+            "snippet": "Re: parity-probe-thread-1783019322303-4d2cc0",
+            "payload": {
+              "mimeType": "text/plain",
+              "headers": [
+                {
+                  "name": "Subject",
+                  "value": "Re: parity-probe-thread-1783019322303-4d2cc0"
+                }
+              ]
+            },
+            "sizeEstimate": 590,
+            "historyId": "4962923",
+            "internalDate": "1783019344000"
+          }
+        ]
+      }
+    },
+    {
+      "name": "gmail.threads.modify",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/threads/{threadId}/modify",
+      "status": 200,
+      "response": {
+        "id": "19f243c11cd53133",
+        "messages": [
+          {
+            "id": "19f243c11cd53133",
+            "threadId": "19f243c11cd53133",
+            "labelIds": [
+              "Label_4",
+              "SENT",
+              "INBOX"
+            ]
+          },
+          {
+            "id": "19f243c146504482",
+            "threadId": "19f243c11cd53133",
+            "labelIds": [
+              "Label_4",
+              "SENT",
+              "INBOX"
+            ]
+          }
+        ]
+      },
+      "checks": {
+        "thread_modify_applies_label_to_all_messages": true
+      }
+    },
+    {
+      "name": "gmail.threads.trash",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/threads/{threadId}/trash",
+      "status": 200,
+      "response": {
+        "id": "19f243c11cd53133",
+        "messages": [
+          {
+            "id": "19f243c11cd53133",
+            "threadId": "19f243c11cd53133",
+            "labelIds": [
+              "TRASH",
+              "Label_4",
+              "SENT"
+            ]
+          },
+          {
+            "id": "19f243c146504482",
+            "threadId": "19f243c11cd53133",
+            "labelIds": [
+              "TRASH",
+              "Label_4",
+              "SENT"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "gmail.threads.untrash",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/threads/{threadId}/untrash",
+      "status": 200,
+      "response": {
+        "id": "19f243c11cd53133",
+        "messages": [
+          {
+            "id": "19f243c11cd53133",
+            "threadId": "19f243c11cd53133",
+            "labelIds": [
+              "Label_4",
+              "SENT"
+            ]
+          },
+          {
+            "id": "19f243c146504482",
+            "threadId": "19f243c11cd53133",
+            "labelIds": [
+              "Label_4",
+              "SENT"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "gmail.messages.insert.threadDeleteFixture",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages",
+      "status": 200,
+      "response": {
+        "id": "19f243c20595ee67",
+        "threadId": "19f243c20595ee67",
+        "labelIds": [
+          "SENT",
+          "INBOX"
+        ]
+      }
+    },
+    {
+      "name": "gmail.threads.delete.scopeLimited",
+      "method": "DELETE",
+      "path": "/gmail/v1/users/me/threads/{threadId}",
+      "scopeLimited": true,
+      "status": 403,
+      "response": {
+        "error": {
+          "code": 403,
+          "message": "Request had insufficient authentication scopes.",
+          "errors": [
+            {
+              "message": "Insufficient Permission",
+              "domain": "global",
+              "reason": "insufficientPermissions"
+            }
+          ],
+          "status": "PERMISSION_DENIED",
+          "details": [
+            {
+              "@type": "type.googleapis.com/google.rpc.ErrorInfo",
+              "reason": "ACCESS_TOKEN_SCOPE_INSUFFICIENT",
+              "domain": "googleapis.com",
+              "metadata": {
+                "service": "gmail.googleapis.com",
+                "method": "caribou.api.proto.MailboxService.DeleteThread"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "gmail.settings.filters.list",
+      "method": "GET",
+      "path": "/gmail/v1/users/me/settings/filters",
+      "status": 204,
+      "response": null
+    },
+    {
+      "name": "gmail.settings.filters.create",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/settings/filters",
+      "status": 200,
+      "response": {
+        "id": "ANe1BmiGqNmSXiM3qsiyuaHrdNYpv4im80QOZA",
+        "criteria": {
+          "from": "rhysasb@gmail.com"
+        },
+        "action": {
+          "addLabelIds": [
+            "Label_5"
+          ]
+        }
+      }
+    },
+    {
+      "name": "gmail.settings.filters.delete",
+      "method": "DELETE",
+      "path": "/gmail/v1/users/me/settings/filters/{filterId}",
+      "status": 204,
+      "response": null
+    },
+    {
+      "name": "gmail.settings.forwardingAddresses.list",
+      "method": "GET",
+      "path": "/gmail/v1/users/me/settings/forwardingAddresses",
+      "status": 204,
+      "response": null
+    },
+    {
+      "name": "gmail.settings.sendAs.list",
+      "method": "GET",
+      "path": "/gmail/v1/users/me/settings/sendAs",
+      "status": 200,
+      "response": {
+        "sendAs": [
+          {
+            "sendAsEmail": "rhysasb@gmail.com",
+            "displayName": "",
+            "replyToAddress": "",
+            "signature": "",
+            "isPrimary": true,
+            "isDefault": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "gmail.watch.skipped",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/watch",
+      "skipped": "requires pubsub topic"
+    },
+    {
+      "name": "gmail.stop",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/stop",
+      "status": 204,
+      "response": null
+    },
+    {
+      "name": "calendar.calendarList.list",
+      "method": "GET",
+      "path": "/calendar/v3/users/me/calendarList",
+      "status": 200,
+      "response": {
+        "kind": "calendar#calendarList",
+        "etag": "\"p33ftrqnvrujpa0o\"",
+        "nextSyncToken": "CN_d6v_fp5UDEhFyaHlzYXNiQGdtYWlsLmNvbQ==",
+        "items": [
+          {
+            "kind": "calendar#calendarListEntry",
+            "etag": "\"1422816708851000\"",
+            "id": "en.usa#holiday@group.v.calendar.google.com",
+            "summary": "Holidays in United States",
+            "description": "Holidays and Observances in United States",
+            "timeZone": "America/Los_Angeles",
+            "colorId": "11",
+            "backgroundColor": "#fbe983",
+            "foregroundColor": "#000000",
+            "selected": true,
+            "accessRole": "reader",
+            "defaultReminders": [],
+            "conferenceProperties": {
+              "allowedConferenceSolutionTypes": [
+                "hangoutsMeet"
+              ]
+            }
+          },
+          {
+            "kind": "calendar#calendarListEntry",
+            "etag": "\"1750808285697999\"",
+            "id": "family04327851882480502753@group.calendar.google.com",
+            "summary": "Family",
+            "timeZone": "UTC",
+            "dataOwner": "dannys@gmail.com",
+            "colorId": "17",
+            "backgroundColor": "#9a9cff",
+            "foregroundColor": "#000000",
+            "selected": true,
+            "accessRole": "owner",
+            "defaultReminders": [
+              {
+                "method": "popup",
+                "minutes": 30
+              }
+            ],
+            "conferenceProperties": {
+              "allowedConferenceSolutionTypes": [
+                "hangoutsMeet"
+              ]
+            }
+          },
+          {
+            "kind": "calendar#calendarListEntry",
+            "etag": "\"1750808285697999\"",
+            "id": "rhysasb@gmail.com",
+            "summary": "rhysasb@gmail.com",
+            "timeZone": "America/Los_Angeles",
+            "colorId": "17",
+            "backgroundColor": "#9a9cff",
+            "foregroundColor": "#000000",
+            "selected": true,
+            "accessRole": "owner",
+            "defaultReminders": [
+              {
+                "method": "popup",
+                "minutes": 30
+              }
+            ],
+            "notificationSettings": {
+              "notifications": [
+                {
+                  "type": "eventCreation",
+                  "method": "email"
+                },
+                {
+                  "type": "eventChange",
+                  "method": "email"
+                },
+                {
+                  "type": "eventCancellation",
+                  "method": "email"
+                },
+                {
+                  "type": "eventResponse",
+                  "method": "email"
+                }
+              ]
+            },
+            "primary": true,
+            "conferenceProperties": {
+              "allowedConferenceSolutionTypes": [
+                "hangoutsMeet"
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "calendar.events.insert",
+      "method": "POST",
+      "path": "/calendar/v3/calendars/primary/events",
+      "status": 200,
+      "response": {
+        "kind": "calendar#event",
+        "etag": "\"3566038703408798\"",
+        "id": "upne9hh94ihb86t2gvbma6bsfk",
+        "status": "confirmed",
+        "htmlLink": "https://www.google.com/calendar/event?eid=dXBuZTloaDk0aWhiODZ0Mmd2Ym1hNmJzZmsgcmh5c2FzYkBt",
+        "created": "2026-07-02T19:09:11.000Z",
+        "updated": "2026-07-02T19:09:11.704Z",
+        "summary": "parity-probe-calendar-event-1783019322303-4d2cc0",
+        "description": "parity-probe-calendar-description-1783019322303-4d2cc0",
+        "creator": {
+          "email": "rhysasb@gmail.com",
+          "self": true
+        },
+        "organizer": {
+          "email": "rhysasb@gmail.com",
+          "self": true
+        },
+        "start": {
+          "dateTime": "2026-07-04T12:00:00-07:00",
+          "timeZone": "UTC"
+        },
+        "end": {
+          "dateTime": "2026-07-04T12:30:00-07:00",
+          "timeZone": "UTC"
+        },
+        "iCalUID": "upne9hh94ihb86t2gvbma6bsfk@google.com",
+        "sequence": 0,
+        "attendees": [
+          {
+            "email": "rhysasb@gmail.com",
+            "organizer": true,
+            "self": true,
+            "responseStatus": "needsAction"
+          }
+        ],
+        "reminders": {
+          "useDefault": true
+        },
+        "eventType": "default"
+      }
+    },
+    {
+      "name": "calendar.events.list.filtered",
+      "method": "GET",
+      "path": "/calendar/v3/calendars/primary/events?timeMin={timeMin}&timeMax={timeMax}&q={probe}&orderBy=startTime&singleEvents=true",
+      "status": 200,
+      "response": {
+        "kind": "calendar#events",
+        "etag": "\"p337odm6or2q9a0o\"",
+        "summary": "rhysasb@gmail.com",
+        "description": "",
+        "updated": "2026-07-02T19:09:11.704Z",
+        "timeZone": "America/Los_Angeles",
+        "accessRole": "owner",
+        "defaultReminders": [
+          {
+            "method": "popup",
+            "minutes": 30
+          }
+        ],
+        "items": [
+          {
+            "kind": "calendar#event",
+            "etag": "\"3566038703408798\"",
+            "id": "upne9hh94ihb86t2gvbma6bsfk",
+            "status": "confirmed",
+            "htmlLink": "https://www.google.com/calendar/event?eid=dXBuZTloaDk0aWhiODZ0Mmd2Ym1hNmJzZmsgcmh5c2FzYkBt",
+            "created": "2026-07-02T19:09:11.000Z",
+            "updated": "2026-07-02T19:09:11.704Z",
+            "summary": "parity-probe-calendar-event-1783019322303-4d2cc0",
+            "description": "parity-probe-calendar-description-1783019322303-4d2cc0",
+            "creator": {
+              "email": "rhysasb@gmail.com",
+              "self": true
+            },
+            "organizer": {
+              "email": "rhysasb@gmail.com",
+              "self": true
+            },
+            "start": {
+              "dateTime": "2026-07-04T12:00:00-07:00",
+              "timeZone": "UTC"
+            },
+            "end": {
+              "dateTime": "2026-07-04T12:30:00-07:00",
+              "timeZone": "UTC"
+            },
+            "iCalUID": "upne9hh94ihb86t2gvbma6bsfk@google.com",
+            "sequence": 0,
+            "attendees": [
+              {
+                "email": "rhysasb@gmail.com",
+                "organizer": true,
+                "self": true,
+                "responseStatus": "needsAction"
+              }
+            ],
+            "reminders": {
+              "useDefault": true
+            },
+            "eventType": "default"
+          }
+        ]
+      },
+      "checks": {
+        "calendar_created_event_appears_in_filtered_list": true
+      }
+    },
+    {
+      "name": "calendar.freeBusy.query",
+      "method": "POST",
+      "path": "/calendar/v3/freeBusy",
+      "status": 200,
+      "response": {
+        "kind": "calendar#freeBusy",
+        "timeMin": "2026-07-04T18:30:00.000Z",
+        "timeMax": "2026-07-04T20:00:00.000Z",
+        "calendars": {
+          "primary": {
+            "busy": [
+              {
+                "start": "2026-07-04T19:00:00Z",
+                "end": "2026-07-04T19:30:00Z"
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "name": "calendar.events.delete",
+      "method": "DELETE",
+      "path": "/calendar/v3/calendars/primary/events/{eventId}",
+      "status": 204,
+      "response": null
+    },
+    {
+      "name": "calendar.events.list.afterDelete",
+      "method": "GET",
+      "path": "/calendar/v3/calendars/primary/events?timeMin={timeMin}&timeMax={timeMax}&q={probe}&orderBy=startTime&singleEvents=true",
+      "status": 200,
+      "response": {
+        "kind": "calendar#events",
+        "etag": "\"p32npd4epr2q9a0o\"",
+        "summary": "rhysasb@gmail.com",
+        "description": "",
+        "updated": "2026-07-02T19:09:12.640Z",
+        "timeZone": "America/Los_Angeles",
+        "accessRole": "owner",
+        "defaultReminders": [
+          {
+            "method": "popup",
+            "minutes": 30
+          }
+        ],
+        "items": []
+      },
+      "checks": {
+        "calendar_deleted_event_no_longer_appears": true
+      }
+    },
+    {
+      "name": "drive.files.create.folder",
+      "method": "POST",
+      "path": "/drive/v3/files",
+      "status": 200,
+      "response": {
+        "kind": "drive#file",
+        "id": "1YQgmfWoO2WK6LuYDeu-bq24o6xQRTmzs",
+        "name": "parity-probe-drive-folder-1783019322303-4d2cc0",
+        "mimeType": "application/vnd.google-apps.folder"
+      }
+    },
+    {
+      "name": "drive.files.create.childMetadata",
+      "method": "POST",
+      "path": "/drive/v3/files",
+      "status": 200,
+      "response": {
+        "kind": "drive#file",
+        "id": "19FKBD6TLx7hRPXuGaMZVfMUdleMg8Upl",
+        "name": "parity-probe-drive-child-metadata-1783019322303-4d2cc0",
+        "mimeType": "text/plain"
+      }
+    },
+    {
+      "name": "drive.files.create.media",
+      "method": "POST",
+      "path": "/upload/drive/v3/files?uploadType=media",
+      "status": 200,
+      "response": {
+        "kind": "drive#file",
+        "id": "1rxk8DdX0xP6I_t9TKLN-6UiTKBeOOrt0",
+        "name": "Untitled",
+        "mimeType": "application/octet-stream"
+      }
+    },
+    {
+      "name": "drive.files.update.mediaName",
+      "method": "PATCH",
+      "path": "/drive/v3/files/{fileId}",
+      "status": 200,
+      "response": {
+        "kind": "drive#file",
+        "id": "1rxk8DdX0xP6I_t9TKLN-6UiTKBeOOrt0",
+        "name": "parity-probe-drive-media-1783019322303-4d2cc0",
+        "mimeType": "application/octet-stream"
+      }
+    },
+    {
+      "name": "drive.files.create.multipart",
+      "method": "POST",
+      "path": "/upload/drive/v3/files?uploadType=multipart",
+      "status": 400,
+      "response": {
+        "__text": "Malformed multipart body."
+      }
+    },
+    {
+      "name": "drive.files.list.page1",
+      "method": "GET",
+      "path": "/drive/v3/files?q='{folderId}' in parents and trashed = false&pageSize=1&orderBy=name",
+      "status": 200,
+      "response": {
+        "files": [
+          {
+            "kind": "drive#file",
+            "mimeType": "text/plain",
+            "id": "19FKBD6TLx7hRPXuGaMZVfMUdleMg8Upl",
+            "name": "parity-probe-drive-child-metadata-1783019322303-4d2cc0"
+          }
+        ],
+        "kind": "drive#fileList",
+        "incompleteSearch": false
+      },
+      "checks": {
+        "drive_list_next_token_when_more_than_one": "not-applicable"
+      }
+    },
+    {
+      "name": "drive.files.list.page2",
+      "method": "GET",
+      "path": "/drive/v3/files?q='{folderId}' in parents and trashed = false&pageSize=1&orderBy=name&pageToken={pageToken}",
+      "skipped": "requires Drive folder id and nextPageToken"
+    },
+    {
+      "name": "drive.files.get.metadata",
+      "method": "GET",
+      "path": "/drive/v3/files/{fileId}",
+      "status": 200,
+      "response": {
+        "kind": "drive#file",
+        "id": "19FKBD6TLx7hRPXuGaMZVfMUdleMg8Upl",
+        "name": "parity-probe-drive-child-metadata-1783019322303-4d2cc0",
+        "mimeType": "text/plain"
+      }
+    },
+    {
+      "name": "drive.files.get.media",
+      "method": "GET",
+      "path": "/drive/v3/files/{fileId}?alt=media",
+      "status": 200,
+      "response": {
+        "__binary": true,
+        "bytesBase64": "ZHJpdmUgbWVkaWEgMTc4MzAxOTMyMjMwMy00ZDJjYzA="
+      },
+      "checks": {
+        "drive_media_roundtrip": true
+      }
+    },
+    {
+      "name": "drive.files.update.rename",
+      "method": "PATCH",
+      "path": "/drive/v3/files/{fileId}",
+      "status": 200,
+      "response": {
+        "kind": "drive#file",
+        "id": "19FKBD6TLx7hRPXuGaMZVfMUdleMg8Upl",
+        "name": "parity-probe-drive-child-renamed-1783019322303-4d2cc0",
+        "mimeType": "text/plain"
+      }
+    },
+    {
+      "name": "drive.files.update.parents",
+      "method": "PATCH",
+      "path": "/drive/v3/files/{fileId}?addParents=root&removeParents={folderId}",
+      "status": 200,
+      "response": {
+        "kind": "drive#file",
+        "id": "19FKBD6TLx7hRPXuGaMZVfMUdleMg8Upl",
+        "name": "parity-probe-drive-child-renamed-1783019322303-4d2cc0",
+        "mimeType": "text/plain"
+      }
+    },
+    {
+      "name": "drive.files.update.media",
+      "method": "PATCH",
+      "path": "/upload/drive/v3/files/{fileId}?uploadType=media",
+      "status": 200,
+      "response": {
+        "kind": "drive#file",
+        "id": "1rxk8DdX0xP6I_t9TKLN-6UiTKBeOOrt0",
+        "name": "parity-probe-drive-media-1783019322303-4d2cc0",
+        "mimeType": "application/octet-stream"
+      }
+    },
+    {
+      "name": "drive.files.get.media.afterReplace",
+      "method": "GET",
+      "path": "/drive/v3/files/{fileId}?alt=media",
+      "status": 200,
+      "response": {
+        "__binary": true,
+        "bytesBase64": "ZHJpdmUgbWVkaWEgcmVwbGFjZW1lbnQgMTc4MzAxOTMyMjMwMy00ZDJjYzA="
+      },
+      "checks": {
+        "drive_media_replace_roundtrip": true
+      }
+    },
+    {
+      "name": "drive.cleanup.trash.child",
+      "method": "PATCH",
+      "path": "/drive/v3/files/{fileId}",
+      "status": 200,
+      "response": {
+        "kind": "drive#file",
+        "id": "19FKBD6TLx7hRPXuGaMZVfMUdleMg8Upl",
+        "name": "parity-probe-drive-child-renamed-1783019322303-4d2cc0",
+        "mimeType": "text/plain"
+      }
+    },
+    {
+      "name": "drive.cleanup.trash.media",
+      "method": "PATCH",
+      "path": "/drive/v3/files/{fileId}",
+      "status": 200,
+      "response": {
+        "kind": "drive#file",
+        "id": "1rxk8DdX0xP6I_t9TKLN-6UiTKBeOOrt0",
+        "name": "parity-probe-drive-media-1783019322303-4d2cc0",
+        "mimeType": "application/octet-stream"
+      }
+    },
+    {
+      "name": "drive.cleanup.trash.multipart",
+      "method": "PATCH",
+      "path": "/drive/v3/files/{fileId}",
+      "skipped": "requires Drive multipart id"
+    },
+    {
+      "name": "drive.cleanup.trash.folder",
+      "method": "PATCH",
+      "path": "/drive/v3/files/{fileId}",
+      "status": 200,
+      "response": {
+        "kind": "drive#file",
+        "id": "1YQgmfWoO2WK6LuYDeu-bq24o6xQRTmzs",
+        "name": "parity-probe-drive-folder-1783019322303-4d2cc0",
+        "mimeType": "application/vnd.google-apps.folder"
+      }
+    },
+    {
+      "name": "drive.files.delete.child",
+      "method": "DELETE",
+      "path": "/drive/v3/files/{fileId}",
+      "status": 204,
+      "response": null
+    },
+    {
+      "name": "drive.files.delete.media",
+      "method": "DELETE",
+      "path": "/drive/v3/files/{fileId}",
+      "status": 204,
+      "response": null
+    },
+    {
+      "name": "drive.files.delete.multipart",
+      "method": "DELETE",
+      "path": "/drive/v3/files/{fileId}",
+      "skipped": "requires Drive multipart id"
+    },
+    {
+      "name": "drive.files.delete.folder",
+      "method": "DELETE",
+      "path": "/drive/v3/files/{fileId}",
+      "status": 204,
+      "response": null
+    },
+    {
+      "name": "gmail.cleanup.trash.main",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages/{messageId}/trash",
+      "status": 200,
+      "response": {
+        "id": "19f243bcf787b481",
+        "threadId": "19f243bcf787b481",
+        "labelIds": [
+          "TRASH",
+          "SENT"
+        ]
+      }
+    },
+    {
+      "name": "gmail.cleanup.trash.pageA",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages/{messageId}/trash",
+      "status": 200,
+      "response": {
+        "id": "19f243bcffe817d7",
+        "threadId": "19f243bcffe817d7",
+        "labelIds": [
+          "Label_3",
+          "TRASH",
+          "CATEGORY_PERSONAL",
+          "SENT"
+        ]
+      }
+    },
+    {
+      "name": "gmail.cleanup.trash.pageB",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages/{messageId}/trash",
+      "status": 200,
+      "response": {
+        "id": "19f243bd8da9ec8f",
+        "threadId": "19f243bd8da9ec8f",
+        "labelIds": [
+          "Label_3",
+          "TRASH",
+          "CATEGORY_PERSONAL",
+          "SENT"
+        ]
+      }
+    },
+    {
+      "name": "gmail.cleanup.trash.sent",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages/{messageId}/trash",
+      "status": 200,
+      "response": {
+        "id": "19f243be15b03827",
+        "threadId": "19f243be15b03827",
+        "labelIds": [
+          "UNREAD",
+          "TRASH",
+          "SENT"
+        ]
+      }
+    },
+    {
+      "name": "gmail.cleanup.trash.attachment",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages/{messageId}/trash",
+      "status": 200,
+      "response": {
+        "id": "19f243bf7bdfe4fb",
+        "threadId": "19f243bf7bdfe4fb",
+        "labelIds": [
+          "UNREAD",
+          "TRASH",
+          "SENT"
+        ]
+      }
+    },
+    {
+      "name": "gmail.cleanup.trash.draftSent",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages/{messageId}/trash",
+      "status": 200,
+      "response": {
+        "id": "19f243c0bd2472fb",
+        "threadId": "19f243c06d8c1505",
+        "labelIds": [
+          "UNREAD",
+          "TRASH",
+          "SENT"
+        ]
+      }
+    },
+    {
+      "name": "gmail.cleanup.trash.threadRoot",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages/{messageId}/trash",
+      "status": 200,
+      "response": {
+        "id": "19f243c11cd53133",
+        "threadId": "19f243c11cd53133",
+        "labelIds": [
+          "Label_4",
+          "TRASH",
+          "SENT"
+        ]
+      }
+    },
+    {
+      "name": "gmail.cleanup.trash.threadReply",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages/{messageId}/trash",
+      "status": 200,
+      "response": {
+        "id": "19f243c146504482",
+        "threadId": "19f243c11cd53133",
+        "labelIds": [
+          "Label_4",
+          "TRASH",
+          "SENT"
+        ]
+      }
+    },
+    {
+      "name": "gmail.cleanup.trash.deleteFixture.scopeLimited",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages/{messageId}/trash",
+      "scopeLimited": true,
+      "status": 200,
+      "response": {
+        "id": "19f243bf84ca09da",
+        "threadId": "19f243bf84ca09da",
+        "labelIds": [
+          "TRASH",
+          "SENT"
+        ]
+      }
+    },
+    {
+      "name": "gmail.cleanup.trash.batchDeleteA.scopeLimited",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages/{messageId}/trash",
+      "scopeLimited": true,
+      "status": 200,
+      "response": {
+        "id": "19f243bfa19a22ac",
+        "threadId": "19f243bfa19a22ac",
+        "labelIds": [
+          "TRASH",
+          "SENT"
+        ]
+      }
+    },
+    {
+      "name": "gmail.cleanup.trash.batchDeleteB.scopeLimited",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages/{messageId}/trash",
+      "scopeLimited": true,
+      "status": 200,
+      "response": {
+        "id": "19f243bfd7a0c14c",
+        "threadId": "19f243bfd7a0c14c",
+        "labelIds": [
+          "TRASH",
+          "SENT"
+        ]
+      }
+    },
+    {
+      "name": "gmail.cleanup.trash.threadDeleteFixture.scopeLimited",
+      "method": "POST",
+      "path": "/gmail/v1/users/me/messages/{messageId}/trash",
+      "scopeLimited": true,
+      "status": 200,
+      "response": {
+        "id": "19f243c20595ee67",
+        "threadId": "19f243c20595ee67",
+        "labelIds": [
+          "TRASH",
+          "SENT"
+        ]
+      }
+    },
+    {
+      "name": "gmail.cleanup.labels.delete.message",
+      "method": "DELETE",
+      "path": "/gmail/v1/users/me/labels/{labelId}",
+      "status": 204,
+      "response": null
+    },
+    {
+      "name": "gmail.cleanup.labels.delete.batch",
+      "method": "DELETE",
+      "path": "/gmail/v1/users/me/labels/{labelId}",
+      "status": 204,
+      "response": null
+    },
+    {
+      "name": "gmail.cleanup.labels.delete.thread",
+      "method": "DELETE",
+      "path": "/gmail/v1/users/me/labels/{labelId}",
+      "status": 204,
+      "response": null
+    },
+    {
+      "name": "gmail.cleanup.labels.delete.filter",
+      "method": "DELETE",
+      "path": "/gmail/v1/users/me/labels/{labelId}",
+      "status": 204,
+      "response": null
+    }
+  ]
+}

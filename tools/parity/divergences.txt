@@ -1,0 +1,381 @@
+Compared real.json to emulator.json
+Divergences: 28 HIGH, 319 MEDIUM, 26 INFO
+
+HIGH:
+  drive.cleanup.trash.multipart skipped: skip state differs between real.json and emulator.json
+  drive.files.create.multipart status: status differs: real.json has 400, emulator.json has 200
+  drive.files.delete.child response: JSON type differs: real.json has null, emulator.json has object
+  drive.files.delete.child status: status differs: real.json has 204, emulator.json has 404
+  drive.files.delete.folder response: JSON type differs: real.json has null, emulator.json has object
+  drive.files.delete.folder status: status differs: real.json has 204, emulator.json has 404
+  drive.files.delete.media response: JSON type differs: real.json has null, emulator.json has object
+  drive.files.delete.media status: status differs: real.json has 204, emulator.json has 404
+  drive.files.delete.multipart skipped: skip state differs between real.json and emulator.json
+  drive.files.list.page1 checks.drive_list_next_token_when_more_than_one: semantic check differs: real.json has "not-applicable", emulator.json has true
+  drive.files.list.page2 checks.drive_list_page_two_different_item: semantic check exists only on emulator.json
+  drive.files.list.page2 skipped: skip state differs between real.json and emulator.json
+  gmail.history.list.afterLabelMutation checks.history_includes_label_added_or_message_added: semantic check exists only on emulator.json
+  gmail.history.list.afterLabelMutation skipped: skip state differs between real.json and emulator.json
+  gmail.history.list.labelAdded checks.history_type_filter_includes_label_added: semantic check exists only on emulator.json
+  gmail.history.list.labelAdded skipped: skip state differs between real.json and emulator.json
+  gmail.labels.create.duplicate status: status differs: real.json has 409, emulator.json has 400
+  gmail.messages.attachments.get checks.attachment_bytes_match: semantic check exists only on emulator.json
+  gmail.messages.attachments.get skipped: skip state differs between real.json and emulator.json
+  gmail.messages.list.page1 checks.gmail_list_next_token_when_more_than_one: semantic check differs: real.json has false, emulator.json has true
+  gmail.messages.list.page2 checks.gmail_list_page_two_different_item: semantic check exists only on emulator.json
+  gmail.messages.list.page2 skipped: skip state differs between real.json and emulator.json
+  gmail.settings.filters.list response: JSON type differs: real.json has null, emulator.json has object
+  gmail.settings.filters.list status: status differs: real.json has 204, emulator.json has 200
+  gmail.settings.forwardingAddresses.list response: JSON type differs: real.json has null, emulator.json has object
+  gmail.settings.forwardingAddresses.list status: status differs: real.json has 204, emulator.json has 200
+  gmail.stop status: status differs: real.json has 204, emulator.json has 200
+  userinfo.get response.picture: JSON type differs: real.json has string, emulator.json has null
+
+MEDIUM:
+  calendar.calendarList.list response.etag: extra field on real.json
+  calendar.calendarList.list response.items[].backgroundColor: extra field on real.json
+  calendar.calendarList.list response.items[].colorId: extra field on real.json
+  calendar.calendarList.list response.items[].conferenceProperties: extra field on real.json
+  calendar.calendarList.list response.items[].dataOwner: extra field on real.json
+  calendar.calendarList.list response.items[].defaultReminders: extra field on real.json
+  calendar.calendarList.list response.items[].description: extra field on real.json
+  calendar.calendarList.list response.items[].foregroundColor: extra field on real.json
+  calendar.calendarList.list response.items[].notificationSettings: extra field on real.json
+  calendar.calendarList.list response.nextSyncToken: extra field on real.json
+  calendar.events.insert response.attendees[].displayName: extra field on emulator.json
+  calendar.events.insert response.attendees[].organizer: extra field on real.json
+  calendar.events.insert response.attendees[].responseStatus: extra field on real.json
+  calendar.events.insert response.attendees[].self: extra field on real.json
+  calendar.events.insert response.creator: extra field on real.json
+  calendar.events.insert response.eventType: extra field on real.json
+  calendar.events.insert response.iCalUID: extra field on real.json
+  calendar.events.insert response.organizer: extra field on real.json
+  calendar.events.insert response.reminders: extra field on real.json
+  calendar.events.insert response.sequence: extra field on real.json
+  calendar.events.list.afterDelete response.accessRole: extra field on real.json
+  calendar.events.list.afterDelete response.defaultReminders: extra field on real.json
+  calendar.events.list.afterDelete response.description: extra field on real.json
+  calendar.events.list.afterDelete response.etag: extra field on real.json
+  calendar.events.list.afterDelete response.summary: extra field on real.json
+  calendar.events.list.afterDelete response.timeZone: extra field on real.json
+  calendar.events.list.afterDelete response.updated: extra field on real.json
+  calendar.events.list.filtered response.accessRole: extra field on real.json
+  calendar.events.list.filtered response.defaultReminders: extra field on real.json
+  calendar.events.list.filtered response.description: extra field on real.json
+  calendar.events.list.filtered response.etag: extra field on real.json
+  calendar.events.list.filtered response.items[].attendees[].displayName: extra field on emulator.json
+  calendar.events.list.filtered response.items[].attendees[].organizer: extra field on real.json
+  calendar.events.list.filtered response.items[].attendees[].responseStatus: extra field on real.json
+  calendar.events.list.filtered response.items[].attendees[].self: extra field on real.json
+  calendar.events.list.filtered response.items[].creator: extra field on real.json
+  calendar.events.list.filtered response.items[].eventType: extra field on real.json
+  calendar.events.list.filtered response.items[].iCalUID: extra field on real.json
+  calendar.events.list.filtered response.items[].organizer: extra field on real.json
+  calendar.events.list.filtered response.items[].reminders: extra field on real.json
+  calendar.events.list.filtered response.items[].sequence: extra field on real.json
+  calendar.events.list.filtered response.summary: extra field on real.json
+  calendar.events.list.filtered response.timeZone: extra field on real.json
+  calendar.events.list.filtered response.updated: extra field on real.json
+  drive.cleanup.trash.child response.createdTime: extra field on emulator.json
+  drive.cleanup.trash.child response.modifiedTime: extra field on emulator.json
+  drive.cleanup.trash.child response.parents: extra field on emulator.json
+  drive.cleanup.trash.child response.webViewLink: extra field on emulator.json
+  drive.cleanup.trash.folder response.createdTime: extra field on emulator.json
+  drive.cleanup.trash.folder response.modifiedTime: extra field on emulator.json
+  drive.cleanup.trash.folder response.parents: extra field on emulator.json
+  drive.cleanup.trash.folder response.webViewLink: extra field on emulator.json
+  drive.cleanup.trash.media response.createdTime: extra field on emulator.json
+  drive.cleanup.trash.media response.modifiedTime: extra field on emulator.json
+  drive.cleanup.trash.media response.parents: extra field on emulator.json
+  drive.cleanup.trash.media response.size: extra field on emulator.json
+  drive.cleanup.trash.media response.webViewLink: extra field on emulator.json
+  drive.files.create.childMetadata response.createdTime: extra field on emulator.json
+  drive.files.create.childMetadata response.modifiedTime: extra field on emulator.json
+  drive.files.create.childMetadata response.parents: extra field on emulator.json
+  drive.files.create.childMetadata response.webViewLink: extra field on emulator.json
+  drive.files.create.folder response.createdTime: extra field on emulator.json
+  drive.files.create.folder response.modifiedTime: extra field on emulator.json
+  drive.files.create.folder response.parents: extra field on emulator.json
+  drive.files.create.folder response.webViewLink: extra field on emulator.json
+  drive.files.create.media response.createdTime: extra field on emulator.json
+  drive.files.create.media response.modifiedTime: extra field on emulator.json
+  drive.files.create.media response.parents: extra field on emulator.json
+  drive.files.create.media response.size: extra field on emulator.json
+  drive.files.create.media response.webViewLink: extra field on emulator.json
+  drive.files.create.multipart response.__text: extra field on real.json
+  drive.files.create.multipart response.createdTime: extra field on emulator.json
+  drive.files.create.multipart response.id: extra field on emulator.json
+  drive.files.create.multipart response.kind: extra field on emulator.json
+  drive.files.create.multipart response.mimeType: extra field on emulator.json
+  drive.files.create.multipart response.modifiedTime: extra field on emulator.json
+  drive.files.create.multipart response.name: extra field on emulator.json
+  drive.files.create.multipart response.parents: extra field on emulator.json
+  drive.files.create.multipart response.webViewLink: extra field on emulator.json
+  drive.files.get.metadata response.createdTime: extra field on emulator.json
+  drive.files.get.metadata response.modifiedTime: extra field on emulator.json
+  drive.files.get.metadata response.parents: extra field on emulator.json
+  drive.files.get.metadata response.webViewLink: extra field on emulator.json
+  drive.files.list.page1 response.files[].createdTime: extra field on emulator.json
+  drive.files.list.page1 response.files[].modifiedTime: extra field on emulator.json
+  drive.files.list.page1 response.files[].parents: extra field on emulator.json
+  drive.files.list.page1 response.files[].webViewLink: extra field on emulator.json
+  drive.files.list.page1 response.incompleteSearch: extra field on real.json
+  drive.files.list.page1 response.nextPageToken: extra field on emulator.json
+  drive.files.update.media response.createdTime: extra field on emulator.json
+  drive.files.update.media response.modifiedTime: extra field on emulator.json
+  drive.files.update.media response.parents: extra field on emulator.json
+  drive.files.update.media response.size: extra field on emulator.json
+  drive.files.update.media response.webViewLink: extra field on emulator.json
+  drive.files.update.mediaName response.createdTime: extra field on emulator.json
+  drive.files.update.mediaName response.modifiedTime: extra field on emulator.json
+  drive.files.update.mediaName response.parents: extra field on emulator.json
+  drive.files.update.mediaName response.size: extra field on emulator.json
+  drive.files.update.mediaName response.webViewLink: extra field on emulator.json
+  drive.files.update.parents response.createdTime: extra field on emulator.json
+  drive.files.update.parents response.modifiedTime: extra field on emulator.json
+  drive.files.update.parents response.parents: extra field on emulator.json
+  drive.files.update.parents response.webViewLink: extra field on emulator.json
+  drive.files.update.rename response.createdTime: extra field on emulator.json
+  drive.files.update.rename response.modifiedTime: extra field on emulator.json
+  drive.files.update.rename response.parents: extra field on emulator.json
+  drive.files.update.rename response.webViewLink: extra field on emulator.json
+  gmail.cleanup.trash.attachment response.historyId: extra field on emulator.json
+  gmail.cleanup.trash.attachment response.internalDate: extra field on emulator.json
+  gmail.cleanup.trash.attachment response.payload: extra field on emulator.json
+  gmail.cleanup.trash.attachment response.sizeEstimate: extra field on emulator.json
+  gmail.cleanup.trash.attachment response.snippet: extra field on emulator.json
+  gmail.cleanup.trash.draftSent response.historyId: extra field on emulator.json
+  gmail.cleanup.trash.draftSent response.internalDate: extra field on emulator.json
+  gmail.cleanup.trash.draftSent response.payload: extra field on emulator.json
+  gmail.cleanup.trash.draftSent response.sizeEstimate: extra field on emulator.json
+  gmail.cleanup.trash.draftSent response.snippet: extra field on emulator.json
+  gmail.cleanup.trash.main response.historyId: extra field on emulator.json
+  gmail.cleanup.trash.main response.internalDate: extra field on emulator.json
+  gmail.cleanup.trash.main response.payload: extra field on emulator.json
+  gmail.cleanup.trash.main response.sizeEstimate: extra field on emulator.json
+  gmail.cleanup.trash.main response.snippet: extra field on emulator.json
+  gmail.cleanup.trash.pageA response.historyId: extra field on emulator.json
+  gmail.cleanup.trash.pageA response.internalDate: extra field on emulator.json
+  gmail.cleanup.trash.pageA response.payload: extra field on emulator.json
+  gmail.cleanup.trash.pageA response.sizeEstimate: extra field on emulator.json
+  gmail.cleanup.trash.pageA response.snippet: extra field on emulator.json
+  gmail.cleanup.trash.pageB response.historyId: extra field on emulator.json
+  gmail.cleanup.trash.pageB response.internalDate: extra field on emulator.json
+  gmail.cleanup.trash.pageB response.payload: extra field on emulator.json
+  gmail.cleanup.trash.pageB response.sizeEstimate: extra field on emulator.json
+  gmail.cleanup.trash.pageB response.snippet: extra field on emulator.json
+  gmail.cleanup.trash.sent response.historyId: extra field on emulator.json
+  gmail.cleanup.trash.sent response.internalDate: extra field on emulator.json
+  gmail.cleanup.trash.sent response.payload: extra field on emulator.json
+  gmail.cleanup.trash.sent response.sizeEstimate: extra field on emulator.json
+  gmail.cleanup.trash.sent response.snippet: extra field on emulator.json
+  gmail.cleanup.trash.threadReply response.historyId: extra field on emulator.json
+  gmail.cleanup.trash.threadReply response.internalDate: extra field on emulator.json
+  gmail.cleanup.trash.threadReply response.payload: extra field on emulator.json
+  gmail.cleanup.trash.threadReply response.sizeEstimate: extra field on emulator.json
+  gmail.cleanup.trash.threadReply response.snippet: extra field on emulator.json
+  gmail.cleanup.trash.threadRoot response.historyId: extra field on emulator.json
+  gmail.cleanup.trash.threadRoot response.internalDate: extra field on emulator.json
+  gmail.cleanup.trash.threadRoot response.payload: extra field on emulator.json
+  gmail.cleanup.trash.threadRoot response.sizeEstimate: extra field on emulator.json
+  gmail.cleanup.trash.threadRoot response.snippet: extra field on emulator.json
+  gmail.drafts.create response.message.historyId: extra field on emulator.json
+  gmail.drafts.create response.message.internalDate: extra field on emulator.json
+  gmail.drafts.create response.message.payload: extra field on emulator.json
+  gmail.drafts.create response.message.sizeEstimate: extra field on emulator.json
+  gmail.drafts.create response.message.snippet: extra field on emulator.json
+  gmail.drafts.create.deleteFixture response.message.historyId: extra field on emulator.json
+  gmail.drafts.create.deleteFixture response.message.internalDate: extra field on emulator.json
+  gmail.drafts.create.deleteFixture response.message.payload: extra field on emulator.json
+  gmail.drafts.create.deleteFixture response.message.sizeEstimate: extra field on emulator.json
+  gmail.drafts.create.deleteFixture response.message.snippet: extra field on emulator.json
+  gmail.drafts.send response.historyId: extra field on emulator.json
+  gmail.drafts.send response.internalDate: extra field on emulator.json
+  gmail.drafts.send response.snippet: extra field on emulator.json
+  gmail.drafts.update response.message.historyId: extra field on emulator.json
+  gmail.drafts.update response.message.internalDate: extra field on emulator.json
+  gmail.drafts.update response.message.payload: extra field on emulator.json
+  gmail.drafts.update response.message.sizeEstimate: extra field on emulator.json
+  gmail.drafts.update response.message.snippet: extra field on emulator.json
+  gmail.labels.create.batch response.messagesTotal: extra field on emulator.json
+  gmail.labels.create.batch response.messagesUnread: extra field on emulator.json
+  gmail.labels.create.batch response.threadsTotal: extra field on emulator.json
+  gmail.labels.create.batch response.threadsUnread: extra field on emulator.json
+  gmail.labels.create.batch response.type: extra field on emulator.json
+  gmail.labels.create.filter response.messagesTotal: extra field on emulator.json
+  gmail.labels.create.filter response.messagesUnread: extra field on emulator.json
+  gmail.labels.create.filter response.threadsTotal: extra field on emulator.json
+  gmail.labels.create.filter response.threadsUnread: extra field on emulator.json
+  gmail.labels.create.filter response.type: extra field on emulator.json
+  gmail.labels.create.lifecycle response.messagesTotal: extra field on emulator.json
+  gmail.labels.create.lifecycle response.messagesUnread: extra field on emulator.json
+  gmail.labels.create.lifecycle response.threadsTotal: extra field on emulator.json
+  gmail.labels.create.lifecycle response.threadsUnread: extra field on emulator.json
+  gmail.labels.create.lifecycle response.type: extra field on emulator.json
+  gmail.labels.create.message response.messagesTotal: extra field on emulator.json
+  gmail.labels.create.message response.messagesUnread: extra field on emulator.json
+  gmail.labels.create.message response.threadsTotal: extra field on emulator.json
+  gmail.labels.create.message response.threadsUnread: extra field on emulator.json
+  gmail.labels.create.message response.type: extra field on emulator.json
+  gmail.labels.create.thread response.messagesTotal: extra field on emulator.json
+  gmail.labels.create.thread response.messagesUnread: extra field on emulator.json
+  gmail.labels.create.thread response.threadsTotal: extra field on emulator.json
+  gmail.labels.create.thread response.threadsUnread: extra field on emulator.json
+  gmail.labels.create.thread response.type: extra field on emulator.json
+  gmail.labels.list.initial response.labels[].messagesTotal: extra field on emulator.json
+  gmail.labels.list.initial response.labels[].messagesUnread: extra field on emulator.json
+  gmail.labels.list.initial response.labels[].threadsTotal: extra field on emulator.json
+  gmail.labels.list.initial response.labels[].threadsUnread: extra field on emulator.json
+  gmail.labels.put.lifecycle response.messagesTotal: extra field on emulator.json
+  gmail.labels.put.lifecycle response.messagesUnread: extra field on emulator.json
+  gmail.labels.put.lifecycle response.threadsTotal: extra field on emulator.json
+  gmail.labels.put.lifecycle response.threadsUnread: extra field on emulator.json
+  gmail.labels.put.lifecycle response.type: extra field on emulator.json
+  gmail.messages.get.metadata response.payload.body: extra field on emulator.json
+  gmail.messages.get.metadata response.payload.filename: extra field on emulator.json
+  gmail.messages.get.metadata response.payload.partId: extra field on emulator.json
+  gmail.messages.import.page.a response.historyId: extra field on emulator.json
+  gmail.messages.import.page.a response.internalDate: extra field on emulator.json
+  gmail.messages.import.page.a response.labelIds: extra field on emulator.json
+  gmail.messages.import.page.a response.payload: extra field on emulator.json
+  gmail.messages.import.page.a response.sizeEstimate: extra field on emulator.json
+  gmail.messages.import.page.a response.snippet: extra field on emulator.json
+  gmail.messages.import.page.a response.threadId: extra field on emulator.json
+  gmail.messages.import.page.b response.historyId: extra field on emulator.json
+  gmail.messages.import.page.b response.internalDate: extra field on emulator.json
+  gmail.messages.import.page.b response.labelIds: extra field on emulator.json
+  gmail.messages.import.page.b response.payload: extra field on emulator.json
+  gmail.messages.import.page.b response.sizeEstimate: extra field on emulator.json
+  gmail.messages.import.page.b response.snippet: extra field on emulator.json
+  gmail.messages.import.page.b response.threadId: extra field on emulator.json
+  gmail.messages.insert response.historyId: extra field on emulator.json
+  gmail.messages.insert response.internalDate: extra field on emulator.json
+  gmail.messages.insert response.payload: extra field on emulator.json
+  gmail.messages.insert response.sizeEstimate: extra field on emulator.json
+  gmail.messages.insert response.snippet: extra field on emulator.json
+  gmail.messages.insert.batchDeleteFixture.a response.historyId: extra field on emulator.json
+  gmail.messages.insert.batchDeleteFixture.a response.internalDate: extra field on emulator.json
+  gmail.messages.insert.batchDeleteFixture.a response.labelIds[]: array item shape exists only on real.json
+  gmail.messages.insert.batchDeleteFixture.a response.payload: extra field on emulator.json
+  gmail.messages.insert.batchDeleteFixture.a response.sizeEstimate: extra field on emulator.json
+  gmail.messages.insert.batchDeleteFixture.a response.snippet: extra field on emulator.json
+  gmail.messages.insert.batchDeleteFixture.b response.historyId: extra field on emulator.json
+  gmail.messages.insert.batchDeleteFixture.b response.internalDate: extra field on emulator.json
+  gmail.messages.insert.batchDeleteFixture.b response.labelIds[]: array item shape exists only on real.json
+  gmail.messages.insert.batchDeleteFixture.b response.payload: extra field on emulator.json
+  gmail.messages.insert.batchDeleteFixture.b response.sizeEstimate: extra field on emulator.json
+  gmail.messages.insert.batchDeleteFixture.b response.snippet: extra field on emulator.json
+  gmail.messages.insert.deleteFixture response.historyId: extra field on emulator.json
+  gmail.messages.insert.deleteFixture response.internalDate: extra field on emulator.json
+  gmail.messages.insert.deleteFixture response.labelIds[]: array item shape exists only on real.json
+  gmail.messages.insert.deleteFixture response.payload: extra field on emulator.json
+  gmail.messages.insert.deleteFixture response.sizeEstimate: extra field on emulator.json
+  gmail.messages.insert.deleteFixture response.snippet: extra field on emulator.json
+  gmail.messages.insert.threadDeleteFixture response.historyId: extra field on emulator.json
+  gmail.messages.insert.threadDeleteFixture response.internalDate: extra field on emulator.json
+  gmail.messages.insert.threadDeleteFixture response.payload: extra field on emulator.json
+  gmail.messages.insert.threadDeleteFixture response.sizeEstimate: extra field on emulator.json
+  gmail.messages.insert.threadDeleteFixture response.snippet: extra field on emulator.json
+  gmail.messages.insert.threadReply response.historyId: extra field on emulator.json
+  gmail.messages.insert.threadReply response.internalDate: extra field on emulator.json
+  gmail.messages.insert.threadReply response.payload: extra field on emulator.json
+  gmail.messages.insert.threadReply response.sizeEstimate: extra field on emulator.json
+  gmail.messages.insert.threadReply response.snippet: extra field on emulator.json
+  gmail.messages.insert.threadRoot response.historyId: extra field on emulator.json
+  gmail.messages.insert.threadRoot response.internalDate: extra field on emulator.json
+  gmail.messages.insert.threadRoot response.payload: extra field on emulator.json
+  gmail.messages.insert.threadRoot response.sizeEstimate: extra field on emulator.json
+  gmail.messages.insert.threadRoot response.snippet: extra field on emulator.json
+  gmail.messages.list.page1 response.messages: extra field on emulator.json
+  gmail.messages.list.page1 response.nextPageToken: extra field on emulator.json
+  gmail.messages.modify.addLabel response.historyId: extra field on emulator.json
+  gmail.messages.modify.addLabel response.internalDate: extra field on emulator.json
+  gmail.messages.modify.addLabel response.payload: extra field on emulator.json
+  gmail.messages.modify.addLabel response.sizeEstimate: extra field on emulator.json
+  gmail.messages.modify.addLabel response.snippet: extra field on emulator.json
+  gmail.messages.modify.removeLabel response.historyId: extra field on emulator.json
+  gmail.messages.modify.removeLabel response.internalDate: extra field on emulator.json
+  gmail.messages.modify.removeLabel response.payload: extra field on emulator.json
+  gmail.messages.modify.removeLabel response.sizeEstimate: extra field on emulator.json
+  gmail.messages.modify.removeLabel response.snippet: extra field on emulator.json
+  gmail.messages.send response.historyId: extra field on emulator.json
+  gmail.messages.send response.internalDate: extra field on emulator.json
+  gmail.messages.send response.payload: extra field on emulator.json
+  gmail.messages.send response.sizeEstimate: extra field on emulator.json
+  gmail.messages.send response.snippet: extra field on emulator.json
+  gmail.messages.send.attachment response.historyId: extra field on emulator.json
+  gmail.messages.send.attachment response.internalDate: extra field on emulator.json
+  gmail.messages.send.attachment response.payload: extra field on emulator.json
+  gmail.messages.send.attachment response.sizeEstimate: extra field on emulator.json
+  gmail.messages.send.attachment response.snippet: extra field on emulator.json
+  gmail.messages.trash response.historyId: extra field on emulator.json
+  gmail.messages.trash response.internalDate: extra field on emulator.json
+  gmail.messages.trash response.payload: extra field on emulator.json
+  gmail.messages.trash response.sizeEstimate: extra field on emulator.json
+  gmail.messages.trash response.snippet: extra field on emulator.json
+  gmail.messages.untrash response.historyId: extra field on emulator.json
+  gmail.messages.untrash response.internalDate: extra field on emulator.json
+  gmail.messages.untrash response.payload: extra field on emulator.json
+  gmail.messages.untrash response.sizeEstimate: extra field on emulator.json
+  gmail.messages.untrash response.snippet: extra field on emulator.json
+  gmail.settings.sendAs.list response.sendAs[].treatAsAlias: extra field on emulator.json
+  gmail.settings.sendAs.list response.sendAs[].verificationStatus: extra field on emulator.json
+  gmail.threads.get.full response.snippet: extra field on emulator.json
+  gmail.threads.get.metadata response.messages[].payload.body: extra field on emulator.json
+  gmail.threads.get.metadata response.messages[].payload.filename: extra field on emulator.json
+  gmail.threads.get.metadata response.messages[].payload.partId: extra field on emulator.json
+  gmail.threads.get.metadata response.snippet: extra field on emulator.json
+  gmail.threads.modify response.historyId: extra field on emulator.json
+  gmail.threads.modify response.messages[].historyId: extra field on emulator.json
+  gmail.threads.modify response.messages[].internalDate: extra field on emulator.json
+  gmail.threads.modify response.messages[].payload: extra field on emulator.json
+  gmail.threads.modify response.messages[].sizeEstimate: extra field on emulator.json
+  gmail.threads.modify response.messages[].snippet: extra field on emulator.json
+  gmail.threads.modify response.snippet: extra field on emulator.json
+  gmail.threads.trash response.historyId: extra field on emulator.json
+  gmail.threads.trash response.messages[].historyId: extra field on emulator.json
+  gmail.threads.trash response.messages[].internalDate: extra field on emulator.json
+  gmail.threads.trash response.messages[].payload: extra field on emulator.json
+  gmail.threads.trash response.messages[].sizeEstimate: extra field on emulator.json
+  gmail.threads.trash response.messages[].snippet: extra field on emulator.json
+  gmail.threads.trash response.snippet: extra field on emulator.json
+  gmail.threads.untrash response.historyId: extra field on emulator.json
+  gmail.threads.untrash response.messages[].historyId: extra field on emulator.json
+  gmail.threads.untrash response.messages[].internalDate: extra field on emulator.json
+  gmail.threads.untrash response.messages[].payload: extra field on emulator.json
+  gmail.threads.untrash response.messages[].sizeEstimate: extra field on emulator.json
+  gmail.threads.untrash response.messages[].snippet: extra field on emulator.json
+  gmail.threads.untrash response.snippet: extra field on emulator.json
+  userinfo.get response.email_verified: extra field on emulator.json
+  userinfo.get response.id: extra field on real.json
+  userinfo.get response.locale: extra field on emulator.json
+  userinfo.get response.sub: extra field on emulator.json
+  userinfo.get response.verified_email: extra field on real.json
+
+INFO:
+  gmail.cleanup.trash.batchDeleteA.scopeLimited response.error (scopeLimited): extra field on emulator.json
+  gmail.cleanup.trash.batchDeleteA.scopeLimited response.id (scopeLimited): extra field on real.json
+  gmail.cleanup.trash.batchDeleteA.scopeLimited response.labelIds (scopeLimited): extra field on real.json
+  gmail.cleanup.trash.batchDeleteA.scopeLimited response.threadId (scopeLimited): extra field on real.json
+  gmail.cleanup.trash.batchDeleteA.scopeLimited status (scopeLimited): status differs: real.json has 200, emulator.json has 404
+  gmail.cleanup.trash.batchDeleteB.scopeLimited response.error (scopeLimited): extra field on emulator.json
+  gmail.cleanup.trash.batchDeleteB.scopeLimited response.id (scopeLimited): extra field on real.json
+  gmail.cleanup.trash.batchDeleteB.scopeLimited response.labelIds (scopeLimited): extra field on real.json
+  gmail.cleanup.trash.batchDeleteB.scopeLimited response.threadId (scopeLimited): extra field on real.json
+  gmail.cleanup.trash.batchDeleteB.scopeLimited status (scopeLimited): status differs: real.json has 200, emulator.json has 404
+  gmail.cleanup.trash.deleteFixture.scopeLimited response.error (scopeLimited): extra field on emulator.json
+  gmail.cleanup.trash.deleteFixture.scopeLimited response.id (scopeLimited): extra field on real.json
+  gmail.cleanup.trash.deleteFixture.scopeLimited response.labelIds (scopeLimited): extra field on real.json
+  gmail.cleanup.trash.deleteFixture.scopeLimited response.threadId (scopeLimited): extra field on real.json
+  gmail.cleanup.trash.deleteFixture.scopeLimited status (scopeLimited): status differs: real.json has 200, emulator.json has 404
+  gmail.cleanup.trash.threadDeleteFixture.scopeLimited response.error (scopeLimited): extra field on emulator.json
+  gmail.cleanup.trash.threadDeleteFixture.scopeLimited response.id (scopeLimited): extra field on real.json
+  gmail.cleanup.trash.threadDeleteFixture.scopeLimited response.labelIds (scopeLimited): extra field on real.json
+  gmail.cleanup.trash.threadDeleteFixture.scopeLimited response.threadId (scopeLimited): extra field on real.json
+  gmail.cleanup.trash.threadDeleteFixture.scopeLimited status (scopeLimited): status differs: real.json has 200, emulator.json has 404
+  gmail.messages.batchDelete.scopeLimited response (scopeLimited): JSON type differs: real.json has object, emulator.json has null
+  gmail.messages.batchDelete.scopeLimited status (scopeLimited): status differs: real.json has 403, emulator.json has 204
+  gmail.messages.delete.scopeLimited response (scopeLimited): JSON type differs: real.json has object, emulator.json has null
+  gmail.messages.delete.scopeLimited status (scopeLimited): status differs: real.json has 403, emulator.json has 204
+  gmail.threads.delete.scopeLimited response (scopeLimited): JSON type differs: real.json has object, emulator.json has null
+  gmail.threads.delete.scopeLimited status (scopeLimited): status differs: real.json has 403, emulator.json has 204
