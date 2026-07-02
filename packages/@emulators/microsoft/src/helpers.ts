@@ -1,4 +1,4 @@
-import { randomUUID } from "crypto";
+import { createHash, randomUUID } from "crypto";
 import type { Context } from "@emulators/core";
 import type {
   MicrosoftCalendar,
@@ -47,6 +47,35 @@ export function unauthorized(c: Context): Response {
   return graphError(c, 401, "InvalidAuthenticationToken", "Access token is empty or invalid.");
 }
 
+/**
+ * Real Microsoft Graph rejects any bearer token that is not a well-formed JWT
+ * with a specific InvalidAuthenticationToken error. The emulator resolves an
+ * unknown token to a fallback user (a general emulate convenience), so we treat
+ * such fallback resolutions as invalid tokens for Graph parity.
+ */
+export function invalidAuthToken(c: Context): Response {
+  return graphError(
+    c,
+    401,
+    "InvalidAuthenticationToken",
+    "IDX14100: JWT is not well formed, there are no dots (.).\n" +
+      "The token needs to be in JWS or JWE Compact Serialization Format. (JWS): " +
+      "'EncodedHeader.EncodedPayload.EncodedSignature'. (JWE): " +
+      "'EncodedProtectedHeader.EncodedEncryptedKey.EncodedInitializationVector.EncodedCiphertext.EncodedAuthenticationTag'.",
+  );
+}
+
+/**
+ * Returns a 401 response if the presented token was not a recognized credential
+ * (i.e. the auth layer had to fall back to a synthetic user). Undefined when the
+ * token is a genuine minted credential.
+ */
+export function rejectFallbackToken(c: Context): Response | undefined {
+  const authUser = c.get("authUser");
+  if (authUser?.fallback) return invalidAuthToken(c);
+  return undefined;
+}
+
 export function accessDenied(c: Context, message = "Access is denied. Check credentials and try again."): Response {
   return graphError(c, 403, "ErrorAccessDenied", message);
 }
@@ -67,7 +96,9 @@ export function hasGraphScope(scopes: string[], accepted: string[]): boolean {
 }
 
 export function requireGraphScope(c: Context, accepted: string[]): Response | undefined {
-  if (!c.get("authUser")) return unauthorized(c);
+  const authUser = c.get("authUser");
+  if (!authUser) return unauthorized(c);
+  if (authUser.fallback) return invalidAuthToken(c);
   if (!hasGraphScope(authScopes(c), accepted)) {
     return accessDenied(c, `Missing required Graph scope. Expected one of: ${accepted.join(", ")}.`);
   }
@@ -77,6 +108,7 @@ export function requireGraphScope(c: Context, accepted: string[]): Response | un
 export function requireDelegatedUser(c: Context, ms: MicrosoftStore): MicrosoftUser | Response {
   const authUser = c.get("authUser");
   if (!authUser) return unauthorized(c);
+  if (authUser.fallback) return invalidAuthToken(c);
   if (authUser.id === 0) {
     return accessDenied(c, "/me requests require a delegated user token.");
   }
@@ -91,6 +123,7 @@ export function requireDelegatedUser(c: Context, ms: MicrosoftStore): MicrosoftU
 export function requireAnyGraphToken(c: Context): Response | undefined {
   const authUser = c.get("authUser");
   if (!authUser) return unauthorized(c);
+  if (authUser.fallback) return invalidAuthToken(c);
   return undefined;
 }
 
@@ -104,7 +137,7 @@ export function formatUser(baseUrl: string, user: MicrosoftUser): Record<string,
     mail: user.email,
     mobilePhone: null,
     officeLocation: null,
-    preferredLanguage: null,
+    preferredLanguage: user.preferred_language || "en-US",
     surname: user.family_name,
     userPrincipalName: user.preferred_username,
     id: user.oid,
@@ -152,6 +185,37 @@ function updatedDateTime(entity: { updated_at: string }): string {
   return entity.updated_at;
 }
 
+/**
+ * Build a deterministic Outlook-style thread index (conversationIndex).
+ *
+ * Real Outlook thread indexes are a 22-byte header: a single 0x01 marker byte,
+ * a 5-byte truncated FILETIME time prefix, then a 16-byte GUID identifying the
+ * conversation. Graph returns this base64 encoded (which yields a 32-character
+ * string ending in "=="). We derive all bytes deterministically from the
+ * conversation id and creation time so the same message always serializes to
+ * the same value.
+ */
+export function conversationIndex(conversationId: string, createdAt: string): string {
+  const bytes = Buffer.alloc(22);
+  bytes[0] = 0x01;
+
+  // 5-byte time prefix derived from the FILETIME representation of createdAt.
+  const millis = Number.isNaN(Date.parse(createdAt)) ? 0 : Date.parse(createdAt);
+  // FILETIME is 100-nanosecond intervals since 1601-01-01; Outlook keeps the
+  // high-order bytes as the time prefix.
+  const fileTime = (BigInt(millis) + 11644473600000n) * 10000n;
+  const filePrefix = fileTime >> 16n; // drop low 16 bits, matching Outlook's precision
+  for (let i = 0; i < 5; i += 1) {
+    bytes[1 + i] = Number((filePrefix >> BigInt((4 - i) * 8)) & 0xffn);
+  }
+
+  // 16-byte conversation GUID derived deterministically from the conversation id.
+  const guid = createHash("md5").update(conversationId).digest();
+  guid.copy(bytes, 6, 0, 16);
+
+  return bytes.toString("base64");
+}
+
 export function formatMessage(baseUrl: string, message: MicrosoftMessage): Record<string, unknown> {
   return {
     "@odata.etag": `W/"${message.graph_id}"`,
@@ -169,7 +233,7 @@ export function formatMessage(baseUrl: string, message: MicrosoftMessage): Recor
     importance: message.importance,
     parentFolderId: message.parent_folder_id,
     conversationId: message.conversation_id,
-    conversationIndex: null,
+    conversationIndex: conversationIndex(message.conversation_id, message.created_at),
     isDeliveryReceiptRequested: null,
     isReadReceiptRequested: false,
     isRead: message.is_read,
@@ -299,6 +363,7 @@ export function formatCalendar(baseUrl: string, calendar: MicrosoftCalendar): Re
     name: calendar.name,
     color: calendar.color,
     hexColor: "",
+    groupClassId: "0006f0b7-0000-0000-c000-000000000046",
     isDefaultCalendar: calendar.is_default,
     changeKey: calendar.change_key,
     canShare: calendar.can_share,
@@ -312,7 +377,6 @@ export function formatCalendar(baseUrl: string, calendar: MicrosoftCalendar): Re
       name: calendar.name,
       address: calendar.user_email,
     },
-    webLink: `${baseUrl}/calendar/${calendar.graph_id}`,
   };
 }
 
@@ -394,12 +458,20 @@ export function formatEvent(baseUrl: string, event: MicrosoftEvent): Record<stri
       dateTime: event.end_date_time,
       timeZone: event.end_time_zone,
     },
-    location: {
-      displayName: event.location ?? "",
-      locationType: "default",
-      uniqueId: event.location ?? "",
-      uniqueIdType: "private",
-    },
+    location: event.location
+      ? {
+          displayName: event.location,
+          locationType: "default",
+          uniqueId: event.location,
+          uniqueIdType: "private",
+        }
+      : {
+          displayName: "",
+          locationType: "default",
+          uniqueIdType: "unknown",
+          address: {},
+          coordinates: {},
+        },
     locations: event.location
       ? [
           {
@@ -410,6 +482,7 @@ export function formatEvent(baseUrl: string, event: MicrosoftEvent): Record<stri
           },
         ]
       : [],
+    recurrence: null,
     attendees: event.attendees.map((attendee) => ({
       ...attendee,
       status: { response: "none", time: "0001-01-01T00:00:00Z" },
@@ -650,15 +723,21 @@ export function createDriveItemRecord(
 }
 
 export function formatDrive(baseUrl: string, drive: MicrosoftDrive, owner: MicrosoftUser): Record<string, unknown> {
+  const systemAccount = { user: { displayName: "System Account" } };
   return {
+    createdDateTime: drive.created_at,
+    description: "",
     id: drive.graph_id,
-    driveType: drive.drive_type,
+    lastModifiedDateTime: drive.updated_at,
     name: drive.name,
+    webUrl: `${baseUrl}/drive/${drive.graph_id}`,
+    driveType: drive.drive_type,
+    createdBy: systemAccount,
+    lastModifiedBy: systemAccount,
     owner: {
       user: {
-        displayName: owner.name,
-        id: owner.oid,
         email: owner.email,
+        displayName: owner.name,
       },
     },
     quota: {
@@ -667,8 +746,10 @@ export function formatDrive(baseUrl: string, drive: MicrosoftDrive, owner: Micro
       state: "normal",
       total: 1024 * 1024 * 1024,
       used: 0,
+      storagePlanInformation: {
+        upgradeAvailable: true,
+      },
     },
-    webUrl: `${baseUrl}/drive/${drive.graph_id}`,
   };
 }
 
@@ -696,17 +777,25 @@ export function driveItemPath(ms: MicrosoftStore, item: MicrosoftDriveItem): str
 }
 
 function driveItemPrincipal(user: MicrosoftUser | undefined, item: MicrosoftDriveItem): Record<string, unknown> {
+  const appId = "b09e423a-0848-4adb-939e-a53e08426f49";
   return {
     application: {
-      id: "emulate-microsoft",
-      displayName: "Microsoft emulator",
+      id: appId,
+      displayName: `i:0i.t|ms.sp.ext|${appId}@${DEFAULT_TENANT_ID}`,
     },
     user: {
+      email: user?.email ?? item.user_email,
       id: user?.oid ?? item.user_email,
       displayName: user?.name ?? item.user_email,
     },
   };
 }
+
+const DRIVE_FOLDER_VIEW = {
+  sortBy: "name",
+  sortOrder: "ascending",
+  viewType: "thumbnails",
+} as const;
 
 export function formatDriveItem(
   baseUrl: string,
@@ -714,36 +803,50 @@ export function formatDriveItem(
   ms?: MicrosoftStore,
 ): Record<string, unknown> {
   const isFolder = item.folder_child_count !== null;
+  const isRoot = item.parent_id === null;
   const user = driveItemOwner(ms, item);
   const drive = driveForItem(ms, item);
   const parent = parentForItem(ms, item);
   const parentPath = ms && parent ? driveItemPath(ms, parent) : "/drive/root:";
   const principal = driveItemPrincipal(user, item);
+  // Real Graph reports the root item's createdBy/lastModifiedBy with only the
+  // bare user (email + displayName); non-root items also carry the user id.
+  const rootPrincipal = {
+    user: {
+      email: user?.email ?? item.user_email,
+      displayName: user?.name ?? item.user_email,
+    },
+  };
   return {
-    "@odata.etag": oneDriveTag(item.etag_id, item.etag_version),
     createdDateTime: item.created_at,
     eTag: oneDriveTag(item.etag_id, item.etag_version),
     id: item.graph_id,
     lastModifiedDateTime: item.updated_at,
     name: item.name,
     webUrl: item.web_url ?? `${baseUrl}/drive/items/${item.graph_id}`,
-    cTag: oneDriveCTag(item.ctag_id, item.ctag_version),
+    ...(isRoot ? {} : { cTag: oneDriveCTag(item.ctag_id, item.ctag_version) }),
+    isAuthoritative: false,
     size: item.size,
-    createdBy: principal,
-    lastModifiedBy: principal,
-    parentReference: {
-      driveType: drive?.drive_type ?? "personal",
-      driveId: item.drive_id,
-      id: item.parent_id,
-      name: parent?.name ?? (item.parent_id === null ? null : "root"),
-      path: parentPath,
-      siteId: item.drive_id,
-    },
+    createdBy: isRoot ? rootPrincipal : principal,
+    ...(isRoot ? {} : { lastModifiedBy: principal }),
+    parentReference: isRoot
+      ? {
+          driveType: drive?.drive_type ?? "personal",
+          driveId: item.drive_id,
+        }
+      : {
+          driveType: drive?.drive_type ?? "personal",
+          driveId: item.drive_id,
+          id: item.parent_id,
+          name: parent?.name ?? "root",
+          path: parentPath,
+          siteId: item.drive_id,
+        },
     fileSystemInfo: {
       createdDateTime: item.created_at,
       lastModifiedDateTime: item.updated_at,
     },
-    ...(isFolder ? { folder: { childCount: item.folder_child_count ?? 0 } } : {}),
+    ...(isFolder ? { folder: { childCount: item.folder_child_count ?? 0, view: { ...DRIVE_FOLDER_VIEW } } } : {}),
     ...(item.file_mime_type
       ? {
           file: {
@@ -755,6 +858,7 @@ export function formatDriveItem(
         }
       : {}),
     ...(item.file_mime_type ? { "@microsoft.graph.downloadUrl": `${baseUrl}/v1.0/_content/${item.graph_id}` } : {}),
+    ...(isRoot ? { root: {} } : {}),
   };
 }
 

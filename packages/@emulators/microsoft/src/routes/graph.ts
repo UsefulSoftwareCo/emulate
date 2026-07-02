@@ -115,6 +115,43 @@ function itemNotFound(c: Context): Response {
   return graphError(c, 404, "itemNotFound", "The resource could not be found.");
 }
 
+/**
+ * Real Outlook event ids are long base64url-ish opaque strings. When the id is
+ * clearly not a valid Outlook id, Graph returns 400 ErrorInvalidIdMalformed
+ * (Outlook style: no innerError) rather than a 404. We treat short ids that
+ * lack the structure of a real Outlook id as malformed.
+ */
+function isMalformedEventId(eventId: string): boolean {
+  return !/^[A-Za-z0-9_-]{40,}=*$/.test(eventId);
+}
+
+function malformedEventId(c: Context, eventId: string): Response | undefined {
+  if (!isMalformedEventId(eventId)) return undefined;
+  return c.json({ error: { code: "ErrorInvalidIdMalformed", message: "The Id is invalid." } }, 400);
+}
+
+/**
+ * Real OneDrive item ids contain a "!" segment (e.g. "545D8DF03C777341!s...").
+ * A GET for an id that lacks that structure returns 400 invalidRequest rather
+ * than 404 itemNotFound. "root" is always a valid alias.
+ */
+function isMalformedDriveItemId(itemId: string): boolean {
+  return itemId !== "root" && !itemId.includes("!");
+}
+
+function malformedDriveItemId(c: Context, itemId: string): Response | undefined {
+  if (!isMalformedDriveItemId(itemId)) return undefined;
+  return graphError(c, 400, "invalidRequest", "Invalid request");
+}
+
+function calendarAssociationLinks(baseUrl: string, userEmail: string, calendarId: string): Record<string, string> {
+  const calendarRef = `${baseUrl}/v1.0/users('${userEmail}')/calendars('${calendarId}')`;
+  return {
+    "calendar@odata.associationLink": `${calendarRef}/$ref`,
+    "calendar@odata.navigationLink": calendarRef,
+  };
+}
+
 function getDriveById(
   ms: ReturnType<typeof getMicrosoftStore>,
   driveId: string,
@@ -377,7 +414,10 @@ export function graphRoutes({ app, store, baseUrl }: RouteContext): void {
       .findBy("user_email", user.email)
       .filter((event) => !calendarId || event.calendar_id === calendarId)
       .sort((a, b) => a.start_date_time.localeCompare(b.start_date_time));
-    const values = events.map((event) => formatEvent(baseUrl, event));
+    const values = events.map((event) => ({
+      ...formatEvent(baseUrl, event),
+      ...calendarAssociationLinks(baseUrl, user.email, event.calendar_id),
+    }));
     const path = calendarId ? "/v1.0/me/calendar/events" : "/v1.0/me/events";
     return c.json(odataCollection(baseUrl, "me/events", path, values, c));
   };
@@ -410,7 +450,17 @@ export function graphRoutes({ app, store, baseUrl }: RouteContext): void {
       id: event.graph_id,
       summary: `Created event '${event.subject}'`,
     });
-    return c.json(formatEvent(baseUrl, event), 201);
+    c.header(
+      "Location",
+      `${baseUrl}/v1.0/users('${user.email}')/events('${event.graph_id}')`,
+    );
+    return c.json(
+      {
+        "@odata.context": `${baseUrl}/v1.0/$metadata#users('${encodeURIComponent(user.email)}')/events/$entity`,
+        ...formatEvent(baseUrl, event),
+      },
+      201,
+    );
   });
 
   app.get("/v1.0/me/events/:id", (c) => {
@@ -419,9 +469,17 @@ export function graphRoutes({ app, store, baseUrl }: RouteContext): void {
     if (scopeError) return scopeError;
     const user = requireDelegatedUser(c, ms);
     if (isResponse(user)) return user;
-    const event = findEvent(ms.events.findBy("user_email", user.email), c.req.param("id"));
-    if (!event) return graphError(c, 404, "ErrorItemNotFound", "The specified object was not found in the store.");
-    return c.json({ "@odata.context": `${baseUrl}/v1.0/$metadata#me/events/$entity`, ...formatEvent(baseUrl, event) });
+    const eventId = c.req.param("id");
+    const event = findEvent(ms.events.findBy("user_email", user.email), eventId);
+    if (!event) {
+      return malformedEventId(c, eventId) ?? graphError(c, 404, "ErrorItemNotFound", "The specified object was not found in the store.");
+    }
+    const calendarRef = ms.calendars.findOneBy("graph_id", event.calendar_id);
+    return c.json({
+      "@odata.context": `${baseUrl}/v1.0/$metadata#me/events/$entity`,
+      ...formatEvent(baseUrl, event),
+      ...calendarAssociationLinks(baseUrl, user.email, calendarRef?.graph_id ?? event.calendar_id),
+    });
   });
 
   app.delete("/v1.0/me/events/:id", (c) => {
@@ -552,7 +610,7 @@ export function graphRoutes({ app, store, baseUrl }: RouteContext): void {
 
   const getDriveItem = (c: Context, drive: MicrosoftDrive, itemId: string): Response => {
     const item = getDriveItemById(ms, drive, itemId);
-    if (!item) return itemNotFound(c);
+    if (!item) return malformedDriveItemId(c, itemId) ?? itemNotFound(c);
     return c.json(driveItemEntity(baseUrl, ms, item));
   };
 
@@ -930,7 +988,12 @@ export function graphRoutes({ app, store, baseUrl }: RouteContext): void {
 
   const notImplemented = (c: Context) => {
     if (!c.get("authUser")) return unauthorized(c);
-    return graphError(c, 404, "UnknownError", "This Microsoft Graph endpoint is not implemented by the emulator.");
+    const pathname = new URL(c.req.url).pathname;
+    const segments = pathname.split("/").filter(Boolean);
+    // Drop the leading "v1.0" version segment; the first remaining segment is
+    // the one Graph reports as unresolved.
+    const firstSegment = segments[0] === "v1.0" ? segments[1] : segments[0];
+    return graphError(c, 400, "BadRequest", `Resource not found for the segment '${firstSegment ?? ""}'.`);
   };
   for (const method of ["GET", "POST", "PUT", "PATCH", "DELETE"]) {
     app.on(method, "/v1.0/*", notImplemented);

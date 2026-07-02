@@ -37,8 +37,9 @@ describe("authMiddleware", () => {
     });
 
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { user: { login: string; id: number; scopes: string[] } };
-    expect(body.user).toEqual(fallbackUser);
+    const body = (await res.json()) as { user: { login: string; id: number; scopes: string[]; fallback?: boolean } };
+    // Fallback-resolved users are tagged so strict services can reject them.
+    expect(body.user).toEqual({ ...fallbackUser, fallback: true });
     expect(tokenMap.has("unknown-secret")).toBe(false);
   });
 

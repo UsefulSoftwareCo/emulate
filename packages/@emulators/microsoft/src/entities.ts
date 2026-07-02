@@ -12,6 +12,8 @@ export interface MicrosoftUser extends Entity {
   tenant_id: string;
   /** User principal name (usually email) */
   preferred_username: string;
+  /** Preferred UI language, e.g. "en-US". Defaults to "en-US" when seeded. */
+  preferred_language: string;
 }
 
 export interface MicrosoftOAuthClient extends Entity {

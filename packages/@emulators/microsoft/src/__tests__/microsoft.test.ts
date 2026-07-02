@@ -110,8 +110,8 @@ async function exchangeCode(
   });
 }
 
-async function getAccessToken(app: Hono, scope: string): Promise<string> {
-  const { code } = await getAuthCode(app, { scope });
+async function getAccessToken(app: Hono, scope: string, email?: string): Promise<string> {
+  const { code } = await getAuthCode(app, { scope, ...(email ? { email } : {}) });
   const tokenRes = await exchangeCode(app, code);
   expect(tokenRes.status).toBe(200);
   const tokenBody = (await tokenRes.json()) as Record<string, unknown>;
@@ -446,6 +446,34 @@ describe("Microsoft plugin integration", () => {
     expect(body.userPrincipalName).toBe("testuser@example.com");
     expect(body.id).toBeDefined();
     expect(body["@odata.context"]).toContain("$metadata#users");
+    // Real Graph returns a concrete language code, defaulting to "en-US".
+    expect(body.preferredLanguage).toBe("en-US");
+  });
+
+  it("GET /v1.0/me honors a seeded preferredLanguage override", async () => {
+    const store = new Store();
+    const webhooks = new WebhookDispatcher();
+    const tokenMap: TokenMap = new Map();
+    const localApp = new Hono();
+    localApp.use("*", authMiddleware(tokenMap));
+    microsoftPlugin.register(localApp as any, store, webhooks, base, tokenMap);
+    seedFromConfig(store, base, {
+      users: [{ email: "fr@example.com", name: "Fr User", preferred_language: "fr-FR" }],
+      oauth_clients: [
+        {
+          client_id: "test-client",
+          client_secret: "test-secret",
+          name: "Test App",
+          redirect_uris: ["http://localhost:3000/callback"],
+        },
+      ],
+    });
+    const accessToken = await getAccessToken(localApp, "openid email profile User.Read", "fr@example.com");
+    const res = await localApp.request(`${base}/v1.0/me`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.preferredLanguage).toBe("fr-FR");
   });
 
   it("GET /v1.0/me rejects app-only client credentials tokens", async () => {
@@ -485,6 +513,21 @@ describe("Microsoft plugin integration", () => {
       body: expect.any(Object),
       toRecipients: expect.any(Array),
     });
+    // Real Graph returns a base64 Outlook thread index, never null. 22 bytes ->
+    // a 32-character base64 string ending in "==".
+    const listedIndex = listBody.value[0].conversationIndex as string;
+    expect(typeof listedIndex).toBe("string");
+    expect(listedIndex).toMatch(/^[A-Za-z0-9+/]+=*$/);
+    expect(Buffer.from(listedIndex, "base64").length).toBe(22);
+    expect(Buffer.from(listedIndex, "base64")[0]).toBe(0x01);
+
+    const firstId = listBody.value[0].id as string;
+    const getRes = await app.request(`${base}/v1.0/me/messages/${encodeURIComponent(firstId)}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const getBody = (await getRes.json()) as Record<string, unknown>;
+    // conversationIndex is deterministic: list and get agree for the same message.
+    expect(getBody.conversationIndex).toBe(listedIndex);
 
     const sendRes = await app.request(`${base}/v1.0/me/sendMail`, {
       method: "POST",
@@ -519,6 +562,16 @@ describe("Microsoft plugin integration", () => {
     expect(calendarsRes.status).toBe(200);
     const calendarsBody = (await calendarsRes.json()) as { value: Array<Record<string, unknown>> };
     expect(calendarsBody.value[0]).toMatchObject({ id: expect.any(String), name: expect.any(String) });
+    // Real Outlook calendars carry a groupClassId and do not expose webLink.
+    expect(calendarsBody.value[0].groupClassId).toBe("0006f0b7-0000-0000-c000-000000000046");
+    expect(calendarsBody.value[0]).not.toHaveProperty("webLink");
+
+    const defaultCalRes = await app.request(`${base}/v1.0/me/calendar`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const defaultCal = (await defaultCalRes.json()) as Record<string, unknown>;
+    expect(defaultCal.groupClassId).toBe("0006f0b7-0000-0000-c000-000000000046");
+    expect(defaultCal).not.toHaveProperty("webLink");
 
     const createRes = await app.request(`${base}/v1.0/me/events`, {
       method: "POST",
@@ -531,14 +584,22 @@ describe("Microsoft plugin integration", () => {
         body: { contentType: "text", content: "Review Microsoft emulator behavior." },
         start: { dateTime: "2026-07-01T09:00:00", timeZone: "UTC" },
         end: { dateTime: "2026-07-01T09:30:00", timeZone: "UTC" },
-        location: { displayName: "Teams" },
         attendees: [{ emailAddress: { address: "customer@example.com", name: "Customer" }, type: "required" }],
       }),
     });
     expect(createRes.status).toBe(201);
+    // Real Graph returns a Location header pointing at the created event and an
+    // @odata.context on the body.
+    expect(createRes.headers.get("location")).toContain("/events(");
     const event = (await createRes.json()) as Record<string, unknown>;
     expect(event.subject).toBe("Customer call");
     expect(event.id).toEqual(expect.any(String));
+    expect(event["@odata.context"]).toContain("$metadata#users");
+    // An event created without a location gets an empty address/coordinates and
+    // no uniqueId, matching real Outlook output. recurrence is null.
+    expect(event.location).toMatchObject({ address: {}, coordinates: {} });
+    expect(event.location).not.toHaveProperty("uniqueId");
+    expect(event.recurrence).toBeNull();
 
     const getRes = await app.request(`${base}/v1.0/me/events/${event.id as string}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -546,6 +607,10 @@ describe("Microsoft plugin integration", () => {
     expect(getRes.status).toBe(200);
     const getBody = (await getRes.json()) as Record<string, unknown>;
     expect(getBody.subject).toBe("Customer call");
+    // GET on an event exposes the calendar association/navigation links.
+    expect(getBody["calendar@odata.associationLink"]).toContain("/calendars(");
+    expect(getBody["calendar@odata.associationLink"]).toContain("/$ref");
+    expect(getBody["calendar@odata.navigationLink"]).toContain("/calendars(");
 
     const deleteRes = await app.request(`${base}/v1.0/me/events/${event.id as string}`, {
       method: "DELETE",
@@ -561,16 +626,45 @@ describe("Microsoft plugin integration", () => {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     expect(driveRes.status).toBe(200);
-    const drive = (await driveRes.json()) as Record<string, unknown>;
+    const drive = (await driveRes.json()) as Record<string, any>;
     expect(drive.driveType).toBe("personal");
+    // Real drive quota carries storagePlanInformation, and the owner user has no id.
+    expect(drive.quota.storagePlanInformation).toMatchObject({ upgradeAvailable: true });
+    expect(drive.owner.user).not.toHaveProperty("id");
+    expect(drive.owner.user.email).toBe("testuser@example.com");
+    expect(drive.description).toBe("");
+    expect(drive.createdBy.user.displayName).toBe("System Account");
+
+    const rootRes = await app.request(`${base}/v1.0/me/drive/root`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const root = (await rootRes.json()) as Record<string, any>;
+    // Real root items: root:{}, folder.view, isAuthoritative, no @odata.etag/cTag,
+    // and a minimal parentReference (only driveType + driveId).
+    expect(root.root).toEqual({});
+    expect(root.folder.view).toMatchObject({ sortBy: "name", viewType: "thumbnails" });
+    expect(root.isAuthoritative).toBe(false);
+    expect(root).not.toHaveProperty("@odata.etag");
+    expect(root).not.toHaveProperty("cTag");
+    expect(Object.keys(root.parentReference).sort()).toEqual(["driveId", "driveType"]);
+    expect(root.createdBy.user).not.toHaveProperty("id");
 
     const childrenRes = await app.request(`${base}/v1.0/me/drive/root/children`, {
       headers: { Authorization: `Bearer ${accessToken}` },
     });
     expect(childrenRes.status).toBe(200);
-    const children = (await childrenRes.json()) as { value: Array<Record<string, unknown>> };
+    const children = (await childrenRes.json()) as { value: Array<Record<string, any>> };
     const documents = children.value.find((item) => item.name === "Documents");
     expect(documents).toBeDefined();
+    // Drive items carry eTag/cTag, not @odata.etag, plus isAuthoritative and
+    // createdBy.user.email; folders expose folder.view.
+    expect(documents).not.toHaveProperty("@odata.etag");
+    expect(documents!.eTag).toEqual(expect.any(String));
+    expect(documents!.isAuthoritative).toBe(false);
+    expect(documents!.createdBy.user.email).toBe("testuser@example.com");
+    expect(documents!.createdBy.application.id).toEqual(expect.any(String));
+    expect(documents!.folder.view).toMatchObject({ sortBy: "name" });
+    expect(documents!.parentReference).toMatchObject({ id: expect.any(String), path: expect.any(String) });
 
     const updateRes = await app.request(`${base}/v1.0/me/drive/items/${documents!.id as string}`, {
       method: "PATCH",
@@ -695,6 +789,86 @@ describe("Microsoft plugin integration", () => {
     expect(body.error.code).toBe("itemNotFound");
     expect(body.error.message).toBe("The resource could not be found.");
     expect(body.error.innerError.date).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/);
+    expect(body.error.innerError["request-id"]).toEqual(expect.any(String));
+    expect(body.error.innerError["client-request-id"]).toEqual(expect.any(String));
+  });
+
+  it("returns 400 invalidRequest for a malformed OneDrive item id", async () => {
+    const accessToken = await getAccessToken(app, "openid email profile Files.ReadWrite.All");
+    // A id without a "!" segment is not a valid OneDrive id -> 400, not 404.
+    const res = await app.request(`${base}/v1.0/me/drive/items/parity-probe-missing`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as Record<string, any>;
+    expect(body.error.code).toBe("invalidRequest");
+    expect(body.error.message).toBe("Invalid request");
+    expect(body.error.innerError["request-id"]).toEqual(expect.any(String));
+  });
+
+  it("returns 404 itemNotFound for a well-formed but missing OneDrive item id", async () => {
+    const accessToken = await getAccessToken(app, "openid email profile Files.ReadWrite.All");
+    const res = await app.request(`${base}/v1.0/me/drive/items/${encodeURIComponent("545D8DF03C777341!smissing")}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as Record<string, any>;
+    expect(body.error.code).toBe("itemNotFound");
+  });
+
+  it("returns 400 ErrorInvalidIdMalformed for a malformed event id (no innerError)", async () => {
+    const accessToken = await getAccessToken(app, "openid email profile Calendars.ReadWrite");
+    const res = await app.request(`${base}/v1.0/me/events/parity-probe-missing`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as Record<string, any>;
+    expect(body.error.code).toBe("ErrorInvalidIdMalformed");
+    expect(body.error.message).toBe("The Id is invalid.");
+    // Outlook-style malformed-id errors carry no innerError.
+    expect(body.error).not.toHaveProperty("innerError");
+  });
+
+  it("returns 400 BadRequest for an unknown /v1.0 route segment", async () => {
+    const accessToken = await getAccessToken(app, "openid email profile User.Read");
+    const res = await app.request(`${base}/v1.0/parity-probe-not-implemented`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as Record<string, any>;
+    expect(body.error.code).toBe("BadRequest");
+    expect(body.error.message).toBe("Resource not found for the segment 'parity-probe-not-implemented'.");
+    expect(body.error.innerError["request-id"]).toEqual(expect.any(String));
+  });
+
+  it("rejects an unknown/garbage bearer token with 401 InvalidAuthenticationToken", async () => {
+    // Configure a fallback user (as the standalone server does) and confirm the
+    // Microsoft emulator still rejects tokens that are not real credentials.
+    const store = new Store();
+    const webhooks = new WebhookDispatcher();
+    const tokenMap: TokenMap = new Map();
+    const fallbackApp = new Hono();
+    fallbackApp.use(
+      "*",
+      authMiddleware(tokenMap, undefined, {
+        login: "testuser@example.com",
+        id: 1,
+        scopes: ["openid", "email", "profile", "User.Read"],
+      }),
+    );
+    microsoftPlugin.register(fallbackApp as any, store, webhooks, base, tokenMap);
+    microsoftPlugin.seed?.(store, base);
+    seedFromConfig(store, base, {
+      users: [{ email: "testuser@example.com", name: "Test User" }],
+    });
+
+    const res = await fallbackApp.request(`${base}/v1.0/me`, {
+      headers: { Authorization: "Bearer parity-probe-bad-token" },
+    });
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as Record<string, any>;
+    expect(body.error.code).toBe("InvalidAuthenticationToken");
+    expect(body.error.message).toContain("IDX14100");
     expect(body.error.innerError["request-id"]).toEqual(expect.any(String));
     expect(body.error.innerError["client-request-id"]).toEqual(expect.any(String));
   });
@@ -958,6 +1132,8 @@ describe("Microsoft plugin integration", () => {
     expect(alice).toBeDefined();
     expect(alice!.name).toBe("Alice Smith");
     expect(alice!.preferred_username).toBe("alice@outlook.com");
+    // Seeded users default to en-US unless overridden.
+    expect(alice!.preferred_language).toBe("en-US");
 
     const bob = ms.users.findOneBy("email", "bob@live.com");
     expect(bob).toBeDefined();

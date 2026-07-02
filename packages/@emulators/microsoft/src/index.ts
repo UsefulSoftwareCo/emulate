@@ -26,6 +26,7 @@ export interface MicrosoftSeedConfig {
     given_name?: string;
     family_name?: string;
     tenant_id?: string;
+    preferred_language?: string;
   }>;
   oauth_clients?: Array<{
     client_id: string;
@@ -90,6 +91,7 @@ function seedDefaults(store: Store, _baseUrl: string): void {
     email_verified: true,
     tenant_id: DEFAULT_TENANT_ID,
     preferred_username: "testuser@outlook.com",
+    preferred_language: "en-US",
   });
   seedGraphDefaultsForUser(ms, user, true);
 }
@@ -201,6 +203,7 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: Microsoft
         email_verified: true,
         tenant_id: u.tenant_id ?? DEFAULT_TENANT_ID,
         preferred_username: u.email,
+        preferred_language: u.preferred_language ?? "en-US",
       });
       seedGraphDefaultsForUser(ms, user);
     }

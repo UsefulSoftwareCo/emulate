@@ -6,6 +6,12 @@ export interface AuthUser {
   login: string;
   id: number;
   scopes: string[];
+  /**
+   * True when this user was synthesized from the configured fallback because
+   * the presented token was not a known minted credential. Services that model
+   * strict token validation (e.g. Microsoft Graph) can reject these.
+   */
+  fallback?: boolean;
 }
 
 export interface AuthApp {
@@ -106,7 +112,7 @@ export function authMiddleware(tokens: TokenMap, appKeyResolver?: AppKeyResolver
         let user = tokens.get(token);
         if (!user && fallbackUser && token.length > 0) {
           debug("auth", "fallback user for unknown token", { login: fallbackUser.login, id: fallbackUser.id });
-          user = { login: fallbackUser.login, id: fallbackUser.id, scopes: fallbackUser.scopes };
+          user = { login: fallbackUser.login, id: fallbackUser.id, scopes: fallbackUser.scopes, fallback: true };
         }
         if (user) {
           c.set("authUser", user);
