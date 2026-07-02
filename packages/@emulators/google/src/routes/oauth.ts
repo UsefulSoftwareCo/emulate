@@ -415,15 +415,13 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     }
 
     return c.json({
-      sub: user.uid,
+      id: user.uid,
       email: user.email,
-      email_verified: user.email_verified,
+      verified_email: user.email_verified,
       name: user.name,
       given_name: user.given_name,
       family_name: user.family_name,
-      picture: user.picture,
-      locale: user.locale,
-      ...(user.hd ? { hd: user.hd } : {}),
+      ...(user.picture ? { picture: user.picture } : {}),
     });
   });
 

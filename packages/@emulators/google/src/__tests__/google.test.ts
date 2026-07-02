@@ -34,7 +34,12 @@ function createTestApp() {
     users: [
       { email: "testuser@example.com", name: "Test User" },
       { email: "consumer@gmail.com", name: "Consumer User" },
-      { email: "workspaceuser@example.com", name: "Workspace User", hd: "override.io" },
+      {
+        email: "workspaceuser@example.com",
+        name: "Workspace User",
+        picture: "https://example.com/workspaceuser.png",
+        hd: "override.io",
+      },
     ],
     oauth_clients: [
       {
@@ -221,16 +226,18 @@ describe("Google plugin integration", () => {
     expect(res.status).toBe(200);
 
     const body = (await res.json()) as {
-      sub: string;
+      id: string;
       email: string;
-      email_verified: boolean;
+      verified_email: boolean;
       name: string;
+      picture?: string;
     };
 
-    expect(body.sub).toBeDefined();
+    expect(body.id).toBeDefined();
     expect(body.email).toBe("testuser@example.com");
-    expect(body.email_verified).toBe(true);
+    expect(body.verified_email).toBe(true);
     expect(body.name).toBe("Test User");
+    expect(body.picture).toBeUndefined();
   });
 
   it("lists paginated messages with Gmail-style filters", async () => {
@@ -262,14 +269,15 @@ describe("Google plugin integration", () => {
 
     expect(metadataRes.status).toBe(200);
     const metadataBody = (await metadataRes.json()) as {
-      payload: { headers: Array<{ name: string; value: string }>; body: { size: number } };
+      payload: { mimeType: string; headers: Array<{ name: string; value: string }>; body?: { size: number } };
     };
 
+    expect(metadataBody.payload.mimeType).toBe("text/html");
     expect(metadataBody.payload.headers).toEqual([
       { name: "From", value: "Releases <release@example.com>" },
       { name: "Subject", value: "Release notes available" },
     ]);
-    expect(metadataBody.payload.body.size).toBe(0);
+    expect(metadataBody.payload.body).toBeUndefined();
 
     const rawRes = await app.request(`${base}/gmail/v1/users/me/messages/msg_release?format=raw`, {
       headers: authHeaders(),
@@ -332,6 +340,7 @@ describe("Google plugin integration", () => {
     expect(attachmentRes.status).toBe(200);
 
     const attachment = (await attachmentRes.json()) as { data: string; size: number };
+    expect(Object.keys(attachment)).toEqual(["size", "data"]);
     expect(Buffer.from(attachment.data, "base64url").toString("utf8")).toBe("fake-pdf-data");
     expect(attachment.size).toBe(Buffer.byteLength("fake-pdf-data", "utf8"));
 
@@ -370,14 +379,12 @@ describe("Google plugin integration", () => {
         id: string;
         threadId: string;
         labelIds: string[];
-        payload: { headers: Array<{ name: string; value: string }> };
       };
     };
 
     expect(created.id).toMatch(/^r-\d+$/);
     expect(created.message.threadId).toBe("thread_support");
     expect(created.message.labelIds).toContain("DRAFT");
-    expect(created.message.payload.headers.find((header) => header.name === "Subject")?.value).toBe("Draft review");
 
     const listRes = await app.request(`${base}/gmail/v1/users/me/drafts?maxResults=20`, {
       headers: authHeaders(),
@@ -394,6 +401,12 @@ describe("Google plugin integration", () => {
       headers: authHeaders(),
     });
     expect(getRes.status).toBe(200);
+    const fetchedDraft = (await getRes.json()) as {
+      message: { payload: { headers: Array<{ name: string; value: string }> } };
+    };
+    expect(fetchedDraft.message.payload.headers.find((header) => header.name === "Subject")?.value).toBe(
+      "Draft review",
+    );
 
     const updateRaw = buildRawMessage({
       from: "testuser@example.com",
@@ -413,14 +426,11 @@ describe("Google plugin integration", () => {
     expect(updateRes.status).toBe(200);
     const updated = (await updateRes.json()) as {
       id: string;
-      message: { id: string; labelIds: string[]; payload: { headers: Array<{ name: string; value: string }> } };
+      message: { id: string; labelIds: string[] };
     };
     expect(updated.id).toBe(created.id);
     expect(updated.message.id).toBe(created.message.id);
     expect(updated.message.labelIds).toContain("DRAFT");
-    expect(updated.message.payload.headers.find((header) => header.name === "Subject")?.value).toBe(
-      "Draft review updated",
-    );
 
     const sendRes = await jsonRequest(app, "/gmail/v1/users/me/drafts/send", {
       method: "POST",
@@ -515,13 +525,28 @@ describe("Google plugin integration", () => {
       historyId: string;
       history: Array<{
         id: string;
-        messagesAdded?: Array<{ message: { id: string; threadId: string } }>;
-        labelsAdded?: Array<{ message: { id: string; threadId: string }; labelIds: string[] }>;
-        labelsRemoved?: Array<{ message: { id: string; threadId: string }; labelIds: string[] }>;
+        messages?: Array<{ id: string; threadId: string }>;
+        messagesAdded?: Array<{ message: { id: string; threadId: string; labelIds: string[] } }>;
+        labelsAdded?: Array<{ message: { id: string; threadId: string; labelIds: string[] }; labelIds: string[] }>;
+        labelsRemoved?: Array<{ message: { id: string; threadId: string; labelIds: string[] }; labelIds: string[] }>;
       }>;
     };
 
     expect(BigInt(historyBody.historyId)).toBeGreaterThan(BigInt(watch.historyId));
+    for (const entry of historyBody.history) {
+      for (const message of entry.messages ?? []) {
+        expect(Object.keys(message).sort()).toEqual(["id", "threadId"].sort());
+      }
+      for (const item of entry.messagesAdded ?? []) {
+        expect(Object.keys(item.message).sort()).toEqual(["id", "labelIds", "threadId"].sort());
+      }
+      for (const item of entry.labelsAdded ?? []) {
+        expect(Object.keys(item.message).sort()).toEqual(["id", "labelIds", "threadId"].sort());
+      }
+      for (const item of entry.labelsRemoved ?? []) {
+        expect(Object.keys(item.message).sort()).toEqual(["id", "labelIds", "threadId"].sort());
+      }
+    }
     expect(
       historyBody.history.some((entry) => entry.messagesAdded?.some((item) => item.message.id === imported.id)),
     ).toBe(true);
@@ -540,10 +565,15 @@ describe("Google plugin integration", () => {
       method: "POST",
       headers: authHeaders(),
     });
-    expect(stopRes.status).toBe(200);
+    expect(stopRes.status).toBe(204);
   });
 
   it("lists settings resources and applies Gmail filters to matching messages", async () => {
+    const emptyFiltersRes = await app.request(`${base}/gmail/v1/users/me/settings/filters`, {
+      headers: authHeaders(),
+    });
+    expect(emptyFiltersRes.status).toBe(204);
+
     const sendAsRes = await app.request(`${base}/gmail/v1/users/me/settings/sendAs`, {
       headers: authHeaders(),
     });
@@ -564,11 +594,7 @@ describe("Google plugin integration", () => {
     const forwardingRes = await app.request(`${base}/gmail/v1/users/me/settings/forwardingAddresses`, {
       headers: authHeaders(),
     });
-    expect(forwardingRes.status).toBe(200);
-    const forwardingBody = (await forwardingRes.json()) as {
-      forwardingAddresses: Array<{ forwardingEmail: string }>;
-    };
-    expect(forwardingBody.forwardingAddresses).toEqual([]);
+    expect(forwardingRes.status).toBe(204);
 
     const createFilterRes = await jsonRequest(app, "/gmail/v1/users/me/settings/filters", {
       method: "POST",
@@ -641,11 +667,7 @@ describe("Google plugin integration", () => {
     const afterDeleteRes = await app.request(`${base}/gmail/v1/users/me/settings/filters`, {
       headers: authHeaders(),
     });
-    expect(afterDeleteRes.status).toBe(200);
-    const afterDelete = (await afterDeleteRes.json()) as {
-      filter: Array<{ id: string }>;
-    };
-    expect(afterDelete.filter).toEqual([]);
+    expect(afterDeleteRes.status).toBe(204);
   });
 
   it("creates sent messages and appends them to existing threads", async () => {
@@ -828,6 +850,34 @@ describe("Google plugin integration", () => {
     expect(patched.name).toBe("Inbox Zero/Done");
     expect(patched.color?.backgroundColor).toBe("#FEDCBA");
 
+    const duplicateRes = await jsonRequest(app, "/gmail/v1/users/me/labels", {
+      method: "POST",
+      body: { name: "Inbox Zero/Done" },
+    });
+    expect(duplicateRes.status).toBe(409);
+    const duplicate = (await duplicateRes.json()) as {
+      error: {
+        code: number;
+        message: string;
+        errors: Array<{ message: string; domain: string; reason: string }>;
+        status: string;
+      };
+    };
+    expect(duplicate).toEqual({
+      error: {
+        code: 409,
+        message: "Label name exists or conflicts",
+        errors: [
+          {
+            message: "Label name exists or conflicts",
+            domain: "global",
+            reason: "aborted",
+          },
+        ],
+        status: "ABORTED",
+      },
+    });
+
     const getRes = await app.request(`${base}/gmail/v1/users/me/labels/${created.id}`, {
       headers: authHeaders(),
     });
@@ -930,7 +980,9 @@ describe("Google plugin integration", () => {
       headers: { Authorization: `Bearer ${overridden.accessToken}` },
     });
     expect(userinfoRes.status).toBe(200);
-    expect(((await userinfoRes.json()) as { hd?: string }).hd).toBe("override.io");
+    const userinfoBody = (await userinfoRes.json()) as { hd?: string; picture?: string };
+    expect(userinfoBody.hd).toBeUndefined();
+    expect(userinfoBody.picture).toBe("https://example.com/workspaceuser.png");
   });
 
   it("lists calendar resources, creates events, queries freebusy, and deletes events", async () => {
@@ -1064,7 +1116,7 @@ describe("Google plugin integration", () => {
       `--${boundary}--\r\n`,
     ].join("");
 
-    const uploadRes = await app.request(`${base}/upload/drive/v3/files?uploadType=multipart`, {
+    const uploadRes = await app.request(`${base}/upload/drive/v3/files?uploadType=multipart&fields=id,parents`, {
       method: "POST",
       headers: authHeaders({
         "Content-Type": `multipart/related; boundary=${boundary}`,
@@ -1100,6 +1152,17 @@ describe("Google plugin integration", () => {
     });
     expect(uploadedMediaRes.status).toBe(200);
     expect(Buffer.from(await uploadedMediaRes.arrayBuffer()).toString("utf8")).toBe(uploadedContent);
+
+    const deleteFolderRes = await app.request(`${base}/drive/v3/files/${folder.id}`, {
+      method: "DELETE",
+      headers: authHeaders(),
+    });
+    expect(deleteFolderRes.status).toBe(204);
+
+    const deletedChildRes = await app.request(`${base}/drive/v3/files/${uploaded.id}`, {
+      headers: authHeaders(),
+    });
+    expect(deletedChildRes.status).toBe(404);
   });
 
   it("creates drive files from simple media uploads", async () => {
@@ -1113,10 +1176,9 @@ describe("Google plugin integration", () => {
       body: uploadedContent,
     });
     expect(uploadRes.status).toBe(200);
-    const uploaded = (await uploadRes.json()) as { id: string; name: string; mimeType: string; size: string };
+    const uploaded = (await uploadRes.json()) as { id: string; name: string; mimeType: string };
     expect(uploaded.name).toBe("Untitled");
     expect(uploaded.mimeType).toBe("application/octet-stream");
-    expect(uploaded.size).toBe(String(uploadedContent.byteLength));
 
     const mediaRes = await app.request(`${base}/drive/v3/files/${uploaded.id}?alt=media`, {
       headers: authHeaders(),
@@ -1125,8 +1187,43 @@ describe("Google plugin integration", () => {
     expect(Buffer.from(await mediaRes.arrayBuffer())).toEqual(Buffer.from(uploadedContent));
   });
 
+  it("rejects malformed Drive multipart uploads", async () => {
+    const boundary = "bad-drive-upload-boundary";
+    const uploadRes = await app.request(`${base}/upload/drive/v3/files?uploadType=multipart`, {
+      method: "POST",
+      headers: authHeaders({
+        "Content-Type": `multipart/related; boundary=${boundary}`,
+      }),
+      body: `--${boundary}\r\nContent-Type: text/plain\r\n\r\nmissing metadata\r\n--${boundary}--\r\n`,
+    });
+
+    expect(uploadRes.status).toBe(400);
+    const body = (await uploadRes.json()) as {
+      error: {
+        code: number;
+        message: string;
+        errors: Array<{ message: string; domain: string; reason: string }>;
+        status: string;
+      };
+    };
+    expect(body).toEqual({
+      error: {
+        code: 400,
+        message: "Malformed multipart body.",
+        errors: [
+          {
+            message: "Malformed multipart body.",
+            domain: "global",
+            reason: "badContent",
+          },
+        ],
+        status: "INVALID_ARGUMENT",
+      },
+    });
+  });
+
   it("updates drive file content from simple media uploads", async () => {
-    const createRes = await jsonRequest(app, "/drive/v3/files", {
+    const createRes = await jsonRequest(app, "/drive/v3/files?fields=id,name,parents", {
       method: "POST",
       body: {
         name: "Media update target.txt",
@@ -1138,13 +1235,16 @@ describe("Google plugin integration", () => {
     const created = (await createRes.json()) as { id: string; name: string; parents: string[] };
 
     const updatedContent = new Uint8Array([0xff, 0x00, 0x13, 0x37, 0x80]);
-    const updateRes = await app.request(`${base}/upload/drive/v3/files/${created.id}?uploadType=media`, {
-      method: "PATCH",
-      headers: authHeaders({
-        "Content-Type": "application/pdf",
-      }),
-      body: updatedContent,
-    });
+    const updateRes = await app.request(
+      `${base}/upload/drive/v3/files/${created.id}?uploadType=media&fields=id,name,mimeType,parents,size`,
+      {
+        method: "PATCH",
+        headers: authHeaders({
+          "Content-Type": "application/pdf",
+        }),
+        body: updatedContent,
+      },
+    );
     expect(updateRes.status).toBe(200);
     const updated = (await updateRes.json()) as {
       id: string;

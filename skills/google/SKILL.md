@@ -181,7 +181,7 @@ When no OAuth clients are configured, the emulator accepts any `client_id`. With
 
 ### Hosted domain (hd) claim
 
-Google Workspace accounts include an `hd` claim in ID tokens and userinfo responses identifying the user's hosted domain. The emulator derives this automatically from the user's email domain. Consumer domains (`gmail.com`, `googlemail.com`) omit the claim, matching real Google behavior.
+Google Workspace accounts include an `hd` claim in ID tokens identifying the user's hosted domain. The emulator derives this automatically from the user's email domain. Consumer domains (`gmail.com`, `googlemail.com`) omit the claim, matching real Google behavior. The `/oauth2/v2/userinfo` endpoint returns Google v2 userinfo fields and does not include `hd`.
 
 To override the derived value, set `hd` on a seeded user. To suppress the claim entirely, set `hd` to an empty string.
 
@@ -538,6 +538,10 @@ curl -X PATCH "http://localhost:4002/drive/v3/files/drv_readme?addParents=folder
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name": "README-updated.md"}'
+
+# Delete file or folder
+curl -X DELETE http://localhost:4002/drive/v3/files/drv_readme \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 ## Common Patterns

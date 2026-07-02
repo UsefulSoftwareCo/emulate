@@ -3,6 +3,7 @@ import {
   applyLabelMutation,
   deleteMessage,
   findMissingLabelIds,
+  formatMinimalThreadResource,
   formatThreadResource,
   getThreadMessages,
   googleApiError,
@@ -101,7 +102,7 @@ export function threadRoutes({ app, store }: RouteContext): void {
       markMessageModified(gs, message, applyLabelMutation(message.label_ids, addLabelIds, removeLabelIds)),
     );
 
-    return c.json(formatThreadResource(gs, updated, "full"));
+    return c.json(formatMinimalThreadResource(updated));
   });
 
   app.post("/gmail/v1/users/:userId/threads/:id/trash", (c) => {
@@ -114,7 +115,7 @@ export function threadRoutes({ app, store }: RouteContext): void {
     }
 
     const updated = messages.map((message) => markMessageModified(gs, message, trashLabelIds(message.label_ids)));
-    return c.json(formatThreadResource(gs, updated, "full"));
+    return c.json(formatMinimalThreadResource(updated));
   });
 
   app.post("/gmail/v1/users/:userId/threads/:id/untrash", (c) => {
@@ -127,7 +128,7 @@ export function threadRoutes({ app, store }: RouteContext): void {
     }
 
     const updated = messages.map((message) => markMessageModified(gs, message, untrashLabelIds(message.label_ids)));
-    return c.json(formatThreadResource(gs, updated, "full"));
+    return c.json(formatMinimalThreadResource(updated));
   });
 
   app.delete("/gmail/v1/users/:userId/threads/:id", (c) => {

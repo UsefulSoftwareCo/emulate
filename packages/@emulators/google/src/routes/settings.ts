@@ -22,8 +22,11 @@ export function settingsRoutes({ app, store }: RouteContext): void {
     const authEmail = requireGmailUser(c);
     if (authEmail instanceof Response) return authEmail;
 
+    const filters = listFiltersForUser(gs, authEmail);
+    if (filters.length === 0) return c.body(null, 204);
+
     return c.json({
-      filter: listFiltersForUser(gs, authEmail).map((filter) => formatFilterResource(filter)),
+      filter: filters.map((filter) => formatFilterResource(filter)),
     });
   });
 
@@ -91,10 +94,11 @@ export function settingsRoutes({ app, store }: RouteContext): void {
     const authEmail = requireGmailUser(c);
     if (authEmail instanceof Response) return authEmail;
 
+    const forwardingAddresses = listForwardingAddressesForUser(gs, authEmail);
+    if (forwardingAddresses.length === 0) return c.body(null, 204);
+
     return c.json({
-      forwardingAddresses: listForwardingAddressesForUser(gs, authEmail).map((entry) =>
-        formatForwardingAddressResource(entry),
-      ),
+      forwardingAddresses: forwardingAddresses.map((entry) => formatForwardingAddressResource(entry)),
     });
   });
 

@@ -6,6 +6,7 @@ import {
   findLabelByName,
   formatLabelResource,
   formatLabelResources,
+  formatLabelWriteResource,
   googleApiError,
   isSystemLabelId,
   listLabelsForUser,
@@ -50,7 +51,7 @@ export function labelRoutes({ app, store }: RouteContext): void {
     }
 
     if (findLabelByName(gs, authEmail, name)) {
-      return googleApiError(c, 400, "Label name exists or conflicts", "failedPrecondition", "FAILED_PRECONDITION");
+      return googleApiError(c, 409, "Label name exists or conflicts", "aborted", "ABORTED");
     }
 
     const color =
@@ -69,7 +70,7 @@ export function labelRoutes({ app, store }: RouteContext): void {
       color_text: typeof color?.textColor === "string" ? color.textColor : getString(body, "color_text"),
     });
 
-    return c.json(formatLabelResource(gs, label));
+    return c.json(formatLabelWriteResource(label));
   });
 
   app.put("/gmail/v1/users/:userId/labels/:id", async (c) => {
@@ -130,7 +131,7 @@ async function saveLabel(c: Context, gs: ReturnType<typeof getGoogleStore>, repl
   if (name) {
     const conflicting = findLabelByName(gs, authEmail, name);
     if (conflicting && conflicting.gmail_id !== label.gmail_id) {
-      return googleApiError(c, 400, "Label name exists or conflicts", "failedPrecondition", "FAILED_PRECONDITION");
+      return googleApiError(c, 409, "Label name exists or conflicts", "aborted", "ABORTED");
     }
   }
 
@@ -152,5 +153,5 @@ async function saveLabel(c: Context, gs: ReturnType<typeof getGoogleStore>, repl
         : (getString(body, "color_text") ?? (replaceMissingFields ? null : undefined)),
   });
 
-  return c.json(formatLabelResource(gs, updated));
+  return c.json(replaceMissingFields ? formatLabelWriteResource(updated) : formatLabelResource(gs, updated));
 }

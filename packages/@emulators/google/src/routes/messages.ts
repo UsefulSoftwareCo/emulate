@@ -7,6 +7,7 @@ import {
   dedupeLabelIds,
   findMissingLabelIds,
   formatMessageResource,
+  formatMinimalMessageResource,
   getAttachmentById,
   getMessageById,
   googleApiError,
@@ -34,11 +35,11 @@ export function messageRoutes({ app, store }: RouteContext): void {
     const defaultLabelIds =
       mode === "send"
         ? dedupeLabelIds([...labelIds, "SENT"])
-        : labelIds.length > 0
-          ? labelIds
-          : mode === "import"
-            ? ["INBOX", "UNREAD"]
-            : [];
+        : mode === "insert"
+          ? dedupeLabelIds([...labelIds, "SENT"])
+          : labelIds.length > 0
+            ? labelIds
+            : ["INBOX", "UNREAD"];
 
     const missingLabelIds = findMissingLabelIds(gs, authEmail, defaultLabelIds);
     if (missingLabelIds.length > 0) {
@@ -71,7 +72,11 @@ export function messageRoutes({ app, store }: RouteContext): void {
         label_ids: defaultLabelIds,
       });
 
-      return c.json(formatMessageResource(gs, message, "full"));
+      if (mode === "import") {
+        return c.json({ id: message.gmail_id });
+      }
+
+      return c.json(formatMinimalMessageResource(message));
     } catch {
       return googleApiError(c, 400, "Invalid raw MIME message payload.", "invalidArgument", "INVALID_ARGUMENT");
     }
@@ -170,7 +175,6 @@ export function messageRoutes({ app, store }: RouteContext): void {
     }
 
     return c.json({
-      attachmentId: attachment.gmail_id,
       size: attachment.size,
       data: attachment.data,
     });
@@ -224,7 +228,7 @@ export function messageRoutes({ app, store }: RouteContext): void {
       message,
       applyLabelMutation(message.label_ids, addLabelIds, removeLabelIds),
     );
-    return c.json(formatMessageResource(gs, updated, "full"));
+    return c.json(formatMinimalMessageResource(updated));
   });
 
   app.post("/gmail/v1/users/:userId/messages/:id/trash", (c) => {
@@ -236,9 +240,7 @@ export function messageRoutes({ app, store }: RouteContext): void {
       return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
-    return c.json(
-      formatMessageResource(gs, markMessageModified(gs, message, trashLabelIds(message.label_ids)), "full"),
-    );
+    return c.json(formatMinimalMessageResource(markMessageModified(gs, message, trashLabelIds(message.label_ids))));
   });
 
   app.post("/gmail/v1/users/:userId/messages/:id/untrash", (c) => {
@@ -250,9 +252,7 @@ export function messageRoutes({ app, store }: RouteContext): void {
       return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
-    return c.json(
-      formatMessageResource(gs, markMessageModified(gs, message, untrashLabelIds(message.label_ids)), "full"),
-    );
+    return c.json(formatMinimalMessageResource(markMessageModified(gs, message, untrashLabelIds(message.label_ids))));
   });
 
   app.delete("/gmail/v1/users/:userId/messages/:id", (c) => {

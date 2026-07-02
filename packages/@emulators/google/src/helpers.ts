@@ -243,7 +243,7 @@ export function googleApiError(c: Context, code: number, message: string, reason
         status,
       },
     },
-    code as 400 | 401 | 404,
+    code as 400 | 401 | 403 | 404 | 409,
   );
 }
 
@@ -390,17 +390,13 @@ function computeLabelStats(gs: GoogleStore, userEmail: string): Map<string, Labe
   return stats;
 }
 
-function formatLabelWithStats(label: GoogleLabel, stats?: LabelStats) {
+function formatLabelBase(label: GoogleLabel, options?: { includeType?: boolean }) {
   return {
     id: label.gmail_id,
     name: label.name,
-    type: label.type === "system" ? "system" : "user",
     messageListVisibility: label.message_list_visibility ?? undefined,
     labelListVisibility: label.label_list_visibility ?? undefined,
-    messagesTotal: stats?.messagesTotal ?? 0,
-    messagesUnread: stats?.messagesUnread ?? 0,
-    threadsTotal: stats?.threadsTotal.size ?? 0,
-    threadsUnread: stats?.threadsUnread.size ?? 0,
+    type: options?.includeType ? (label.type === "system" ? "system" : "user") : undefined,
     color:
       label.color_background || label.color_text
         ? {
@@ -413,13 +409,22 @@ function formatLabelWithStats(label: GoogleLabel, stats?: LabelStats) {
 
 export function formatLabelResource(gs: GoogleStore, label: GoogleLabel) {
   const stats = computeLabelStats(gs, label.user_email);
-  return formatLabelWithStats(label, stats.get(label.gmail_id));
+  const labelStats = stats.get(label.gmail_id);
+  return {
+    ...formatLabelBase(label, { includeType: true }),
+    messagesTotal: labelStats?.messagesTotal ?? 0,
+    messagesUnread: labelStats?.messagesUnread ?? 0,
+    threadsTotal: labelStats?.threadsTotal.size ?? 0,
+    threadsUnread: labelStats?.threadsUnread.size ?? 0,
+  };
 }
 
-export function formatLabelResources(gs: GoogleStore, labels: GoogleLabel[]) {
-  if (labels.length === 0) return [];
-  const stats = computeLabelStats(gs, labels[0].user_email);
-  return labels.map((label) => formatLabelWithStats(label, stats.get(label.gmail_id)));
+export function formatLabelWriteResource(label: GoogleLabel) {
+  return formatLabelBase(label);
+}
+
+export function formatLabelResources(_gs: GoogleStore, labels: GoogleLabel[]) {
+  return labels.map((label) => formatLabelBase(label, { includeType: true }));
 }
 
 export function normalizeLabelQuery(value: string): string {
@@ -663,6 +668,16 @@ export function formatDraftResource(
   };
 }
 
+export function formatMinimalDraftResource(gs: GoogleStore, draft: GoogleDraft) {
+  const message = getDraftMessage(gs, draft);
+  if (!message) return { id: draft.gmail_id };
+
+  return {
+    id: draft.gmail_id,
+    message: formatMinimalMessageResource(message),
+  };
+}
+
 export function createDraftMessage(
   gs: GoogleStore,
   input: GoogleMessageInput,
@@ -839,8 +854,6 @@ export function formatSendAsResource(entry: GoogleSendAs) {
     signature: entry.signature,
     isPrimary: entry.is_default,
     isDefault: entry.is_default,
-    treatAsAlias: false,
-    verificationStatus: "accepted",
   };
 }
 
@@ -949,6 +962,14 @@ export function formatMessageResource(
   };
 }
 
+export function formatMinimalMessageResource(message: GoogleMessage) {
+  return {
+    id: message.gmail_id,
+    threadId: message.thread_id,
+    labelIds: message.label_ids,
+  };
+}
+
 export function formatThreadResource(
   gs: GoogleStore,
   messages: GoogleMessage[],
@@ -961,8 +982,17 @@ export function formatThreadResource(
   return {
     id: latest.thread_id,
     historyId: latest.history_id,
-    snippet: latest.snippet,
     messages: ordered.map((message) => formatMessageResource(gs, message, format, metadataHeaders)),
+  };
+}
+
+export function formatMinimalThreadResource(messages: GoogleMessage[]) {
+  const ordered = sortMessagesByDateAsc(messages);
+  const latest = ordered.at(-1)!;
+
+  return {
+    id: latest.thread_id,
+    messages: ordered.map((message) => formatMinimalMessageResource(message)),
   };
 }
 
@@ -1237,8 +1267,8 @@ function formatHistoryEntry(
   const labelsRemoved: Array<Record<string, unknown>> = [];
 
   for (const event of events) {
-    const message = formatHistoryMessageRef(gs, userEmail, event);
-    messages.set(event.message_gmail_id, message);
+    const message = formatHistoryMessageRef(gs, userEmail, event, { includeLabelIds: true });
+    messages.set(event.message_gmail_id, formatHistoryMessageRef(gs, userEmail, event));
 
     if (event.change_type === "messageAdded") {
       messagesAdded.push({ message });
@@ -1265,15 +1295,14 @@ function formatHistoryMessageRef(
   gs: GoogleStore,
   userEmail: string,
   event: GoogleHistoryEvent,
+  options?: { includeLabelIds?: boolean },
 ): Record<string, unknown> {
   const message = getMessageById(gs, userEmail, event.message_gmail_id);
 
   return {
     id: event.message_gmail_id,
     threadId: message?.thread_id ?? event.thread_id,
-    labelIds: message?.label_ids ?? event.label_ids,
-    historyId: message?.history_id ?? event.gmail_id,
-    ...(message?.internal_date ? { internalDate: message.internal_date } : {}),
+    ...(options?.includeLabelIds ? { labelIds: message?.label_ids ?? event.label_ids } : {}),
   };
 }
 
@@ -1538,11 +1567,8 @@ function buildPayload(gs: GoogleStore, message: GoogleMessage, headers: MessageH
 
   if (format === "metadata") {
     return {
-      partId: "",
       mimeType: attachments.length > 0 ? "multipart/mixed" : htmlBody ? "text/html" : "text/plain",
-      filename: "",
       headers,
-      body: { size: 0 },
     };
   }
 

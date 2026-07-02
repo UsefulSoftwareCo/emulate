@@ -124,13 +124,20 @@ export function formatCalendarResource(calendar: GoogleCalendar) {
     etag: `"${calendar.google_id}"`,
     id: calendar.google_id,
     summary: calendar.summary,
-    description: calendar.description ?? undefined,
+    description: calendar.description ?? "",
     timeZone: calendar.time_zone,
+    colorId: calendar.primary ? "17" : "11",
+    backgroundColor: calendar.background_color ?? (calendar.primary ? "#9a9cff" : "#fbe983"),
+    foregroundColor: calendar.foreground_color ?? "#000000",
     selected: calendar.selected,
     primary: calendar.primary || undefined,
     accessRole: calendar.access_role,
-    backgroundColor: calendar.background_color ?? undefined,
-    foregroundColor: calendar.foreground_color ?? undefined,
+    defaultReminders: defaultCalendarReminders(calendar),
+    notificationSettings: calendar.primary ? defaultCalendarNotifications() : undefined,
+    conferenceProperties: {
+      allowedConferenceSolutionTypes: ["hangoutsMeet"],
+    },
+    dataOwner: calendar.user_email,
   };
 }
 
@@ -246,15 +253,27 @@ export function formatCalendarEventResource(gs: GoogleStore, event: GoogleCalend
     location: event.location ?? undefined,
     created: event.created_at,
     updated: event.updated_at,
+    creator: {
+      email: event.user_email,
+      self: true,
+    },
+    organizer: {
+      email: event.user_email,
+      self: true,
+    },
     start: formatCalendarDateRange(event, "start", calendar?.time_zone ?? "UTC"),
     end: formatCalendarDateRange(event, "end", calendar?.time_zone ?? "UTC"),
+    iCalUID: `${event.google_id}@google.com`,
+    sequence: 0,
     attendees: event.attendees.map((attendee) => ({
       email: attendee.email,
-      displayName: attendee.display_name ?? undefined,
-      responseStatus: attendee.response_status ?? undefined,
-      organizer: attendee.organizer || undefined,
-      self: attendee.self || undefined,
+      organizer: attendee.organizer || attendee.email === event.user_email || undefined,
+      self: attendee.self || attendee.email === event.user_email || undefined,
+      responseStatus: attendee.response_status ?? "needsAction",
     })),
+    reminders: {
+      useDefault: true,
+    },
     conferenceData:
       event.conference_entry_points.length > 0
         ? {
@@ -265,6 +284,35 @@ export function formatCalendarEventResource(gs: GoogleStore, event: GoogleCalend
             })),
           }
         : undefined,
+    eventType: "default",
+  };
+}
+
+export function formatCalendarEventsListResource(
+  gs: GoogleStore,
+  calendar: GoogleCalendar,
+  response: {
+    items: GoogleCalendarEvent[];
+    nextPageToken?: string;
+  },
+) {
+  const latestUpdated =
+    response.items
+      .map((event) => event.updated_at)
+      .sort()
+      .at(-1) ?? calendar.updated_at;
+
+  return {
+    kind: "calendar#events",
+    etag: `"${calendar.google_id}-${response.items.length}"`,
+    summary: calendar.summary,
+    description: calendar.description ?? "",
+    updated: latestUpdated,
+    timeZone: calendar.time_zone,
+    accessRole: calendar.access_role,
+    defaultReminders: defaultCalendarReminders(calendar),
+    items: response.items.map((event) => formatCalendarEventResource(gs, event)),
+    nextPageToken: response.nextPageToken,
   };
 }
 
@@ -301,9 +349,24 @@ export function buildFreeBusyResponse(
 
   return {
     kind: "calendar#freeBusy",
-    timeMin: request.timeMin,
-    timeMax: request.timeMax,
+    timeMin: new Date(request.timeMin).toISOString(),
+    timeMax: new Date(request.timeMax).toISOString(),
     calendars,
+  };
+}
+
+function defaultCalendarReminders(calendar: GoogleCalendar) {
+  return calendar.access_role === "reader" ? [] : [{ method: "popup", minutes: 30 }];
+}
+
+function defaultCalendarNotifications() {
+  return {
+    notifications: [
+      { type: "eventCreation", method: "email" },
+      { type: "eventChange", method: "email" },
+      { type: "eventCancellation", method: "email" },
+      { type: "eventResponse", method: "email" },
+    ],
   };
 }
 

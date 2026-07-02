@@ -3,6 +3,7 @@ import {
   buildFreeBusyResponse,
   createCalendarEventRecord,
   deleteCalendarEventRecord,
+  formatCalendarEventsListResource,
   formatCalendarEventResource,
   formatCalendarResource,
   getCalendarById,
@@ -30,6 +31,8 @@ export function calendarRoutes({ app, store }: RouteContext): void {
 
     return c.json({
       kind: "calendar#calendarList",
+      etag: `"${authEmail}"`,
+      nextSyncToken: Buffer.from(authEmail, "utf8").toString("base64url"),
       items: listCalendarsForUser(gs, authEmail).map((calendar) => formatCalendarResource(calendar)),
     });
   });
@@ -53,11 +56,7 @@ export function calendarRoutes({ app, store }: RouteContext): void {
       orderBy: url.searchParams.get("orderBy"),
     });
 
-    return c.json({
-      kind: "calendar#events",
-      items: response.items.map((event) => formatCalendarEventResource(gs, event)),
-      nextPageToken: response.nextPageToken,
-    });
+    return c.json(formatCalendarEventsListResource(gs, calendar, response));
   });
 
   app.post("/calendar/v3/calendars/:calendarId/events", async (c) => {

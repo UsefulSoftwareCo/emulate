@@ -31,6 +31,7 @@ export interface ParsedDriveUpload {
         body: Buffer;
       }
     | undefined;
+  malformed?: boolean;
 }
 
 export function createDriveItemRecord(gs: GoogleStore, input: GoogleDriveItemInput): GoogleDriveItem {
@@ -55,6 +56,30 @@ export function createDriveItemRecord(gs: GoogleStore, input: GoogleDriveItemInp
 
 export function getDriveItemById(gs: GoogleStore, userEmail: string, fileId: string): GoogleDriveItem | undefined {
   return gs.driveItems.findBy("user_email", userEmail).find((item) => item.google_id === fileId);
+}
+
+export function deleteDriveItemRecord(gs: GoogleStore, item: GoogleDriveItem): void {
+  const idsToDelete = new Set<string>();
+  const pending = [item.google_id];
+  const userItems = gs.driveItems.findBy("user_email", item.user_email);
+
+  while (pending.length > 0) {
+    const currentId = pending.pop()!;
+    if (idsToDelete.has(currentId)) continue;
+    idsToDelete.add(currentId);
+
+    for (const child of userItems) {
+      if (child.parent_google_ids.includes(currentId)) {
+        pending.push(child.google_id);
+      }
+    }
+  }
+
+  for (const driveItem of userItems) {
+    if (idsToDelete.has(driveItem.google_id)) {
+      gs.driveItems.delete(driveItem.id);
+    }
+  }
 }
 
 export function listDriveItems(
@@ -130,8 +155,8 @@ export function updateDriveItemRecord(
   );
 }
 
-export function formatDriveItemResource(item: GoogleDriveItem) {
-  return {
+export function formatDriveItemResource(item: GoogleDriveItem, fields?: string | null) {
+  const resource = {
     kind: "drive#file",
     id: item.google_id,
     name: item.name,
@@ -143,6 +168,14 @@ export function formatDriveItemResource(item: GoogleDriveItem) {
     size: item.size != null ? String(item.size) : undefined,
     trashed: item.trashed || undefined,
   };
+  const requestedFields = parseDriveFields(fields);
+  const fieldNames = requestedFields ?? ["kind", "id", "name", "mimeType"];
+
+  return Object.fromEntries(
+    fieldNames
+      .filter((field) => Object.prototype.hasOwnProperty.call(resource, field))
+      .map((field) => [field, resource[field as keyof typeof resource]]),
+  );
 }
 
 export function parseDriveMultipartUpload(contentType: string, rawBody: Buffer): ParsedDriveUpload {
@@ -152,6 +185,7 @@ export function parseDriveMultipartUpload(contentType: string, rawBody: Buffer):
     return {
       requestBody: {},
       media: undefined,
+      malformed: true,
     };
   }
 
@@ -163,6 +197,8 @@ export function parseDriveMultipartUpload(contentType: string, rawBody: Buffer):
 
   let requestBody: Record<string, unknown> = {};
   let media: ParsedDriveUpload["media"];
+  let hasMetadata = false;
+  let hasMedia = false;
 
   for (const part of parts) {
     const normalized = stripMultipartBoundaryPadding(part);
@@ -178,9 +214,10 @@ export function parseDriveMultipartUpload(contentType: string, rawBody: Buffer):
         const parsed = JSON.parse(bodyText);
         if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
           requestBody = parsed;
+          hasMetadata = true;
         }
       } catch {
-        requestBody = {};
+        hasMetadata = false;
       }
       continue;
     }
@@ -190,11 +227,13 @@ export function parseDriveMultipartUpload(contentType: string, rawBody: Buffer):
       mimeType: mimeTypeMatch?.[1]?.trim() ?? "application/octet-stream",
       body: Buffer.from(bodyText, "latin1"),
     };
+    hasMedia = true;
   }
 
   return {
     requestBody,
     media,
+    malformed: !hasMetadata || !hasMedia,
   };
 }
 
@@ -250,6 +289,25 @@ function buildDriveWebViewLink(itemId: string, mimeType: string): string {
 function normalizeParentIds(parentIds: string[] | undefined): string[] {
   const normalized = [...new Set((parentIds ?? ["root"]).filter(Boolean))];
   return normalized.length > 0 ? normalized : ["root"];
+}
+
+function parseDriveFields(fields: string | null | undefined): string[] | null {
+  if (!fields?.trim()) return null;
+  if (fields.trim() === "*") {
+    return null;
+  }
+
+  const normalized = fields.replace(/files\(([^)]+)\)/g, "$1");
+  return [
+    ...new Set(
+      normalized
+        .split(/[,\s]+/)
+        .map((field) => field.trim())
+        .filter((field) => field.length > 0)
+        .filter((field) => !field.includes("(") && !field.includes(")"))
+        .filter((field) => !["files", "nextPageToken", "incompleteSearch"].includes(field)),
+    ),
+  ];
 }
 
 function stripMultipartBoundaryPadding(part: string): string {

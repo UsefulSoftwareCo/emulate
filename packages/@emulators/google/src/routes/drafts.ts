@@ -4,6 +4,8 @@ import {
   createDraftMessage,
   deleteDraftMessage,
   formatDraftResource,
+  formatMinimalDraftResource,
+  formatMinimalMessageResource,
   getDraftById,
   getDraftMessage,
   googleApiError,
@@ -39,7 +41,7 @@ export function draftRoutes({ app, store }: RouteContext): void {
         ...parseMessageInputFromBody(messageBody, { from: authEmail }),
       });
 
-      return c.json(formatDraftResource(gs, draft, "full"));
+      return c.json(formatMinimalDraftResource(gs, draft));
     } catch {
       return googleApiError(c, 400, "Invalid raw MIME message payload.", "invalidArgument", "INVALID_ARGUMENT");
     }
@@ -65,14 +67,7 @@ export function draftRoutes({ app, store }: RouteContext): void {
       return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
-    return c.json({
-      id: message.gmail_id,
-      threadId: message.thread_id,
-      labelIds: message.label_ids,
-      snippet: message.snippet,
-      historyId: message.history_id,
-      internalDate: message.internal_date,
-    });
+    return c.json(formatMinimalMessageResource(message));
   };
 
   app.get("/gmail/v1/users/:userId/drafts", (c) => {
@@ -152,7 +147,7 @@ export function draftRoutes({ app, store }: RouteContext): void {
         return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
       }
 
-      return c.json(formatDraftResource(gs, updated.draft, "full"));
+      return c.json(formatMinimalDraftResource(gs, updated.draft));
     } catch {
       return googleApiError(c, 400, "Invalid raw MIME message payload.", "invalidArgument", "INVALID_ARGUMENT");
     }

@@ -91,6 +91,6 @@ export function historyRoutes({ app, store }: RouteContext): void {
     states.delete(authEmail);
     store.setData(WATCH_STATE_KEY, states);
 
-    return c.body(null, 200);
+    return c.body(null, 204);
   });
 }

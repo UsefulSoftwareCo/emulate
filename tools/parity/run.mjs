@@ -78,16 +78,7 @@ function withQuery(path, entries) {
   return query ? `${path}?${query}` : path;
 }
 
-function makeRawMessage({
-  from,
-  to,
-  subject,
-  body,
-  messageId,
-  inReplyTo,
-  references,
-  attachments = [],
-}) {
+function makeRawMessage({ from, to, subject, body, messageId, inReplyTo, references, attachments = [] }) {
   const headers = [
     `From: ${from}`,
     `To: ${to}`,
@@ -106,12 +97,7 @@ function makeRawMessage({
 
   const boundary = `${PREFIX}mixed-${Math.random().toString(16).slice(2)}`;
   headers.push(`Content-Type: multipart/mixed; boundary="${boundary}"`);
-  const parts = [
-    `--${boundary}`,
-    "Content-Type: text/plain; charset=utf-8",
-    "",
-    body,
-  ];
+  const parts = [`--${boundary}`, "Content-Type: text/plain; charset=utf-8", "", body];
   for (const attachment of attachments) {
     parts.push(
       `--${boundary}`,
@@ -128,21 +114,17 @@ function makeRawMessage({
 
 function driveMultipartBody(metadata, content, contentType = TEXT_MIME) {
   const boundary = `${PREFIX}drive-${Math.random().toString(16).slice(2)}`;
-  const head = Buffer.from(
-    [
-      `--${boundary}`,
-      "Content-Type: application/json; charset=UTF-8",
-      "",
-      JSON.stringify(metadata),
-      `--${boundary}`,
-      `Content-Type: ${contentType}`,
-      "",
-    ].join("\r\n"),
-    "utf8",
-  );
-  const tail = Buffer.from(`\r\n--${boundary}--\r\n`, "utf8");
   return {
-    body: Buffer.concat([head, Buffer.from(content), tail]),
+    body: Buffer.concat([
+      Buffer.from(
+        `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(
+          metadata,
+        )}\r\n--${boundary}\r\nContent-Type: ${contentType}\r\n\r\n`,
+        "utf8",
+      ),
+      Buffer.from(content),
+      Buffer.from(`\r\n--${boundary}--\r\n`, "utf8"),
+    ]),
     headers: { "Content-Type": `multipart/related; boundary="${boundary}"` },
   };
 }
@@ -425,15 +407,12 @@ const steps = [
     path: "/gmail/v1/users/me/messages",
     skip: requireEmail,
     request: (ctx) =>
-      request(
-        "/gmail/v1/users/me/messages",
-        jsonBody({ raw: raw(ctx, "message-insert"), labelIds: ["INBOX"] }),
-      ),
+      request("/gmail/v1/users/me/messages", jsonBody({ raw: raw(ctx, "message-insert"), labelIds: ["INBOX"] })),
     after: (ctx, record) => {
       const body = responseObject(record);
       ctx.messages.main = body?.id;
       ctx.messages.mainThread = body?.threadId;
-      ctx.messages.mainHistory = body?.historyId;
+      if (typeof body?.historyId === "string") ctx.messages.mainHistory = body.historyId;
       addCreated(ctx, "messages", ctx.messages.main);
     },
   }),
@@ -455,9 +434,21 @@ const steps = [
             labelIds: ["INBOX"],
           }),
         ),
-      after: (ctx, record) => {
+      after: async (ctx, record) => {
         ctx.messages[`page${suffix.toUpperCase()}`] = responseId(record);
         addCreated(ctx, "messages", ctx.messages[`page${suffix.toUpperCase()}`]);
+        if (suffix === "b" && ctx.labels.batch && ctx.messages.pageA && ctx.messages.pageB) {
+          for (const messageId of [ctx.messages.pageA, ctx.messages.pageB]) {
+            await performRequest(
+              ctx,
+              "POST",
+              request(
+                `/gmail/v1/users/me/messages/${encodeURIComponent(messageId)}/modify`,
+                jsonBody({ addLabelIds: [ctx.labels.batch], removeLabelIds: ["SPAM"] }),
+              ),
+            );
+          }
+        }
       },
     }),
   ),
@@ -489,19 +480,25 @@ const steps = [
             ...(format === "metadata" ? [["metadataHeaders", "Subject"]] : []),
           ]),
         ),
+      after:
+        format === "minimal"
+          ? (ctx, record) => {
+              const body = responseObject(record);
+              if (typeof body?.historyId === "string") ctx.messages.mainHistory = body.historyId;
+            }
+          : undefined,
     }),
   ),
   step({
     name: "gmail.messages.list.page1",
     method: "GET",
-    path: "/gmail/v1/users/me/messages?maxResults=1&labelIds=INBOX&q={probe}",
-    skip: requireEmail,
+    path: "/gmail/v1/users/me/messages?maxResults=1&labelIds={paginationLabel}",
+    skip: (ctx) => requireValue(ctx.email && ctx.labels.batch, "requires email and pagination label"),
     request: (ctx) =>
       request(
         withQuery("/gmail/v1/users/me/messages", [
           ["maxResults", "1"],
-          ["labelIds", "INBOX"],
-          ["q", subject(ctx, "gmail-page")],
+          ["labelIds", ctx.labels.batch],
         ]),
       ),
     after: (ctx, record) => {
@@ -509,26 +506,29 @@ const steps = [
       ctx.messages.pageToken = typeof body?.nextPageToken === "string" ? body.nextPageToken : null;
       ctx.messages.page1First = listFirstId(record, "messages");
       const expectedMore = [ctx.messages.pageA, ctx.messages.pageB].filter(Boolean).length > 1;
-      return { gmail_list_next_token_when_more_than_one: expectedMore ? Boolean(ctx.messages.pageToken) : "not-applicable" };
+      return {
+        gmail_list_next_token_when_more_than_one: expectedMore ? Boolean(ctx.messages.pageToken) : "not-applicable",
+      };
     },
   }),
   step({
     name: "gmail.messages.list.page2",
     method: "GET",
-    path: "/gmail/v1/users/me/messages?maxResults=1&labelIds=INBOX&q={probe}&pageToken={pageToken}",
+    path: "/gmail/v1/users/me/messages?maxResults=1&labelIds={paginationLabel}&pageToken={pageToken}",
     skip: (ctx) => requireValue(ctx.messages.pageToken, "requires Gmail list nextPageToken"),
     request: (ctx) =>
       request(
         withQuery("/gmail/v1/users/me/messages", [
           ["maxResults", "1"],
-          ["labelIds", "INBOX"],
-          ["q", subject(ctx, "gmail-page")],
+          ["labelIds", ctx.labels.batch],
           ["pageToken", ctx.messages.pageToken],
         ]),
       ),
     after: (ctx, record) => ({
       gmail_list_page_two_different_item: Boolean(
-        ctx.messages.page1First && listFirstId(record, "messages") && ctx.messages.page1First !== listFirstId(record, "messages"),
+        ctx.messages.page1First &&
+        listFirstId(record, "messages") &&
+        ctx.messages.page1First !== listFirstId(record, "messages"),
       ),
     }),
   }),
@@ -551,15 +551,16 @@ const steps = [
     skip: (ctx) => requireValue(ctx.messages.main && ctx.labels.message, "requires main message and message label"),
     request: (ctx) =>
       request(withQuery(`/gmail/v1/users/me/messages/${encodeURIComponent(ctx.messages.main)}`, [["format", "full"]])),
-    after: (ctx, record) => ({ gmail_label_add_reflected_in_get: messageLabelIds(record).includes(ctx.labels.message) }),
+    after: (ctx, record) => ({
+      gmail_label_add_reflected_in_get: messageLabelIds(record).includes(ctx.labels.message),
+    }),
   }),
   step({
     name: "gmail.history.list.afterLabelMutation",
     method: "GET",
     path: "/gmail/v1/users/me/history?startHistoryId={historyId}",
     skip: (ctx) => requireValue(ctx.messages.mainHistory, "requires main message history id"),
-    request: (ctx) =>
-      request(withQuery("/gmail/v1/users/me/history", [["startHistoryId", ctx.messages.mainHistory]])),
+    request: (ctx) => request(withQuery("/gmail/v1/users/me/history", [["startHistoryId", ctx.messages.mainHistory]])),
     after: (_ctx, record) => ({
       history_includes_label_added_or_message_added:
         historyHas(responseObject(record), "labelsAdded") || historyHas(responseObject(record), "messagesAdded"),
@@ -577,7 +578,9 @@ const steps = [
           ["historyTypes", "labelAdded"],
         ]),
       ),
-    after: (_ctx, record) => ({ history_type_filter_includes_label_added: historyHas(responseObject(record), "labelsAdded") }),
+    after: (_ctx, record) => ({
+      history_type_filter_includes_label_added: historyHas(responseObject(record), "labelsAdded"),
+    }),
   }),
   step({
     name: "gmail.messages.modify.removeLabel",
@@ -597,7 +600,9 @@ const steps = [
     skip: (ctx) => requireValue(ctx.messages.main && ctx.labels.message, "requires main message and message label"),
     request: (ctx) =>
       request(withQuery(`/gmail/v1/users/me/messages/${encodeURIComponent(ctx.messages.main)}`, [["format", "full"]])),
-    after: (ctx, record) => ({ gmail_label_remove_reflected_in_get: !messageLabelIds(record).includes(ctx.labels.message) }),
+    after: (ctx, record) => ({
+      gmail_label_remove_reflected_in_get: !messageLabelIds(record).includes(ctx.labels.message),
+    }),
   }),
   step({
     name: "gmail.messages.trash",
@@ -619,7 +624,8 @@ const steps = [
     name: "gmail.messages.batchModify",
     method: "POST",
     path: "/gmail/v1/users/me/messages/batchModify",
-    skip: (ctx) => requireValue(ctx.messages.pageA && ctx.messages.pageB && ctx.labels.batch, "requires batch messages and label"),
+    skip: (ctx) =>
+      requireValue(ctx.messages.pageA && ctx.messages.pageB && ctx.labels.batch, "requires batch messages and label"),
     request: (ctx) =>
       request(
         "/gmail/v1/users/me/messages/batchModify",
@@ -648,11 +654,22 @@ const steps = [
         }),
       );
     },
-    after: (ctx, record) => {
+    after: async (ctx, record) => {
       const body = responseObject(record);
       ctx.messages.attachment = body?.id;
-      ctx.messages.attachmentPart = findAttachmentId(body?.payload);
       addCreated(ctx, "messages", ctx.messages.attachment);
+      if (ctx.messages.attachment) {
+        const full = await performRequest(
+          ctx,
+          "GET",
+          request(
+            withQuery(`/gmail/v1/users/me/messages/${encodeURIComponent(ctx.messages.attachment)}`, [
+              ["format", "full"],
+            ]),
+          ),
+        );
+        ctx.messages.attachmentPart = findAttachmentId(getObject(full.response)?.payload);
+      }
     },
   }),
   step({
@@ -660,7 +677,10 @@ const steps = [
     method: "GET",
     path: "/gmail/v1/users/me/messages/{messageId}/attachments/{attachmentId}",
     skip: (ctx) =>
-      requireValue(ctx.messages.attachment && ctx.messages.attachmentPart, "requires sent attachment message and attachment id"),
+      requireValue(
+        ctx.messages.attachment && ctx.messages.attachmentPart,
+        "requires sent attachment message and attachment id",
+      ),
     request: (ctx) =>
       request(
         `/gmail/v1/users/me/messages/${encodeURIComponent(ctx.messages.attachment)}/attachments/${encodeURIComponent(
@@ -698,7 +718,8 @@ const steps = [
       method: "POST",
       path: "/gmail/v1/users/me/messages",
       skip: requireEmail,
-      request: (ctx) => request("/gmail/v1/users/me/messages", jsonBody({ raw: raw(ctx, `message-batch-delete-${suffix}`) })),
+      request: (ctx) =>
+        request("/gmail/v1/users/me/messages", jsonBody({ raw: raw(ctx, `message-batch-delete-${suffix}`) })),
       after: (ctx, record) => {
         ctx.messages[`batchDelete${suffix.toUpperCase()}`] = responseId(record);
         addCreated(ctx, "messages", ctx.messages[`batchDelete${suffix.toUpperCase()}`]);
@@ -710,9 +731,13 @@ const steps = [
     method: "POST",
     path: "/gmail/v1/users/me/messages/batchDelete",
     scopeLimited: true,
-    skip: (ctx) => requireValue(ctx.messages.batchDeleteA && ctx.messages.batchDeleteB, "requires batch delete fixture ids"),
+    skip: (ctx) =>
+      requireValue(ctx.messages.batchDeleteA && ctx.messages.batchDeleteB, "requires batch delete fixture ids"),
     request: (ctx) =>
-      request("/gmail/v1/users/me/messages/batchDelete", jsonBody({ ids: [ctx.messages.batchDeleteA, ctx.messages.batchDeleteB] })),
+      request(
+        "/gmail/v1/users/me/messages/batchDelete",
+        jsonBody({ ids: [ctx.messages.batchDeleteA, ctx.messages.batchDeleteB] }),
+      ),
   }),
   step({
     name: "gmail.drafts.create",
@@ -739,7 +764,8 @@ const steps = [
       method: "GET",
       path: `/gmail/v1/users/me/drafts/{draftId}?format=${format}`,
       skip: (ctx) => requireValue(ctx.drafts.main, "requires draft id"),
-      request: (ctx) => request(withQuery(`/gmail/v1/users/me/drafts/${encodeURIComponent(ctx.drafts.main)}`, [["format", format]])),
+      request: (ctx) =>
+        request(withQuery(`/gmail/v1/users/me/drafts/${encodeURIComponent(ctx.drafts.main)}`, [["format", format]])),
     }),
   ),
   step({
@@ -760,7 +786,8 @@ const steps = [
     method: "GET",
     path: "/gmail/v1/users/me/drafts/{draftId}?format=full",
     skip: (ctx) => requireValue(ctx.drafts.main, "requires draft id"),
-    request: (ctx) => request(withQuery(`/gmail/v1/users/me/drafts/${encodeURIComponent(ctx.drafts.main)}`, [["format", "full"]])),
+    request: (ctx) =>
+      request(withQuery(`/gmail/v1/users/me/drafts/${encodeURIComponent(ctx.drafts.main)}`, [["format", "full"]])),
     after: (ctx, record) => {
       const body = responseObject(record);
       return { draft_update_replaces_subject: headerValue(body?.message, "Subject") === ctx.drafts.updatedSubject };
@@ -783,7 +810,8 @@ const steps = [
     method: "POST",
     path: "/gmail/v1/users/me/drafts",
     skip: requireEmail,
-    request: (ctx) => request("/gmail/v1/users/me/drafts", jsonBody({ message: { raw: raw(ctx, "draft-delete-fixture") } })),
+    request: (ctx) =>
+      request("/gmail/v1/users/me/drafts", jsonBody({ message: { raw: raw(ctx, "draft-delete-fixture") } })),
     after: (ctx, record) => {
       ctx.drafts.deleteFixture = responseId(record);
       addCreated(ctx, "drafts", ctx.drafts.deleteFixture);
@@ -884,7 +912,10 @@ const steps = [
       ),
     after: (ctx, record) => {
       const messages = Array.isArray(responseObject(record)?.messages) ? responseObject(record).messages : [];
-      return { thread_modify_applies_label_to_all_messages: messages.length > 0 && messages.every((m) => m?.labelIds?.includes(ctx.labels.thread)) };
+      return {
+        thread_modify_applies_label_to_all_messages:
+          messages.length > 0 && messages.every((m) => m?.labelIds?.includes(ctx.labels.thread)),
+      };
     },
   }),
   step({
@@ -906,7 +937,8 @@ const steps = [
     method: "POST",
     path: "/gmail/v1/users/me/messages",
     skip: requireEmail,
-    request: (ctx) => request("/gmail/v1/users/me/messages", jsonBody({ raw: raw(ctx, "thread-delete-fixture"), labelIds: ["INBOX"] })),
+    request: (ctx) =>
+      request("/gmail/v1/users/me/messages", jsonBody({ raw: raw(ctx, "thread-delete-fixture"), labelIds: ["INBOX"] })),
     after: (ctx, record) => {
       const body = responseObject(record);
       ctx.threads.deleteFixture = body?.threadId;
@@ -1022,7 +1054,9 @@ const steps = [
           ["singleEvents", "true"],
         ]),
       ),
-    after: (ctx, record) => ({ calendar_created_event_appears_in_filtered_list: eventListHasId(record, ctx.calendar.eventId) }),
+    after: (ctx, record) => ({
+      calendar_created_event_appears_in_filtered_list: eventListHasId(record, ctx.calendar.eventId),
+    }),
   }),
   step({
     name: "calendar.freeBusy.query",
@@ -1061,7 +1095,9 @@ const steps = [
           ["singleEvents", "true"],
         ]),
       ),
-    after: (ctx, record) => ({ calendar_deleted_event_no_longer_appears: !eventListHasId(record, ctx.calendar.eventId) }),
+    after: (ctx, record) => ({
+      calendar_deleted_event_no_longer_appears: !eventListHasId(record, ctx.calendar.eventId),
+    }),
   }),
   step({
     name: "drive.files.create.folder",
@@ -1095,9 +1131,24 @@ const steps = [
           parents: [ctx.drive.folder],
         }),
       ),
-    after: (ctx, record) => {
+    after: async (ctx, record) => {
       ctx.drive.child = responseId(record);
       addCreated(ctx, "driveFiles", ctx.drive.child);
+      if (ctx.drive.folder) {
+        const extra = await performRequest(
+          ctx,
+          "POST",
+          request(
+            "/drive/v3/files",
+            jsonBody({
+              name: subject(ctx, "drive-child-metadata-extra"),
+              mimeType: TEXT_MIME,
+              parents: [ctx.drive.folder],
+            }),
+          ),
+        );
+        ctx.drive.childExtra = responseId({ response: extra.response });
+      }
     },
   }),
   step({
@@ -1107,7 +1158,10 @@ const steps = [
     skip: requireEmail,
     request: (ctx) => {
       ctx.drive.mediaBytes = Buffer.from(`drive media ${ctx.runId}`, "utf8");
-      return request(withQuery("/upload/drive/v3/files", [["uploadType", "media"]]), byteBody(ctx.drive.mediaBytes, "application/octet-stream"));
+      return request(
+        withQuery("/upload/drive/v3/files", [["uploadType", "media"]]),
+        byteBody(ctx.drive.mediaBytes, "application/octet-stream"),
+      );
     },
     after: (ctx, record) => {
       ctx.drive.media = responseId(record);
@@ -1166,8 +1220,10 @@ const steps = [
       const body = responseObject(record);
       ctx.drive.pageToken = typeof body?.nextPageToken === "string" ? body.nextPageToken : null;
       ctx.drive.page1First = listFirstId(record, "files");
-      const expectedMore = [ctx.drive.child, ctx.drive.multipart].filter(Boolean).length > 1;
-      return { drive_list_next_token_when_more_than_one: expectedMore ? Boolean(ctx.drive.pageToken) : "not-applicable" };
+      const expectedMore = [ctx.drive.child, ctx.drive.childExtra, ctx.drive.multipart].filter(Boolean).length > 1;
+      return {
+        drive_list_next_token_when_more_than_one: expectedMore ? Boolean(ctx.drive.pageToken) : "not-applicable",
+      };
     },
   }),
   step({
@@ -1185,7 +1241,9 @@ const steps = [
         ]),
       ),
     after: (ctx, record) => ({
-      drive_list_page_two_different_item: Boolean(ctx.drive.page1First && listFirstId(record, "files") && ctx.drive.page1First !== listFirstId(record, "files")),
+      drive_list_page_two_different_item: Boolean(
+        ctx.drive.page1First && listFirstId(record, "files") && ctx.drive.page1First !== listFirstId(record, "files"),
+      ),
     }),
   }),
   step({
@@ -1200,7 +1258,10 @@ const steps = [
     method: "GET",
     path: "/drive/v3/files/{fileId}?alt=media",
     skip: (ctx) => requireValue(ctx.drive.media, "requires Drive media file id"),
-    request: (ctx) => request(withQuery(`/drive/v3/files/${encodeURIComponent(ctx.drive.media)}`, [["alt", "media"]]), null, { expectBinary: true }),
+    request: (ctx) =>
+      request(withQuery(`/drive/v3/files/${encodeURIComponent(ctx.drive.media)}`, [["alt", "media"]]), null, {
+        expectBinary: true,
+      }),
     after: (ctx, record) => {
       const bytes = binaryResponseBytes(record);
       return { drive_media_roundtrip: Boolean(bytes && Buffer.compare(bytes, ctx.drive.mediaBytes) === 0) };
@@ -1249,10 +1310,15 @@ const steps = [
     method: "GET",
     path: "/drive/v3/files/{fileId}?alt=media",
     skip: (ctx) => requireValue(ctx.drive.media, "requires Drive media file id"),
-    request: (ctx) => request(withQuery(`/drive/v3/files/${encodeURIComponent(ctx.drive.media)}`, [["alt", "media"]]), null, { expectBinary: true }),
+    request: (ctx) =>
+      request(withQuery(`/drive/v3/files/${encodeURIComponent(ctx.drive.media)}`, [["alt", "media"]]), null, {
+        expectBinary: true,
+      }),
     after: (ctx, record) => {
       const bytes = binaryResponseBytes(record);
-      return { drive_media_replace_roundtrip: Boolean(bytes && Buffer.compare(bytes, ctx.drive.mediaReplacementBytes) === 0) };
+      return {
+        drive_media_replace_roundtrip: Boolean(bytes && Buffer.compare(bytes, ctx.drive.mediaReplacementBytes) === 0),
+      };
     },
   }),
   ...[
@@ -1390,7 +1456,7 @@ async function runStep(ctx, definition) {
     record.response = result.response;
 
     if (definition.after) {
-      const checks = definition.after(ctx, record);
+      const checks = await definition.after(ctx, record);
       if (checks && Object.keys(checks).length > 0) record.checks = checks;
     }
   } catch (error) {
