@@ -1101,4 +1101,101 @@ describe("Google plugin integration", () => {
     expect(uploadedMediaRes.status).toBe(200);
     expect(Buffer.from(await uploadedMediaRes.arrayBuffer()).toString("utf8")).toBe(uploadedContent);
   });
+
+  it("creates drive files from simple media uploads", async () => {
+    const uploadedContent = new Uint8Array([0x00, 0xff, 0x42, 0x80, 0x0a, 0x0d, 0x7f]);
+
+    const uploadRes = await app.request(`${base}/upload/drive/v3/files?uploadType=media`, {
+      method: "POST",
+      headers: authHeaders({
+        "Content-Type": "application/octet-stream",
+      }),
+      body: uploadedContent,
+    });
+    expect(uploadRes.status).toBe(200);
+    const uploaded = (await uploadRes.json()) as { id: string; name: string; mimeType: string; size: string };
+    expect(uploaded.name).toBe("Untitled");
+    expect(uploaded.mimeType).toBe("application/octet-stream");
+    expect(uploaded.size).toBe(String(uploadedContent.byteLength));
+
+    const mediaRes = await app.request(`${base}/drive/v3/files/${uploaded.id}?alt=media`, {
+      headers: authHeaders(),
+    });
+    expect(mediaRes.status).toBe(200);
+    expect(Buffer.from(await mediaRes.arrayBuffer())).toEqual(Buffer.from(uploadedContent));
+  });
+
+  it("updates drive file content from simple media uploads", async () => {
+    const createRes = await jsonRequest(app, "/drive/v3/files", {
+      method: "POST",
+      body: {
+        name: "Media update target.txt",
+        mimeType: "text/plain",
+        parents: ["drv_docs"],
+      },
+    });
+    expect(createRes.status).toBe(200);
+    const created = (await createRes.json()) as { id: string; name: string; parents: string[] };
+
+    const updatedContent = new Uint8Array([0xff, 0x00, 0x13, 0x37, 0x80]);
+    const updateRes = await app.request(`${base}/upload/drive/v3/files/${created.id}?uploadType=media`, {
+      method: "PATCH",
+      headers: authHeaders({
+        "Content-Type": "application/pdf",
+      }),
+      body: updatedContent,
+    });
+    expect(updateRes.status).toBe(200);
+    const updated = (await updateRes.json()) as {
+      id: string;
+      name: string;
+      mimeType: string;
+      parents: string[];
+      size: string;
+    };
+    expect(updated.id).toBe(created.id);
+    expect(updated.name).toBe("Media update target.txt");
+    expect(updated.parents).toEqual(["drv_docs"]);
+    expect(updated.mimeType).toBe("application/pdf");
+    expect(updated.size).toBe(String(updatedContent.byteLength));
+
+    const mediaRes = await app.request(`${base}/drive/v3/files/${created.id}?alt=media`, {
+      headers: authHeaders(),
+    });
+    expect(mediaRes.status).toBe(200);
+    expect(Buffer.from(await mediaRes.arrayBuffer())).toEqual(Buffer.from(updatedContent));
+  });
+
+  it("returns Google-style not found errors for missing media upload updates", async () => {
+    const updateRes = await app.request(`${base}/upload/drive/v3/files/missing-file?uploadType=media`, {
+      method: "PATCH",
+      headers: authHeaders({
+        "Content-Type": "application/octet-stream",
+      }),
+      body: new Uint8Array([0x01, 0x02]),
+    });
+    expect(updateRes.status).toBe(404);
+    const body = (await updateRes.json()) as {
+      error: {
+        code: number;
+        message: string;
+        errors: Array<{ message: string; domain: string; reason: string }>;
+        status: string;
+      };
+    };
+    expect(body).toMatchObject({
+      error: {
+        code: 404,
+        message: "Requested entity was not found.",
+        errors: [
+          {
+            message: "Requested entity was not found.",
+            domain: "global",
+            reason: "notFound",
+          },
+        ],
+        status: "NOT_FOUND",
+      },
+    });
+  });
 });

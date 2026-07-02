@@ -103,6 +103,9 @@ export function updateDriveItemRecord(
     addParents?: string[];
     removeParents?: string[];
     name?: string;
+    mimeType?: string;
+    size?: number | null;
+    data?: string | null;
     trashed?: boolean;
   },
 ): GoogleDriveItem {
@@ -117,9 +120,12 @@ export function updateDriveItemRecord(
   return (
     gs.driveItems.update(item.id, {
       name: input.name ?? item.name,
+      mime_type: input.mimeType ?? item.mime_type,
       parent_google_ids: normalizeParentIds(Array.from(nextParents)),
+      size: input.size ?? item.size,
+      data: input.data ?? item.data,
       trashed: input.trashed ?? item.trashed,
-      web_view_link: buildDriveWebViewLink(item.google_id, item.mime_type),
+      web_view_link: buildDriveWebViewLink(item.google_id, input.mimeType ?? item.mime_type),
     }) ?? item
   );
 }

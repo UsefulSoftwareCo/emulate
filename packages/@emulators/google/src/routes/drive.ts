@@ -26,10 +26,16 @@ export function driveRoutes({ app, store }: RouteContext): void {
     if (authEmail instanceof Response) return authEmail;
 
     const contentType = c.req.header("Content-Type") ?? "";
+    const uploadType = new URL(c.req.url).searchParams.get("uploadType");
     let requestBody: Record<string, unknown> = {};
     let media: { mimeType: string; body: Buffer } | undefined;
 
-    if (contentType.includes("multipart/related")) {
+    if (uploadType === "media") {
+      media = {
+        mimeType: getUploadMimeType(contentType),
+        body: Buffer.from(await c.req.raw.arrayBuffer()),
+      };
+    } else if (contentType.toLowerCase().includes("multipart/related")) {
       const rawBody = Buffer.from(await c.req.raw.arrayBuffer());
       const parsed = parseDriveMultipartUpload(contentType, rawBody);
       requestBody = parsed.requestBody;
@@ -98,14 +104,32 @@ export function driveRoutes({ app, store }: RouteContext): void {
     const authEmail = requireGoogleAuth(c);
     if (authEmail instanceof Response) return authEmail;
 
+    const url = new URL(c.req.url);
     const item = getDriveItemById(gs, authEmail, c.req.param("fileId")!);
     if (!item) {
       return googleApiError(c, 404, "Requested entity was not found.", "notFound", "NOT_FOUND");
     }
 
-    const url = new URL(c.req.url);
-    const body = await parseGoogleBody(c);
-    const requestBody = getRecord(body, "requestBody") ?? body;
+    const contentType = c.req.header("Content-Type") ?? "";
+    const uploadType = url.searchParams.get("uploadType");
+    let requestBody: Record<string, unknown> = {};
+    let media: { mimeType: string; body: Buffer } | undefined;
+
+    if (uploadType === "media") {
+      media = {
+        mimeType: getUploadMimeType(contentType),
+        body: Buffer.from(await c.req.raw.arrayBuffer()),
+      };
+    } else if (contentType.toLowerCase().includes("multipart/related")) {
+      const rawBody = Buffer.from(await c.req.raw.arrayBuffer());
+      const parsed = parseDriveMultipartUpload(contentType, rawBody);
+      requestBody = parsed.requestBody;
+      media = parsed.media;
+    } else {
+      const body = await parseGoogleBody(c);
+      requestBody = getRecord(body, "requestBody") ?? body;
+    }
+
     const addParents = (url.searchParams.get("addParents") ?? "")
       .split(",")
       .map((value) => value.trim())
@@ -119,6 +143,9 @@ export function driveRoutes({ app, store }: RouteContext): void {
       addParents,
       removeParents,
       name: getString(requestBody, "name"),
+      mimeType: media?.mimeType,
+      size: media ? media.body.length : undefined,
+      data: media ? media.body.toString("base64url") : undefined,
     });
 
     return c.json(formatDriveItemResource(updated));
@@ -126,4 +153,10 @@ export function driveRoutes({ app, store }: RouteContext): void {
 
   app.patch("/drive/v3/files/:fileId", updateHandler);
   app.put("/drive/v3/files/:fileId", updateHandler);
+  app.patch("/upload/drive/v3/files/:fileId", updateHandler);
+  app.put("/upload/drive/v3/files/:fileId", updateHandler);
+}
+
+function getUploadMimeType(contentType: string): string {
+  return contentType.split(";")[0]?.trim() || "application/octet-stream";
 }
