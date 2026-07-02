@@ -203,6 +203,9 @@ describe("Microsoft plugin integration", () => {
     expect(body.paths).toHaveProperty("/v1.0/me/sendMail");
     expect(body.paths).toHaveProperty("/v1.0/me/events");
     expect(body.paths).toHaveProperty("/v1.0/me/drive/root/children");
+    expect(body.paths).toHaveProperty("/v1.0/me/drive/root:/{path}:/content");
+    expect(body.paths).toHaveProperty("/v1.0/me/drive/items/{id}/content");
+    expect(body.paths).toHaveProperty("/v1.0/drives/{driveId}/items/{itemId}/content");
   });
 
   // --- OIDC Discovery ---
@@ -580,6 +583,176 @@ describe("Microsoft plugin integration", () => {
     expect(updateRes.status).toBe(200);
     const updated = (await updateRes.json()) as Record<string, unknown>;
     expect(updated.name).toBe("Shared Documents");
+  });
+
+  it("uploads and downloads OneDrive content byte-exact through a working preauthenticated URL", async () => {
+    const accessToken = await getAccessToken(app, "openid email profile Files.ReadWrite.All");
+    const bytes = new Uint8Array([0, 1, 2, 3, 4, 253, 254, 255]);
+
+    const putRes = await app.request(`${base}/v1.0/me/drive/root:/binary-probe.bin:/content`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "text/plain",
+      },
+      body: bytes,
+    });
+    expect(putRes.status).toBe(201);
+    const item = (await putRes.json()) as Record<string, any>;
+    expect(item.name).toBe("binary-probe.bin");
+    expect(item.size).toBe(bytes.byteLength);
+    expect(item.eTag).toMatch(/^"\{[0-9a-f-]{36}\},1"$/i);
+    expect(item.cTag).toMatch(/^"c:\{[0-9a-f-]{36}\},1"$/i);
+    expect(item.file.mimeType).toBe("application/octet-stream");
+    expect(item.file.hashes.quickXorHash).toEqual(expect.any(String));
+    expect(item["@microsoft.graph.downloadUrl"]).toBe(`${base}/v1.0/_content/${item.id}`);
+
+    const redirectRes = await app.request(`${base}/v1.0/me/drive/items/${item.id}/content`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      redirect: "manual",
+    });
+    expect(redirectRes.status).toBe(302);
+    expect(redirectRes.headers.get("location")).toBe(item["@microsoft.graph.downloadUrl"]);
+
+    const downloadRes = await app.request(redirectRes.headers.get("location") ?? "");
+    expect(downloadRes.status).toBe(200);
+    expect(downloadRes.headers.get("content-type")).toBe("application/octet-stream");
+    expect(new Uint8Array(await downloadRes.arrayBuffer())).toEqual(bytes);
+  });
+
+  it("auto-creates nested folders for path-addressed OneDrive uploads and replaces existing paths", async () => {
+    const accessToken = await getAccessToken(app, "openid email profile Files.ReadWrite.All");
+
+    const createRes = await app.request(`${base}/v1.0/me/drive/root:/newfolder/note.txt:/content`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/octet-stream",
+      },
+      body: "first",
+    });
+    expect(createRes.status).toBe(201);
+    const created = (await createRes.json()) as Record<string, any>;
+    expect(created.file.mimeType).toBe("text/plain");
+    expect(created.parentReference.name).toBe("newfolder");
+    expect(created.parentReference.path).toBe("/drive/root:/newfolder");
+
+    const replaceRes = await app.request(`${base}/v1.0/me/drive/root:/newfolder/note.txt:/content`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: "second",
+    });
+    expect(replaceRes.status).toBe(200);
+    const replaced = (await replaceRes.json()) as Record<string, any>;
+    expect(replaced.id).toBe(created.id);
+    expect(replaced.size).toBe(Buffer.byteLength("second"));
+    expect(replaced.name).toBe("note.txt");
+    expect(replaced.parentReference.id).toBe(created.parentReference.id);
+    expect(replaced.eTag).toMatch(/^"\{[0-9a-f-]{36}\},2"$/i);
+  });
+
+  it("replaces content by item id while preserving name and parent", async () => {
+    const accessToken = await getAccessToken(app, "openid email profile Files.ReadWrite.All");
+
+    const createRes = await app.request(`${base}/v1.0/me/drive/root:/replace-me.md:/content`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/octet-stream",
+      },
+      body: "markdown",
+    });
+    const created = (await createRes.json()) as Record<string, any>;
+
+    const replaceRes = await app.request(`${base}/v1.0/me/drive/items/${created.id}/content`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/pdf",
+      },
+      body: new Uint8Array([9, 8, 7]),
+    });
+    expect(replaceRes.status).toBe(200);
+    const replaced = (await replaceRes.json()) as Record<string, any>;
+    expect(replaced.id).toBe(created.id);
+    expect(replaced.name).toBe("replace-me.md");
+    expect(replaced.parentReference.id).toBe(created.parentReference.id);
+    expect(replaced.file.mimeType).toBe("text/markdown");
+    expect(replaced.size).toBe(3);
+  });
+
+  it("returns Microsoft Graph innerError details for drive 404s", async () => {
+    const accessToken = await getAccessToken(app, "openid email profile Files.ReadWrite.All");
+
+    const res = await app.request(`${base}/v1.0/me/drive/items/missing-item/content`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(res.status).toBe(404);
+    const body = (await res.json()) as Record<string, any>;
+    expect(body.error.code).toBe("itemNotFound");
+    expect(body.error.message).toBe("The resource could not be found.");
+    expect(body.error.innerError.date).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/);
+    expect(body.error.innerError["request-id"]).toEqual(expect.any(String));
+    expect(body.error.innerError["client-request-id"]).toEqual(expect.any(String));
+  });
+
+  it("supports root folder creation and drive-id scoped OneDrive addressing", async () => {
+    const accessToken = await getAccessToken(app, "openid email profile Files.ReadWrite.All");
+    const driveRes = await app.request(`${base}/v1.0/me/drive`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    const drive = (await driveRes.json()) as Record<string, any>;
+
+    const folderRes = await app.request(`${base}/v1.0/me/drive/root/children`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        name: "parity-folder",
+        folder: {},
+        "@microsoft.graph.conflictBehavior": "rename",
+      }),
+    });
+    expect(folderRes.status).toBe(201);
+    const folder = (await folderRes.json()) as Record<string, any>;
+    expect(folder.folder.childCount).toBe(0);
+
+    const pathPutRes = await app.request(`${base}/v1.0/drives/${drive.id}/items/root:/scoped.csv:/content`, {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "text/plain",
+      },
+      body: "a,b\n1,2\n",
+    });
+    expect(pathPutRes.status).toBe(201);
+    const scopedItem = (await pathPutRes.json()) as Record<string, any>;
+    expect(scopedItem.file.mimeType).toBe("text/csv");
+
+    const driveItemRes = await app.request(`${base}/v1.0/drives/${drive.id}/items/${scopedItem.id}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(driveItemRes.status).toBe(200);
+    expect(((await driveItemRes.json()) as Record<string, unknown>).id).toBe(scopedItem.id);
+
+    const childrenRes = await app.request(`${base}/v1.0/drives/${drive.id}/root/children`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(childrenRes.status).toBe(200);
+    const children = (await childrenRes.json()) as { value: Array<Record<string, unknown>> };
+    expect(children.value.some((item) => item.id === scopedItem.id)).toBe(true);
+
+    const deleteRes = await app.request(`${base}/v1.0/drives/${drive.id}/items/${scopedItem.id}`, {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(deleteRes.status).toBe(204);
+    expect(await deleteRes.text()).toBe("");
   });
 
   // --- Logout endpoint ---

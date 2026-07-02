@@ -3,10 +3,14 @@ import { recordSideEffect } from "@emulators/core";
 import {
   accessDenied,
   authScopes,
+  bumpDriveItemTags,
   createEventRecord,
+  createDriveItemRecord,
   createMessageRecord,
   defaultCalendar,
   defaultDrive,
+  decodeDriveContent,
+  encodeDriveContent,
   formatCalendar,
   formatDrive,
   formatDriveItem,
@@ -16,6 +20,7 @@ import {
   graphError,
   hasGraphScope,
   listMessages,
+  mimeTypeForName,
   parseEventInput,
   parseMessageInput,
   requireAnyGraphToken,
@@ -104,6 +109,148 @@ function getDriveRoot(ms: ReturnType<typeof getMicrosoftStore>, drive: Microsoft
 
 function getVisibleDriveItems(ms: ReturnType<typeof getMicrosoftStore>, drive: MicrosoftDrive): MicrosoftDriveItem[] {
   return ms.driveItems.findBy("drive_id", drive.graph_id).filter((item) => !item.deleted);
+}
+
+function itemNotFound(c: Context): Response {
+  return graphError(c, 404, "itemNotFound", "The resource could not be found.");
+}
+
+function getDriveById(
+  ms: ReturnType<typeof getMicrosoftStore>,
+  driveId: string,
+  userEmail: string,
+): MicrosoftDrive | undefined {
+  const drive = ms.drives.findOneBy("graph_id", driveId);
+  return drive && drive.user_email === userEmail ? drive : undefined;
+}
+
+function getDriveItemById(
+  ms: ReturnType<typeof getMicrosoftStore>,
+  drive: MicrosoftDrive,
+  itemId: string,
+): MicrosoftDriveItem | undefined {
+  const item = itemId === "root" ? rootDriveItem(ms, drive) : ms.driveItems.findOneBy("graph_id", itemId);
+  return item && item.drive_id === drive.graph_id && !item.deleted ? item : undefined;
+}
+
+function visibleChildByName(
+  ms: ReturnType<typeof getMicrosoftStore>,
+  drive: MicrosoftDrive,
+  parentId: string,
+  name: string,
+): MicrosoftDriveItem | undefined {
+  return ms.driveItems
+    .findBy("parent_id", parentId)
+    .find((item) => item.drive_id === drive.graph_id && !item.deleted && item.name === name);
+}
+
+function updateFolderChildCount(ms: ReturnType<typeof getMicrosoftStore>, parentId: string | null): void {
+  if (!parentId) return;
+  const parent = ms.driveItems.findOneBy("graph_id", parentId);
+  if (!parent || parent.folder_child_count === null) return;
+  const childCount = ms.driveItems.findBy("parent_id", parent.graph_id).filter((item) => !item.deleted).length;
+  ms.driveItems.update(parent.id, { folder_child_count: childCount });
+}
+
+function downloadUrl(baseUrl: string, item: MicrosoftDriveItem): string {
+  return `${baseUrl}/v1.0/_content/${encodeURIComponent(item.graph_id)}`;
+}
+
+function driveItemEntity(
+  baseUrl: string,
+  ms: ReturnType<typeof getMicrosoftStore>,
+  item: MicrosoftDriveItem,
+  metadataPath = "drive/items/$entity",
+): Record<string, unknown> {
+  return {
+    "@odata.context": `${baseUrl}/v1.0/$metadata#${metadataPath}`,
+    ...formatDriveItem(baseUrl, item, ms),
+  };
+}
+
+function parseRootContentPath(pathname: string, prefix: string): string[] | null {
+  if (!pathname.startsWith(prefix) || !pathname.endsWith(":/content")) return null;
+  const encodedPath = pathname.slice(prefix.length, -":/content".length);
+  const parts = encodedPath
+    .split("/")
+    .filter(Boolean)
+    .map((part) => decodeURIComponent(part));
+  return parts.length > 0 && parts.every((part) => part.length > 0) ? parts : null;
+}
+
+function uniqueChildName(
+  ms: ReturnType<typeof getMicrosoftStore>,
+  drive: MicrosoftDrive,
+  parentId: string,
+  wantedName: string,
+): string {
+  if (!visibleChildByName(ms, drive, parentId, wantedName)) return wantedName;
+  const dot = wantedName.lastIndexOf(".");
+  const stem = dot > 0 ? wantedName.slice(0, dot) : wantedName;
+  const extension = dot > 0 ? wantedName.slice(dot) : "";
+  for (let index = 1; index < 1000; index += 1) {
+    const candidate = `${stem} ${index}${extension}`;
+    if (!visibleChildByName(ms, drive, parentId, candidate)) return candidate;
+  }
+  return `${stem} ${Date.now()}${extension}`;
+}
+
+function createFolder(
+  ms: ReturnType<typeof getMicrosoftStore>,
+  drive: MicrosoftDrive,
+  userEmail: string,
+  parent: MicrosoftDriveItem,
+  name: string,
+): MicrosoftDriveItem {
+  const folder = createDriveItemRecord(ms, {
+    user_email: userEmail,
+    drive_id: drive.graph_id,
+    name,
+    parent_id: parent.graph_id,
+    folder_child_count: 0,
+  });
+  updateFolderChildCount(ms, parent.graph_id);
+  return folder;
+}
+
+function ensurePathParent(
+  c: Context,
+  ms: ReturnType<typeof getMicrosoftStore>,
+  drive: MicrosoftDrive,
+  userEmail: string,
+  root: MicrosoftDriveItem,
+  pathParts: string[],
+): MicrosoftDriveItem | Response {
+  let parent = root;
+  for (const folderName of pathParts.slice(0, -1)) {
+    const existing = visibleChildByName(ms, drive, parent.graph_id, folderName);
+    if (existing) {
+      if (existing.folder_child_count === null) {
+        return graphError(c, 409, "nameAlreadyExists", "A file already exists with the requested folder name.");
+      }
+      parent = existing;
+      continue;
+    }
+    parent = createFolder(ms, drive, userEmail, parent, folderName);
+  }
+  return parent;
+}
+
+async function requestBytes(c: Context): Promise<Uint8Array> {
+  return new Uint8Array(await c.req.arrayBuffer());
+}
+
+function updateExistingFileContent(
+  ms: ReturnType<typeof getMicrosoftStore>,
+  item: MicrosoftDriveItem,
+  bytes: Uint8Array,
+): MicrosoftDriveItem | undefined {
+  return ms.driveItems.update(item.id, {
+    file_mime_type: mimeTypeForName(item.name),
+    size: bytes.byteLength,
+    content: encodeDriveContent(bytes),
+    ...bumpDriveItemTags(item),
+  });
 }
 
 export function graphRoutes({ app, store, baseUrl }: RouteContext): void {
@@ -295,14 +442,237 @@ export function graphRoutes({ app, store, baseUrl }: RouteContext): void {
     return c.body(null, 204);
   });
 
-  app.get("/v1.0/me/drive", (c) => {
-    c.set("operationId", "drive_GetMyDrive");
+  app.get("/v1.0/_content/:id", (c) => {
+    c.set("operationId", "driveItem_DownloadContent");
+    const item = ms.driveItems.findOneBy("graph_id", c.req.param("id"));
+    if (!item || item.deleted || !item.file_mime_type) return itemNotFound(c);
+    return new Response(decodeDriveContent(item), {
+      status: 200,
+      headers: {
+        "Content-Type": item.file_mime_type,
+        "Content-Length": String(item.size),
+      },
+    });
+  });
+
+  const requireDriveReadUser = (c: Context) => {
     const scopeError = filesReadScope(c);
     if (scopeError) return scopeError;
-    const user = requireDelegatedUser(c, ms);
+    return requireDelegatedUser(c, ms);
+  };
+
+  const requireDriveWriteUser = (c: Context) => {
+    const scopeError = requireGraphScope(c, ["Files.ReadWrite", "Files.ReadWrite.All"]);
+    if (scopeError) return scopeError;
+    return requireDelegatedUser(c, ms);
+  };
+
+  const getDefaultDrive = (c: Context, userEmail: string): MicrosoftDrive | Response => {
+    const drive = getUserDrive(ms, userEmail);
+    return drive ?? graphError(c, 404, "itemNotFound", "Drive not found.");
+  };
+
+  const getRequestedDrive = (c: Context, driveId: string, userEmail: string): MicrosoftDrive | Response => {
+    const drive = getDriveById(ms, driveId, userEmail);
+    return drive ?? graphError(c, 404, "itemNotFound", "Drive not found.");
+  };
+
+  const getRequestedRoot = (c: Context, drive: MicrosoftDrive): MicrosoftDriveItem | Response => {
+    const root = getDriveRoot(ms, drive);
+    return root ?? graphError(c, 404, "itemNotFound", "Root item not found.");
+  };
+
+  const listDriveChildren = (
+    c: Context,
+    drive: MicrosoftDrive,
+    parent: MicrosoftDriveItem,
+    metadataPath: string,
+    requestPath: string,
+  ) => {
+    if (parent.folder_child_count === null) return itemNotFound(c);
+    const values = getVisibleDriveItems(ms, drive)
+      .filter((item) => item.parent_id === parent.graph_id)
+      .map((item) => formatDriveItem(baseUrl, item, ms));
+    return c.json(odataCollection(baseUrl, metadataPath, requestPath, values, c));
+  };
+
+  const createChildFolder = async (
+    c: Context,
+    drive: MicrosoftDrive,
+    parent: MicrosoftDriveItem,
+    userEmail: string,
+    metadataPath: string,
+  ) => {
+    if (parent.folder_child_count === null) return itemNotFound(c);
+    const body = await parseJsonBody(c);
+    const record = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+    const folder = record.folder && typeof record.folder === "object" ? record.folder : null;
+    const requestedName = typeof record.name === "string" ? record.name.trim() : "";
+    if (!requestedName || !folder) {
+      return graphError(c, 400, "invalidRequest", "Folder creation requires name and folder fields.");
+    }
+
+    const conflictBehavior =
+      typeof record["@microsoft.graph.conflictBehavior"] === "string"
+        ? record["@microsoft.graph.conflictBehavior"]
+        : "fail";
+    const existing = visibleChildByName(ms, drive, parent.graph_id, requestedName);
+    if (existing) {
+      if (conflictBehavior === "rename") {
+        const renamed = createFolder(
+          ms,
+          drive,
+          userEmail,
+          parent,
+          uniqueChildName(ms, drive, parent.graph_id, requestedName),
+        );
+        recordSideEffect(c, {
+          type: "create",
+          collection: "microsoft.drive_items",
+          id: renamed.graph_id,
+          summary: `Created drive folder '${renamed.name}'`,
+        });
+        return c.json(driveItemEntity(baseUrl, ms, renamed, metadataPath), 201);
+      }
+      if (conflictBehavior === "replace" && existing.folder_child_count !== null) {
+        return c.json(driveItemEntity(baseUrl, ms, existing, metadataPath), 200);
+      }
+      return graphError(c, 409, "nameAlreadyExists", "An item with the same name already exists.");
+    }
+
+    const created = createFolder(ms, drive, userEmail, parent, requestedName);
+    recordSideEffect(c, {
+      type: "create",
+      collection: "microsoft.drive_items",
+      id: created.graph_id,
+      summary: `Created drive folder '${created.name}'`,
+    });
+    return c.json(driveItemEntity(baseUrl, ms, created, metadataPath), 201);
+  };
+
+  const getDriveItem = (c: Context, drive: MicrosoftDrive, itemId: string): Response => {
+    const item = getDriveItemById(ms, drive, itemId);
+    if (!item) return itemNotFound(c);
+    return c.json(driveItemEntity(baseUrl, ms, item));
+  };
+
+  const patchDriveItem = async (c: Context, drive: MicrosoftDrive, itemId: string): Promise<Response> => {
+    const item = getDriveItemById(ms, drive, itemId);
+    if (!item) return itemNotFound(c);
+    const body = await parseJsonBody(c);
+    const record = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
+    const name = typeof record.name === "string" && record.name.length > 0 ? record.name : item.name;
+    const updated = ms.driveItems.update(item.id, {
+      name,
+      file_mime_type: item.file_mime_type ? mimeTypeForName(name) : item.file_mime_type,
+    });
+    if (!updated) return itemNotFound(c);
+    recordSideEffect(c, {
+      type: "update",
+      collection: "microsoft.drive_items",
+      id: updated.graph_id,
+      summary: `Updated drive item '${updated.name}'`,
+    });
+    return c.json(driveItemEntity(baseUrl, ms, updated));
+  };
+
+  const deleteDriveItem = (c: Context, drive: MicrosoftDrive, itemId: string): Response => {
+    const item = getDriveItemById(ms, drive, itemId);
+    if (!item) return itemNotFound(c);
+    ms.driveItems.update(item.id, { deleted: true });
+    updateFolderChildCount(ms, item.parent_id);
+    recordSideEffect(c, {
+      type: "delete",
+      collection: "microsoft.drive_items",
+      id: item.graph_id,
+      summary: `Deleted drive item '${item.name}'`,
+    });
+    return c.body(null, 204);
+  };
+
+  const redirectDriveContent = (c: Context, drive: MicrosoftDrive, itemId: string): Response => {
+    const item = getDriveItemById(ms, drive, itemId);
+    if (!item || !item.file_mime_type) return itemNotFound(c);
+    return new Response(null, { status: 302, headers: { Location: downloadUrl(baseUrl, item) } });
+  };
+
+  const putDriveItemContent = async (c: Context, drive: MicrosoftDrive, itemId: string): Promise<Response> => {
+    const item = getDriveItemById(ms, drive, itemId);
+    if (!item || item.folder_child_count !== null) return itemNotFound(c);
+    const updated = updateExistingFileContent(ms, item, await requestBytes(c));
+    if (!updated) return itemNotFound(c);
+    recordSideEffect(c, {
+      type: "update",
+      collection: "microsoft.drive_items",
+      id: updated.graph_id,
+      summary: `Updated drive item '${updated.name}' content`,
+    });
+    return c.json(driveItemEntity(baseUrl, ms, updated), 200);
+  };
+
+  const putPathContent = async (
+    c: Context,
+    drive: MicrosoftDrive,
+    root: MicrosoftDriveItem,
+    userEmail: string,
+    pathParts: string[],
+  ): Promise<Response> => {
+    const parent = ensurePathParent(c, ms, drive, userEmail, root, pathParts);
+    if (isResponse(parent)) return parent;
+    const name = pathParts[pathParts.length - 1];
+    const bytes = await requestBytes(c);
+    const existing = visibleChildByName(ms, drive, parent.graph_id, name);
+    if (existing) {
+      if (existing.folder_child_count !== null) {
+        return graphError(c, 409, "nameAlreadyExists", "A folder already exists with the requested file name.");
+      }
+      const updated = updateExistingFileContent(ms, existing, bytes);
+      if (!updated) return itemNotFound(c);
+      recordSideEffect(c, {
+        type: "update",
+        collection: "microsoft.drive_items",
+        id: updated.graph_id,
+        summary: `Updated drive item '${updated.name}' content`,
+      });
+      return c.json(driveItemEntity(baseUrl, ms, updated), 200);
+    }
+
+    const created = createDriveItemRecord(ms, {
+      user_email: userEmail,
+      drive_id: drive.graph_id,
+      name,
+      parent_id: parent.graph_id,
+      file_mime_type: mimeTypeForName(name),
+      content_b64: encodeDriveContent(bytes),
+    });
+    updateFolderChildCount(ms, parent.graph_id);
+    recordSideEffect(c, {
+      type: "create",
+      collection: "microsoft.drive_items",
+      id: created.graph_id,
+      summary: `Created drive item '${created.name}' content`,
+    });
+    return c.json(driveItemEntity(baseUrl, ms, created), 201);
+  };
+
+  app.get("/v1.0/me/drive", (c) => {
+    c.set("operationId", "drive_GetMyDrive");
+    const user = requireDriveReadUser(c);
     if (isResponse(user)) return user;
-    const drive = getUserDrive(ms, user.email);
-    if (!drive) return graphError(c, 404, "itemNotFound", "Drive not found.");
+    const drive = getDefaultDrive(c, user.email);
+    if (isResponse(drive)) return drive;
+    return c.json({
+      "@odata.context": `${baseUrl}/v1.0/$metadata#drives/$entity`,
+      ...formatDrive(baseUrl, drive, user),
+    });
+  });
+
+  app.get("/v1.0/drives/:driveId", (c) => {
+    c.set("operationId", "drive_Get");
+    const user = requireDriveReadUser(c);
+    if (isResponse(user)) return user;
+    const drive = getRequestedDrive(c, c.req.param("driveId"), user.email);
+    if (isResponse(drive)) return drive;
     return c.json({
       "@odata.context": `${baseUrl}/v1.0/$metadata#drives/$entity`,
       ...formatDrive(baseUrl, drive, user),
@@ -311,114 +681,222 @@ export function graphRoutes({ app, store, baseUrl }: RouteContext): void {
 
   app.get("/v1.0/me/drive/root", (c) => {
     c.set("operationId", "driveItem_GetRoot");
-    const scopeError = filesReadScope(c);
-    if (scopeError) return scopeError;
-    const user = requireDelegatedUser(c, ms);
+    const user = requireDriveReadUser(c);
     if (isResponse(user)) return user;
-    const drive = getUserDrive(ms, user.email);
-    if (!drive) return graphError(c, 404, "itemNotFound", "Drive not found.");
-    const root = getDriveRoot(ms, drive);
-    if (!root) return graphError(c, 404, "itemNotFound", "Root item not found.");
-    return c.json({
-      "@odata.context": `${baseUrl}/v1.0/$metadata#drive/root/$entity`,
-      ...formatDriveItem(baseUrl, root),
-    });
+    const drive = getDefaultDrive(c, user.email);
+    if (isResponse(drive)) return drive;
+    const root = getRequestedRoot(c, drive);
+    if (isResponse(root)) return root;
+    return c.json(driveItemEntity(baseUrl, ms, root, "drive/root/$entity"));
+  });
+
+  app.get("/v1.0/drives/:driveId/root", (c) => {
+    c.set("operationId", "driveItem_GetDriveRoot");
+    const user = requireDriveReadUser(c);
+    if (isResponse(user)) return user;
+    const drive = getRequestedDrive(c, c.req.param("driveId"), user.email);
+    if (isResponse(drive)) return drive;
+    const root = getRequestedRoot(c, drive);
+    if (isResponse(root)) return root;
+    return c.json(driveItemEntity(baseUrl, ms, root, "drives/root/$entity"));
   });
 
   app.get("/v1.0/me/drive/root/children", (c) => {
     c.set("operationId", "driveItem_ListRootChildren");
-    const scopeError = filesReadScope(c);
-    if (scopeError) return scopeError;
-    const user = requireDelegatedUser(c, ms);
+    const user = requireDriveReadUser(c);
     if (isResponse(user)) return user;
-    const drive = getUserDrive(ms, user.email);
-    if (!drive) return graphError(c, 404, "itemNotFound", "Drive not found.");
-    const root = getDriveRoot(ms, drive);
-    if (!root) return graphError(c, 404, "itemNotFound", "Root item not found.");
-    const values = getVisibleDriveItems(ms, drive)
-      .filter((item) => item.parent_id === root.graph_id)
-      .map((item) => formatDriveItem(baseUrl, item));
-    return c.json(odataCollection(baseUrl, "drive/root/children", "/v1.0/me/drive/root/children", values, c));
+    const drive = getDefaultDrive(c, user.email);
+    if (isResponse(drive)) return drive;
+    const root = getRequestedRoot(c, drive);
+    if (isResponse(root)) return root;
+    return listDriveChildren(c, drive, root, "drive/root/children", "/v1.0/me/drive/root/children");
+  });
+
+  app.post("/v1.0/me/drive/root/children", async (c) => {
+    c.set("operationId", "driveItem_CreateRootChild");
+    const user = requireDriveWriteUser(c);
+    if (isResponse(user)) return user;
+    const drive = getDefaultDrive(c, user.email);
+    if (isResponse(drive)) return drive;
+    const root = getRequestedRoot(c, drive);
+    if (isResponse(root)) return root;
+    return createChildFolder(c, drive, root, user.email, "drive/root/children/$entity");
+  });
+
+  app.get("/v1.0/drives/:driveId/root/children", (c) => {
+    c.set("operationId", "driveItem_ListDriveRootChildren");
+    const user = requireDriveReadUser(c);
+    if (isResponse(user)) return user;
+    const drive = getRequestedDrive(c, c.req.param("driveId"), user.email);
+    if (isResponse(drive)) return drive;
+    const root = getRequestedRoot(c, drive);
+    if (isResponse(root)) return root;
+    return listDriveChildren(c, drive, root, "drive/root/children", `/v1.0/drives/${drive.graph_id}/root/children`);
+  });
+
+  app.post("/v1.0/drives/:driveId/root/children", async (c) => {
+    c.set("operationId", "driveItem_CreateDriveRootChild");
+    const user = requireDriveWriteUser(c);
+    if (isResponse(user)) return user;
+    const drive = getRequestedDrive(c, c.req.param("driveId"), user.email);
+    if (isResponse(drive)) return drive;
+    const root = getRequestedRoot(c, drive);
+    if (isResponse(root)) return root;
+    return createChildFolder(c, drive, root, user.email, "drive/root/children/$entity");
+  });
+
+  app.get("/v1.0/me/drive/items/:id/content", (c) => {
+    c.set("operationId", "driveItem_GetContent");
+    const user = requireDriveReadUser(c);
+    if (isResponse(user)) return user;
+    const drive = getDefaultDrive(c, user.email);
+    if (isResponse(drive)) return drive;
+    return redirectDriveContent(c, drive, c.req.param("id"));
+  });
+
+  app.put("/v1.0/me/drive/items/:id/content", async (c) => {
+    c.set("operationId", "driveItem_PutContent");
+    const user = requireDriveWriteUser(c);
+    if (isResponse(user)) return user;
+    const drive = getDefaultDrive(c, user.email);
+    if (isResponse(drive)) return drive;
+    return putDriveItemContent(c, drive, c.req.param("id"));
+  });
+
+  app.get("/v1.0/drives/:driveId/items/:itemId/content", (c) => {
+    c.set("operationId", "driveItem_GetDriveContent");
+    const user = requireDriveReadUser(c);
+    if (isResponse(user)) return user;
+    const drive = getRequestedDrive(c, c.req.param("driveId"), user.email);
+    if (isResponse(drive)) return drive;
+    return redirectDriveContent(c, drive, c.req.param("itemId"));
+  });
+
+  app.put("/v1.0/drives/:driveId/items/:itemId/content", async (c) => {
+    c.set("operationId", "driveItem_PutDriveContent");
+    const user = requireDriveWriteUser(c);
+    if (isResponse(user)) return user;
+    const drive = getRequestedDrive(c, c.req.param("driveId"), user.email);
+    if (isResponse(drive)) return drive;
+    return putDriveItemContent(c, drive, c.req.param("itemId"));
   });
 
   app.get("/v1.0/me/drive/items/:id", (c) => {
     c.set("operationId", "driveItem_Get");
-    const scopeError = filesReadScope(c);
-    if (scopeError) return scopeError;
-    const user = requireDelegatedUser(c, ms);
+    const user = requireDriveReadUser(c);
     if (isResponse(user)) return user;
-    const item = ms.driveItems.findOneBy("graph_id", c.req.param("id"));
-    if (!item || item.user_email !== user.email || item.deleted) {
-      return graphError(c, 404, "itemNotFound", "The resource could not be found.");
-    }
-    return c.json({
-      "@odata.context": `${baseUrl}/v1.0/$metadata#drive/items/$entity`,
-      ...formatDriveItem(baseUrl, item),
-    });
+    const drive = getDefaultDrive(c, user.email);
+    if (isResponse(drive)) return drive;
+    return getDriveItem(c, drive, c.req.param("id"));
+  });
+
+  app.get("/v1.0/drives/:driveId/items/:itemId", (c) => {
+    c.set("operationId", "driveItem_GetDriveItem");
+    const user = requireDriveReadUser(c);
+    if (isResponse(user)) return user;
+    const drive = getRequestedDrive(c, c.req.param("driveId"), user.email);
+    if (isResponse(drive)) return drive;
+    return getDriveItem(c, drive, c.req.param("itemId"));
   });
 
   app.get("/v1.0/me/drive/items/:id/children", (c) => {
     c.set("operationId", "driveItem_ListChildren");
-    const scopeError = filesReadScope(c);
-    if (scopeError) return scopeError;
-    const user = requireDelegatedUser(c, ms);
+    const user = requireDriveReadUser(c);
     if (isResponse(user)) return user;
-    const parent = ms.driveItems.findOneBy("graph_id", c.req.param("id"));
-    if (!parent || parent.user_email !== user.email || parent.deleted || parent.folder_child_count === null) {
-      return graphError(c, 404, "itemNotFound", "The resource could not be found.");
-    }
-    const values = ms.driveItems
-      .findBy("parent_id", parent.graph_id)
-      .filter((item) => !item.deleted)
-      .map((item) => formatDriveItem(baseUrl, item));
-    return c.json(
-      odataCollection(baseUrl, "drive/items/children", `/v1.0/me/drive/items/${parent.graph_id}/children`, values, c),
+    const drive = getDefaultDrive(c, user.email);
+    if (isResponse(drive)) return drive;
+    const parent = getDriveItemById(ms, drive, c.req.param("id"));
+    if (!parent) return itemNotFound(c);
+    return listDriveChildren(
+      c,
+      drive,
+      parent,
+      "drive/items/children",
+      `/v1.0/me/drive/items/${parent.graph_id}/children`,
+    );
+  });
+
+  app.get("/v1.0/drives/:driveId/items/:itemId/children", (c) => {
+    c.set("operationId", "driveItem_ListDriveChildren");
+    const user = requireDriveReadUser(c);
+    if (isResponse(user)) return user;
+    const drive = getRequestedDrive(c, c.req.param("driveId"), user.email);
+    if (isResponse(drive)) return drive;
+    const parent = getDriveItemById(ms, drive, c.req.param("itemId"));
+    if (!parent) return itemNotFound(c);
+    return listDriveChildren(
+      c,
+      drive,
+      parent,
+      "drive/items/children",
+      `/v1.0/drives/${drive.graph_id}/items/${parent.graph_id}/children`,
     );
   });
 
   app.patch("/v1.0/me/drive/items/:id", async (c) => {
     c.set("operationId", "driveItem_Update");
-    const scopeError = requireGraphScope(c, ["Files.ReadWrite", "Files.ReadWrite.All"]);
-    if (scopeError) return scopeError;
-    const user = requireDelegatedUser(c, ms);
+    const user = requireDriveWriteUser(c);
     if (isResponse(user)) return user;
-    const item = ms.driveItems.findOneBy("graph_id", c.req.param("id"));
-    if (!item || item.user_email !== user.email || item.deleted) {
-      return graphError(c, 404, "itemNotFound", "The resource could not be found.");
-    }
-    const body = await parseJsonBody(c);
-    const record = body && typeof body === "object" ? (body as Record<string, unknown>) : {};
-    const updated = ms.driveItems.update(item.id, {
-      name: typeof record.name === "string" && record.name.length > 0 ? record.name : item.name,
-    });
-    if (!updated) return graphError(c, 404, "itemNotFound", "The resource could not be found.");
-    recordSideEffect(c, {
-      type: "update",
-      collection: "microsoft.drive_items",
-      id: updated.graph_id,
-      summary: `Updated drive item '${updated.name}'`,
-    });
-    return c.json(formatDriveItem(baseUrl, updated));
+    const drive = getDefaultDrive(c, user.email);
+    if (isResponse(drive)) return drive;
+    return patchDriveItem(c, drive, c.req.param("id"));
+  });
+
+  app.patch("/v1.0/drives/:driveId/items/:itemId", async (c) => {
+    c.set("operationId", "driveItem_UpdateDriveItem");
+    const user = requireDriveWriteUser(c);
+    if (isResponse(user)) return user;
+    const drive = getRequestedDrive(c, c.req.param("driveId"), user.email);
+    if (isResponse(drive)) return drive;
+    return patchDriveItem(c, drive, c.req.param("itemId"));
   });
 
   app.delete("/v1.0/me/drive/items/:id", (c) => {
     c.set("operationId", "driveItem_Delete");
-    const scopeError = requireGraphScope(c, ["Files.ReadWrite", "Files.ReadWrite.All"]);
-    if (scopeError) return scopeError;
-    const user = requireDelegatedUser(c, ms);
+    const user = requireDriveWriteUser(c);
     if (isResponse(user)) return user;
-    const item = ms.driveItems.findOneBy("graph_id", c.req.param("id"));
-    if (!item || item.user_email !== user.email || item.deleted) {
-      return graphError(c, 404, "itemNotFound", "The resource could not be found.");
-    }
-    ms.driveItems.update(item.id, { deleted: true });
-    recordSideEffect(c, {
-      type: "delete",
-      collection: "microsoft.drive_items",
-      id: item.graph_id,
-      summary: `Deleted drive item '${item.name}'`,
-    });
-    return c.body(null, 204);
+    const drive = getDefaultDrive(c, user.email);
+    if (isResponse(drive)) return drive;
+    return deleteDriveItem(c, drive, c.req.param("id"));
+  });
+
+  app.delete("/v1.0/drives/:driveId/items/:itemId", (c) => {
+    c.set("operationId", "driveItem_DeleteDriveItem");
+    const user = requireDriveWriteUser(c);
+    if (isResponse(user)) return user;
+    const drive = getRequestedDrive(c, c.req.param("driveId"), user.email);
+    if (isResponse(drive)) return drive;
+    return deleteDriveItem(c, drive, c.req.param("itemId"));
+  });
+
+  app.put("/v1.0/me/drive/*", async (c) => {
+    c.set("operationId", "driveItem_PutPathContent");
+    const pathParts = parseRootContentPath(new URL(c.req.url).pathname, "/v1.0/me/drive/root:/");
+    if (!pathParts)
+      return graphError(c, 404, "UnknownError", "This Microsoft Graph endpoint is not implemented by the emulator.");
+    const user = requireDriveWriteUser(c);
+    if (isResponse(user)) return user;
+    const drive = getDefaultDrive(c, user.email);
+    if (isResponse(drive)) return drive;
+    const root = getRequestedRoot(c, drive);
+    if (isResponse(root)) return root;
+    return putPathContent(c, drive, root, user.email, pathParts);
+  });
+
+  app.put("/v1.0/drives/:driveId/*", async (c) => {
+    c.set("operationId", "driveItem_PutDrivePathContent");
+    const pathname = new URL(c.req.url).pathname;
+    const prefix = `/v1.0/drives/${c.req.param("driveId")}/items/root:/`;
+    const pathParts = parseRootContentPath(pathname, prefix);
+    if (!pathParts)
+      return graphError(c, 404, "UnknownError", "This Microsoft Graph endpoint is not implemented by the emulator.");
+    const user = requireDriveWriteUser(c);
+    if (isResponse(user)) return user;
+    const drive = getRequestedDrive(c, c.req.param("driveId"), user.email);
+    if (isResponse(drive)) return drive;
+    const root = getRequestedRoot(c, drive);
+    if (isResponse(root)) return root;
+    return putPathContent(c, drive, root, user.email, pathParts);
   });
 
   app.get("/v1.0/me/drive/special/:name", (c) => {
@@ -436,7 +914,7 @@ export function graphRoutes({ app, store, baseUrl }: RouteContext): void {
     }
     return c.json({
       "@odata.context": `${baseUrl}/v1.0/$metadata#drive/special/$entity`,
-      ...formatDriveItem(baseUrl, root),
+      ...formatDriveItem(baseUrl, root, ms),
     });
   });
 

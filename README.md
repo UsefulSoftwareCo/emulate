@@ -459,6 +459,10 @@ microsoft:
       name: My Microsoft App
       redirect_uris:
         - http://localhost:3000/api/auth/callback/microsoft-entra-id
+  drive_items:
+    - name: Project Notes.txt
+      mime_type: text/plain
+      content: Notes
 
 aws:
   region: us-east-1
@@ -937,6 +941,12 @@ Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with a
 - `POST /v1.0/me/sendMail` - send mail
 - `GET /v1.0/me/events` - calendar events
 - `GET /v1.0/me/drive/root/children` - OneDrive root children
+- `POST /v1.0/me/drive/root/children` - create a OneDrive folder
+- `PUT /v1.0/me/drive/root:/{path}:/content` - create or replace file bytes by path
+- `GET /v1.0/me/drive/items/:id/content` - redirect to file bytes
+- `PUT /v1.0/me/drive/items/:id/content` - replace file bytes by item ID
+- `GET /v1.0/drives/:driveId/root/children` - drive-scoped OneDrive root children
+- `GET/PUT /v1.0/drives/:driveId/items/:itemId/content` - drive-scoped file bytes
 - `GET /oauth2/v2.0/logout` - end session / logout
 - `POST /oauth2/v2.0/revoke` - token revocation
 

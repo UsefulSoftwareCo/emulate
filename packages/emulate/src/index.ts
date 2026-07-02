@@ -55,10 +55,12 @@ Global catalog:
   /_emulate/seed to load fixtures, /_emulate/faults to arm one-shot failures,
   and /_emulate/ledger to validate API calls.
 
-Hosted services:
+  Hosted services:
   Available services include vercel, github, gitlab, google, slack, apple,
   microsoft, okta, aws, resend, stripe, mongoatlas, clerk, spotify, x, workos,
   autumn, posthog, and mcp.
+  Microsoft Graph includes OneDrive file content upload/download routes under
+  /v1.0/me/drive and /v1.0/drives/:driveId.
   Service host:    <service>.emulators.dev (useful without an instance; serves
                    a service-level /_emulate control plane)
   Instance host:   <service>.<instance>.emulators.dev

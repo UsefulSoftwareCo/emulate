@@ -307,6 +307,8 @@ microsoft:
       content: Notes
 ```
 
+Microsoft `drive_items[].content` is a plain UTF-8 seed string. Runtime file uploads use Graph content endpoints and are stored internally as base64 for byte-exact binary downloads.
+
 ## AWS Seed Config
 
 ```yaml

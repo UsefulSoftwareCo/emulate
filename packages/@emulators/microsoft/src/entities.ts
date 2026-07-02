@@ -118,6 +118,11 @@ export interface MicrosoftDriveItem extends Entity {
   size: number;
   web_url: string | null;
   download_url: string | null;
+  etag_id: string;
+  etag_version: number;
+  ctag_id: string;
+  ctag_version: number;
+  /** Base64 encoded file bytes. Seed input still accepts plain UTF-8 strings. */
   content: string | null;
   deleted: boolean;
 }

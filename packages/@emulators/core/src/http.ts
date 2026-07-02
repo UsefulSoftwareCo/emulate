@@ -398,6 +398,10 @@ function compilePath(pattern: string): CompiledPath {
   let source = "^";
   for (let i = 0; i < pattern.length; i++) {
     const char = pattern[i];
+    if (char === "*") {
+      source += ".*";
+      continue;
+    }
     if (char !== ":") {
       source += escapeRegex(char);
       continue;

@@ -49,6 +49,8 @@ MICROSOFT_EMULATOR_URL=http://localhost:4005
 | `https://graph.microsoft.com/v1.0/me/messages` | `$MICROSOFT_EMULATOR_URL/v1.0/me/messages` |
 | `https://graph.microsoft.com/v1.0/me/events` | `$MICROSOFT_EMULATOR_URL/v1.0/me/events` |
 | `https://graph.microsoft.com/v1.0/me/drive` | `$MICROSOFT_EMULATOR_URL/v1.0/me/drive` |
+| `https://graph.microsoft.com/v1.0/me/drive/root:/{path}:/content` | `$MICROSOFT_EMULATOR_URL/v1.0/me/drive/root:/{path}:/content` |
+| `https://graph.microsoft.com/v1.0/drives/{driveId}/items/{itemId}/content` | `$MICROSOFT_EMULATOR_URL/v1.0/drives/{driveId}/items/{itemId}/content` |
 
 ### Auth.js / NextAuth.js
 
@@ -137,6 +139,8 @@ microsoft:
       mime_type: text/plain
       content: Notes
 ```
+
+Seeded `drive_items[].content` is a plain UTF-8 string. Runtime OneDrive content uploads are stored as base64 internally, so binary file bytes round-trip through Graph content download URLs.
 
 When no OAuth clients are configured, the emulator accepts any `client_id`. With clients configured, strict validation is enforced for `client_id`, `client_secret`, and `redirect_uri`.
 
@@ -332,6 +336,11 @@ curl -X POST "$MICROSOFT_URL/v1.0/me/sendMail" \
 
 curl "$MICROSOFT_URL/v1.0/me/drive/root/children" \
   -H "Authorization: Bearer microsoft_..."
+
+curl -X PUT "$MICROSOFT_URL/v1.0/me/drive/root:/notes.txt:/content" \
+  -H "Authorization: Bearer microsoft_..." \
+  -H "Content-Type: text/plain" \
+  --data-binary "hello"
 ```
 
 ### Logout

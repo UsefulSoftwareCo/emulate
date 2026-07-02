@@ -26,8 +26,21 @@ export function generateGraphId(prefix: string): string {
   return `${prefix}_${randomUUID().replace(/-/g, "")}`;
 }
 
-export function graphError(c: Context, status: 400 | 401 | 403 | 404, code: string, message: string): Response {
-  return c.json({ error: { code, message } }, status);
+export function graphError(c: Context, status: 400 | 401 | 403 | 404 | 409, code: string, message: string): Response {
+  return c.json(
+    {
+      error: {
+        code,
+        message,
+        innerError: {
+          date: new Date().toISOString().slice(0, 19),
+          "request-id": randomUUID(),
+          "client-request-id": randomUUID(),
+        },
+      },
+    },
+    status,
+  );
 }
 
 export function unauthorized(c: Context): Response {
@@ -517,6 +530,81 @@ export function createDriveRecord(
   });
 }
 
+const MIME_BY_EXTENSION: Record<string, string> = {
+  txt: "text/plain",
+  md: "text/markdown",
+  json: "application/json",
+  csv: "text/csv",
+  html: "text/html",
+  htm: "text/html",
+  pdf: "application/pdf",
+  png: "image/png",
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  gif: "image/gif",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  zip: "application/zip",
+  bin: "application/octet-stream",
+};
+
+export function mimeTypeForName(name: string): string {
+  const extension = name.includes(".") ? name.split(".").pop()?.toLowerCase() : "";
+  return (extension && MIME_BY_EXTENSION[extension]) || "application/octet-stream";
+}
+
+export function encodeDriveContent(value: string | Uint8Array): string {
+  return Buffer.from(value).toString("base64");
+}
+
+export function decodeDriveContent(item: MicrosoftDriveItem): Uint8Array {
+  if (!item.content) return new Uint8Array();
+  return Buffer.from(item.content, "base64");
+}
+
+function contentByteLength(contentBase64: string | null | undefined): number {
+  if (!contentBase64) return 0;
+  return Buffer.from(contentBase64, "base64").byteLength;
+}
+
+function oneDriveTag(id: string, version: number): string {
+  return `"{${id}},${version}"`;
+}
+
+function oneDriveCTag(id: string, version: number): string {
+  return `"c:{${id}},${version}"`;
+}
+
+export function bumpDriveItemTags(item: MicrosoftDriveItem): Pick<MicrosoftDriveItem, "etag_version" | "ctag_version"> {
+  return {
+    etag_version: item.etag_version + 1,
+    ctag_version: item.ctag_version + 1,
+  };
+}
+
+export function quickXorHash(bytes: Uint8Array): string {
+  const widthInBits = 160;
+  const shift = 11;
+  const hash = Buffer.alloc(widthInBits / 8);
+
+  for (let index = 0; index < bytes.length; index += 1) {
+    const bitOffset = (index * shift) % widthInBits;
+    const byteOffset = Math.floor(bitOffset / 8);
+    const offsetInByte = bitOffset % 8;
+    hash[byteOffset] ^= (bytes[index] << offsetInByte) & 0xff;
+    hash[(byteOffset + 1) % hash.length] ^= bytes[index] >> (8 - offsetInByte);
+  }
+
+  const lengthBytes = Buffer.alloc(8);
+  lengthBytes.writeBigUInt64LE(BigInt(bytes.length));
+  for (let index = 0; index < lengthBytes.length; index += 1) {
+    hash[hash.length - lengthBytes.length + index] ^= lengthBytes[index];
+  }
+
+  return hash.toString("base64");
+}
+
 export function createDriveItemRecord(
   ms: MicrosoftStore,
   input: {
@@ -528,11 +616,19 @@ export function createDriveItemRecord(
     folder_child_count?: number | null;
     file_mime_type?: string | null;
     size?: number;
+    content_b64?: string | null;
     content?: string | null;
     web_url?: string | null;
   },
 ): MicrosoftDriveItem {
   const graphId = input.graph_id ?? generateGraphId("item");
+  const contentBase64 =
+    input.content_b64 !== undefined
+      ? input.content_b64
+      : input.content !== undefined && input.content !== null
+        ? encodeDriveContent(input.content)
+        : null;
+  const fileMimeType = input.file_mime_type ?? (contentBase64 !== null ? mimeTypeForName(input.name) : null);
   return ms.driveItems.insert({
     graph_id: graphId,
     user_email: input.user_email,
@@ -540,11 +636,15 @@ export function createDriveItemRecord(
     name: input.name,
     parent_id: input.parent_id ?? null,
     folder_child_count: input.folder_child_count ?? null,
-    file_mime_type: input.file_mime_type ?? null,
-    size: input.size ?? (input.content ? Buffer.byteLength(input.content) : 0),
+    file_mime_type: fileMimeType,
+    size: input.size ?? contentByteLength(contentBase64),
     web_url: input.web_url ?? null,
-    download_url: input.file_mime_type ? `https://download.emulators.dev/microsoft/${graphId}` : null,
-    content: input.content ?? null,
+    download_url: null,
+    etag_id: randomUUID(),
+    etag_version: 1,
+    ctag_id: randomUUID(),
+    ctag_version: 1,
+    content: contentBase64,
     deleted: false,
   });
 }
@@ -572,30 +672,89 @@ export function formatDrive(baseUrl: string, drive: MicrosoftDrive, owner: Micro
   };
 }
 
-export function formatDriveItem(baseUrl: string, item: MicrosoftDriveItem): Record<string, unknown> {
-  const isFolder = item.folder_child_count !== null;
+function driveItemOwner(ms: MicrosoftStore | undefined, item: MicrosoftDriveItem): MicrosoftUser | undefined {
+  return ms?.users.findOneBy("email", item.user_email);
+}
+
+function driveForItem(ms: MicrosoftStore | undefined, item: MicrosoftDriveItem): MicrosoftDrive | undefined {
+  return ms?.drives.findOneBy("graph_id", item.drive_id);
+}
+
+function parentForItem(ms: MicrosoftStore | undefined, item: MicrosoftDriveItem): MicrosoftDriveItem | undefined {
+  return item.parent_id ? ms?.driveItems.findOneBy("graph_id", item.parent_id) : undefined;
+}
+
+export function driveItemPath(ms: MicrosoftStore, item: MicrosoftDriveItem): string {
+  if (item.parent_id === null) return "/drive/root:";
+  const names: string[] = [];
+  let current: MicrosoftDriveItem | undefined = item;
+  while (current && current.parent_id !== null) {
+    names.unshift(current.name);
+    current = ms.driveItems.findOneBy("graph_id", current.parent_id);
+  }
+  return names.length > 0 ? `/drive/root:/${names.map(encodeURIComponent).join("/")}` : "/drive/root:";
+}
+
+function driveItemPrincipal(user: MicrosoftUser | undefined, item: MicrosoftDriveItem): Record<string, unknown> {
   return {
-    "@odata.etag": `"${item.graph_id}"`,
+    application: {
+      id: "emulate-microsoft",
+      displayName: "Microsoft emulator",
+    },
+    user: {
+      id: user?.oid ?? item.user_email,
+      displayName: user?.name ?? item.user_email,
+    },
+  };
+}
+
+export function formatDriveItem(
+  baseUrl: string,
+  item: MicrosoftDriveItem,
+  ms?: MicrosoftStore,
+): Record<string, unknown> {
+  const isFolder = item.folder_child_count !== null;
+  const user = driveItemOwner(ms, item);
+  const drive = driveForItem(ms, item);
+  const parent = parentForItem(ms, item);
+  const parentPath = ms && parent ? driveItemPath(ms, parent) : "/drive/root:";
+  const principal = driveItemPrincipal(user, item);
+  return {
+    "@odata.etag": oneDriveTag(item.etag_id, item.etag_version),
     createdDateTime: item.created_at,
-    eTag: `"${item.graph_id}"`,
+    eTag: oneDriveTag(item.etag_id, item.etag_version),
     id: item.graph_id,
     lastModifiedDateTime: item.updated_at,
     name: item.name,
     webUrl: item.web_url ?? `${baseUrl}/drive/items/${item.graph_id}`,
+    cTag: oneDriveCTag(item.ctag_id, item.ctag_version),
     size: item.size,
+    createdBy: principal,
+    lastModifiedBy: principal,
     parentReference: {
+      driveType: drive?.drive_type ?? "personal",
       driveId: item.drive_id,
       id: item.parent_id,
+      name: parent?.name ?? (item.parent_id === null ? null : "root"),
+      path: parentPath,
+      siteId: item.drive_id,
+    },
+    fileSystemInfo: {
+      createdDateTime: item.created_at,
+      lastModifiedDateTime: item.updated_at,
     },
     ...(isFolder ? { folder: { childCount: item.folder_child_count ?? 0 } } : {}),
     ...(item.file_mime_type
       ? {
           file: {
             mimeType: item.file_mime_type,
+            hashes: {
+              quickXorHash: quickXorHash(decodeDriveContent(item)),
+            },
           },
         }
       : {}),
-    ...(item.download_url ? { "@microsoft.graph.downloadUrl": item.download_url } : {}),
+    ...(item.file_mime_type ? { "@microsoft.graph.downloadUrl": `${baseUrl}/v1.0/_content/${item.graph_id}` } : {}),
   };
 }
 

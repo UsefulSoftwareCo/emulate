@@ -28,6 +28,12 @@ npm install @emulators/microsoft
 - `POST /v1.0/me/events` — create calendar event
 - `GET /v1.0/me/drive` — OneDrive
 - `GET /v1.0/me/drive/root/children` — OneDrive root children
+- `POST /v1.0/me/drive/root/children` — create a OneDrive folder
+- `PUT /v1.0/me/drive/root:/{path}:/content` — create or replace file bytes by path
+- `GET /v1.0/me/drive/items/:id/content` — redirect to file bytes
+- `PUT /v1.0/me/drive/items/:id/content` — replace file bytes by item ID
+- `GET /v1.0/drives/:driveId/root/children` — drive-scoped OneDrive root children
+- `GET/PUT /v1.0/drives/:driveId/items/:itemId/content` — drive-scoped file bytes
 - `GET /oauth2/v2.0/logout` — end session / logout
 - `POST /oauth2/v2.0/revoke` — token revocation
 
@@ -61,6 +67,8 @@ microsoft:
       mime_type: text/plain
       content: Notes
 ```
+
+Seeded `drive_items[].content` is a plain UTF-8 string. The emulator stores file bytes internally as base64 so binary uploads round-trip byte-exact through the content endpoints.
 
 ## Links
 

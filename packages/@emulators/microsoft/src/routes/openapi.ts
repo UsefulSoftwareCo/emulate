@@ -17,6 +17,9 @@ const bearerErrors = {
 };
 
 const idPathParameter = { name: "id", in: "path", required: true, schema: { type: "string" } };
+const driveIdPathParameter = { name: "driveId", in: "path", required: true, schema: { type: "string" } };
+const itemIdPathParameter = { name: "itemId", in: "path", required: true, schema: { type: "string" } };
+const drivePathParameter = { name: "path", in: "path", required: true, schema: { type: "string" } };
 
 function getOperation(
   operationId: string,
@@ -175,6 +178,19 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
         get: getOperation("driveItem_ListRootChildren", "List root children", ["Files.Read"], {
           "200": jsonResponse("Drive item collection."),
         }),
+        post: getOperation("driveItem_CreateRootChild", "Create a folder under the root", ["Files.ReadWrite"], {
+          "201": jsonResponse("Created drive folder."),
+          "409": jsonResponse("Drive item name conflict."),
+        }),
+      },
+      "/v1.0/me/drive/root:/{path}:/content": {
+        put: {
+          ...getOperation("driveItem_PutPathContent", "Create or replace file content by path", ["Files.ReadWrite"], {
+            "200": jsonResponse("Replaced drive item."),
+            "201": jsonResponse("Created drive item."),
+          }),
+          parameters: [drivePathParameter],
+        },
       },
       "/v1.0/me/drive/items/{id}": {
         get: {
@@ -199,6 +215,22 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
           parameters: [idPathParameter],
         },
       },
+      "/v1.0/me/drive/items/{id}/content": {
+        get: {
+          ...getOperation("driveItem_GetContent", "Redirect to file content", ["Files.Read"], {
+            "302": emptyResponse("Redirect to preauthenticated content URL."),
+            "404": jsonResponse("Drive item not found."),
+          }),
+          parameters: [idPathParameter],
+        },
+        put: {
+          ...getOperation("driveItem_PutContent", "Replace file content by item id", ["Files.ReadWrite"], {
+            "200": jsonResponse("Updated drive item."),
+            "404": jsonResponse("Drive item not found."),
+          }),
+          parameters: [idPathParameter],
+        },
+      },
       "/v1.0/me/drive/items/{id}/children": {
         get: {
           ...getOperation("driveItem_ListChildren", "List drive item children", ["Files.Read"], {
@@ -206,6 +238,102 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
             "404": jsonResponse("Drive item not found."),
           }),
           parameters: [idPathParameter],
+        },
+      },
+      "/v1.0/drives/{driveId}": {
+        get: {
+          ...getOperation("drive_Get", "Get a drive by id", ["Files.Read"], {
+            "200": jsonResponse("Drive."),
+            "404": jsonResponse("Drive not found."),
+          }),
+          parameters: [driveIdPathParameter],
+        },
+      },
+      "/v1.0/drives/{driveId}/root": {
+        get: {
+          ...getOperation("driveItem_GetDriveRoot", "Get a drive root by drive id", ["Files.Read"], {
+            "200": jsonResponse("Drive item."),
+            "404": jsonResponse("Drive not found."),
+          }),
+          parameters: [driveIdPathParameter],
+        },
+      },
+      "/v1.0/drives/{driveId}/root/children": {
+        get: {
+          ...getOperation("driveItem_ListDriveRootChildren", "List drive root children by drive id", ["Files.Read"], {
+            "200": jsonResponse("Drive item collection."),
+            "404": jsonResponse("Drive not found."),
+          }),
+          parameters: [driveIdPathParameter],
+        },
+        post: {
+          ...getOperation("driveItem_CreateDriveRootChild", "Create a folder under a drive root", ["Files.ReadWrite"], {
+            "201": jsonResponse("Created drive folder."),
+            "409": jsonResponse("Drive item name conflict."),
+          }),
+          parameters: [driveIdPathParameter],
+        },
+      },
+      "/v1.0/drives/{driveId}/items/{itemId}": {
+        get: {
+          ...getOperation("driveItem_GetDriveItem", "Get a drive item by drive id", ["Files.Read"], {
+            "200": jsonResponse("Drive item."),
+            "404": jsonResponse("Drive item not found."),
+          }),
+          parameters: [driveIdPathParameter, itemIdPathParameter],
+        },
+        patch: {
+          ...getOperation("driveItem_UpdateDriveItem", "Update a drive item by drive id", ["Files.ReadWrite"], {
+            "200": jsonResponse("Updated drive item."),
+            "404": jsonResponse("Drive item not found."),
+          }),
+          parameters: [driveIdPathParameter, itemIdPathParameter],
+        },
+        delete: {
+          ...getOperation("driveItem_DeleteDriveItem", "Delete a drive item by drive id", ["Files.ReadWrite"], {
+            "204": emptyResponse("Deleted drive item."),
+            "404": jsonResponse("Drive item not found."),
+          }),
+          parameters: [driveIdPathParameter, itemIdPathParameter],
+        },
+      },
+      "/v1.0/drives/{driveId}/items/{itemId}/children": {
+        get: {
+          ...getOperation("driveItem_ListDriveChildren", "List drive item children by drive id", ["Files.Read"], {
+            "200": jsonResponse("Drive item collection."),
+            "404": jsonResponse("Drive item not found."),
+          }),
+          parameters: [driveIdPathParameter, itemIdPathParameter],
+        },
+      },
+      "/v1.0/drives/{driveId}/items/{itemId}/content": {
+        get: {
+          ...getOperation("driveItem_GetDriveContent", "Redirect to file content by drive id", ["Files.Read"], {
+            "302": emptyResponse("Redirect to preauthenticated content URL."),
+            "404": jsonResponse("Drive item not found."),
+          }),
+          parameters: [driveIdPathParameter, itemIdPathParameter],
+        },
+        put: {
+          ...getOperation("driveItem_PutDriveContent", "Replace file content by drive id", ["Files.ReadWrite"], {
+            "200": jsonResponse("Updated drive item."),
+            "404": jsonResponse("Drive item not found."),
+          }),
+          parameters: [driveIdPathParameter, itemIdPathParameter],
+        },
+      },
+      "/v1.0/drives/{driveId}/items/root:/{path}:/content": {
+        put: {
+          ...getOperation(
+            "driveItem_PutDrivePathContent",
+            "Create or replace file content by drive path",
+            ["Files.ReadWrite"],
+            {
+              "200": jsonResponse("Replaced drive item."),
+              "201": jsonResponse("Created drive item."),
+            },
+          ),
+          parameters: [driveIdPathParameter, drivePathParameter],
         },
       },
     },

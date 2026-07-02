@@ -20,6 +20,12 @@ Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with a
 - `POST /v1.0/me/events` - create calendar event
 - `GET /v1.0/me/drive` - OneDrive
 - `GET /v1.0/me/drive/root/children` - OneDrive root children
+- `POST /v1.0/me/drive/root/children` - create a OneDrive folder
+- `PUT /v1.0/me/drive/root:/{path}:/content` - create or replace file bytes by path
+- `GET /v1.0/me/drive/items/:id/content` - redirect to file bytes
+- `PUT /v1.0/me/drive/items/:id/content` - replace file bytes by item ID
+- `GET /v1.0/drives/:driveId/root/children` - drive-scoped OneDrive root children
+- `GET/PUT /v1.0/drives/:driveId/items/:itemId/content` - drive-scoped file bytes
 - `GET /oauth2/v2.0/logout` - end session / logout
 - `POST /oauth2/v2.0/revoke` - token revocation
 
@@ -69,4 +75,9 @@ curl -X POST "$MICROSOFT_EMULATOR_URL/v1.0/me/sendMail" \
 
 curl "$MICROSOFT_EMULATOR_URL/v1.0/me/drive/root/children" \
   -H "Authorization: Bearer microsoft_..."
+
+curl -X PUT "$MICROSOFT_EMULATOR_URL/v1.0/me/drive/root:/notes.txt:/content" \
+  -H "Authorization: Bearer microsoft_..." \
+  -H "Content-Type: text/plain" \
+  --data-binary "hello"
 ```
