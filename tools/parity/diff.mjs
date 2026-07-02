@@ -7,7 +7,7 @@ function usage() {
     "Usage:",
     "  node tools/parity/diff.mjs real.json emulator.json",
     "",
-    "Compares two Google API parity result files and reports structural divergences.",
+    "Compares two API parity result files and reports structural divergences.",
   ].join("\n");
 }
 
@@ -62,12 +62,24 @@ function mergeTwoShapes(left, right) {
 function compareShape(left, right, path, issues, scopeLimited, labels) {
   if (!left && !right) return;
   if (!left || !right) {
-    addIssue(issues, scopeLimited, "MEDIUM", path, `array item shape exists only on ${left ? labels.left : labels.right}`);
+    addIssue(
+      issues,
+      scopeLimited,
+      "MEDIUM",
+      path,
+      `array item shape exists only on ${left ? labels.left : labels.right}`,
+    );
     return;
   }
 
   if (left.type !== right.type) {
-    addIssue(issues, scopeLimited, "HIGH", path, `JSON type differs: ${labels.left} has ${left.type}, ${labels.right} has ${right.type}`);
+    addIssue(
+      issues,
+      scopeLimited,
+      "HIGH",
+      path,
+      `JSON type differs: ${labels.left} has ${left.type}, ${labels.right} has ${right.type}`,
+    );
     return;
   }
 
@@ -124,7 +136,13 @@ function compareEnvelope(left, right, issues, limited, labels) {
 
   for (const key of ["method", "path"]) {
     if (left[key] !== right[key]) {
-      addIssue(issues, limited, "HIGH", key, `${key} differs: ${labels.left} has ${left[key]}, ${labels.right} has ${right[key]}`);
+      addIssue(
+        issues,
+        limited,
+        "HIGH",
+        key,
+        `${key} differs: ${labels.left} has ${left[key]}, ${labels.right} has ${right[key]}`,
+      );
     }
   }
 
@@ -143,7 +161,13 @@ function compareEnvelope(left, right, issues, limited, labels) {
   }
 
   if (!leftSkipped && !rightSkipped && left.status !== right.status) {
-    addIssue(issues, limited, "HIGH", "status", `status differs: ${labels.left} has ${left.status}, ${labels.right} has ${right.status}`);
+    addIssue(
+      issues,
+      limited,
+      "HIGH",
+      "status",
+      `status differs: ${labels.left} has ${left.status}, ${labels.right} has ${right.status}`,
+    );
   }
 }
 
@@ -177,13 +201,7 @@ function compareProbe(name, left, right, labels) {
   const limited = scopeLimited(left, right);
 
   if (!left || !right) {
-    addIssue(
-      issues,
-      limited,
-      "HIGH",
-      name,
-      `probe exists only on ${left ? labels.left : labels.right}`,
-    );
+    addIssue(issues, limited, "HIGH", name, `probe exists only on ${left ? labels.left : labels.right}`);
     return issues;
   }
 
@@ -191,6 +209,7 @@ function compareProbe(name, left, right, labels) {
   compareChecks(left, right, issues, limited, labels);
 
   if (!("skipped" in left) && !("skipped" in right) && !("failure" in left) && !("failure" in right)) {
+    compareShape(shapeOf(left.headers ?? {}), shapeOf(right.headers ?? {}), "headers", issues, limited, labels);
     compareShape(shapeOf(left.response), shapeOf(right.response), "response", issues, limited, labels);
   }
 
@@ -215,7 +234,10 @@ function printReport(leftPath, rightPath, divergences) {
   }
 
   const ordered = [...divergences].sort(
-    (a, b) => severityRank(a.severity) - severityRank(b.severity) || a.probe.localeCompare(b.probe) || a.path.localeCompare(b.path),
+    (a, b) =>
+      severityRank(a.severity) - severityRank(b.severity) ||
+      a.probe.localeCompare(b.probe) ||
+      a.path.localeCompare(b.path),
   );
   let currentSeverity = null;
   for (const item of ordered) {
