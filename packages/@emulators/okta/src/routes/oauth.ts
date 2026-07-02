@@ -9,6 +9,7 @@ import {
   escapeAttr,
   escapeHtml,
   matchesRedirectUri,
+  recordSideEffect,
   renderCardPage,
   renderErrorPage,
   renderFormPostPage,
@@ -132,7 +133,7 @@ function resolveServer(
 function buildOidcConfiguration(baseUrl: string, server: ResolvedServer): Record<string, unknown> {
   const oauthBase = buildOAuthBasePath(server.authServerId);
   const oauthUrlBase = `${baseUrl}${oauthBase}`;
-  const tokenEndpointAuthMethods = ["client_secret_post", "client_secret_basic", "none"];
+  const tokenEndpointAuthMethods = ["client_secret_basic", "client_secret_post", "none"];
   return {
     issuer: server.issuer,
     authorization_endpoint: `${oauthUrlBase}/authorize`,
@@ -174,6 +175,51 @@ function buildOidcConfiguration(baseUrl: string, server: ResolvedServer): Record
     ],
     code_challenge_methods_supported: ["plain", "S256"],
   };
+}
+
+function oauthMetadataResponse(
+  c: Context<AppEnv>,
+  baseUrl: string,
+  oktaStore: ReturnType<typeof getOktaStore>,
+  authServerId: string,
+): Response {
+  const server = resolveServer(authServerId, baseUrl, oktaStore);
+  if (!server) return oktaError(c, 404, "E0000007", `Not found: authorization server '${authServerId}'`);
+  return c.json(buildOidcConfiguration(baseUrl, server));
+}
+
+type ClientRegistrationBody = {
+  redirect_uris?: unknown;
+  client_name?: unknown;
+  grant_types?: unknown;
+  response_types?: unknown;
+  token_endpoint_auth_method?: unknown;
+  scope?: unknown;
+};
+
+function registrationError(c: Context<AppEnv>, error: string, errorDescription: string): Response {
+  return c.json({ error, error_description: errorDescription }, 400);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+function isAllowedRedirectUri(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function generateClientId(): string {
+  return `0oa${randomBytes(16).toString("hex")}`;
+}
+
+function generateClientSecret(): string {
+  return randomBytes(32).toString("base64url");
 }
 
 async function parseTokenLikeBody(c: Context<AppEnv>): Promise<Record<string, string>> {
@@ -328,17 +374,128 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
   const SERVICE_LABEL = "Okta";
 
   app.get("/.well-known/openid-configuration", (c) => {
-    const server = resolveServer(ORG_AUTH_SERVER_ID, baseUrl, oktaStore);
-    if (!server) return oktaError(c, 404, "E0000007", "Not found: org authorization server");
-    return c.json(buildOidcConfiguration(baseUrl, server));
+    return oauthMetadataResponse(c, baseUrl, oktaStore, ORG_AUTH_SERVER_ID);
+  });
+
+  app.get("/.well-known/oauth-authorization-server", (c) => {
+    return oauthMetadataResponse(c, baseUrl, oktaStore, ORG_AUTH_SERVER_ID);
   });
 
   app.get("/oauth2/:authServerId/.well-known/openid-configuration", (c) => {
-    const authServerId = c.req.param("authServerId");
+    return oauthMetadataResponse(c, baseUrl, oktaStore, c.req.param("authServerId"));
+  });
+
+  app.get("/oauth2/:authServerId/.well-known/oauth-authorization-server", (c) => {
+    return oauthMetadataResponse(c, baseUrl, oktaStore, c.req.param("authServerId"));
+  });
+
+  app.get("/.well-known/openid-configuration/oauth2/:authServerId", (c) => {
+    return oauthMetadataResponse(c, baseUrl, oktaStore, c.req.param("authServerId"));
+  });
+
+  app.get("/.well-known/oauth-authorization-server/oauth2/:authServerId", (c) => {
+    return oauthMetadataResponse(c, baseUrl, oktaStore, c.req.param("authServerId"));
+  });
+
+  const handleClientRegistration = async (c: Context<AppEnv>, authServerId: string): Promise<Response> => {
     const server = resolveServer(authServerId, baseUrl, oktaStore);
     if (!server) return oktaError(c, 404, "E0000007", `Not found: authorization server '${authServerId}'`);
-    return c.json(buildOidcConfiguration(baseUrl, server));
-  });
+
+    let body: ClientRegistrationBody;
+    try {
+      body = (await c.req.json()) as ClientRegistrationBody;
+    } catch {
+      return registrationError(c, "invalid_client_metadata", "Request body must be valid JSON.");
+    }
+
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return registrationError(c, "invalid_client_metadata", "Request body must be a JSON object.");
+    }
+
+    if (!isStringArray(body.redirect_uris) || body.redirect_uris.length === 0) {
+      return registrationError(c, "invalid_client_metadata", "redirect_uris must be a non-empty array of strings.");
+    }
+
+    if (!body.redirect_uris.every(isAllowedRedirectUri)) {
+      return registrationError(c, "invalid_redirect_uri", "Each redirect_uri must be an absolute HTTP or HTTPS URL.");
+    }
+
+    const responseTypes =
+      body.response_types === undefined ? ["code"] : isStringArray(body.response_types) ? body.response_types : null;
+    if (!responseTypes || responseTypes.length === 0 || !responseTypes.includes("code")) {
+      return registrationError(c, "invalid_client_metadata", "response_types must include code.");
+    }
+
+    const grantTypes =
+      body.grant_types === undefined
+        ? ["authorization_code"]
+        : isStringArray(body.grant_types)
+          ? body.grant_types
+          : null;
+    if (!grantTypes || grantTypes.length === 0 || !grantTypes.includes("authorization_code")) {
+      return registrationError(c, "invalid_client_metadata", "grant_types must include authorization_code.");
+    }
+
+    const tokenEndpointAuthMethod = body.token_endpoint_auth_method ?? "client_secret_basic";
+    if (
+      tokenEndpointAuthMethod !== "none" &&
+      tokenEndpointAuthMethod !== "client_secret_post" &&
+      tokenEndpointAuthMethod !== "client_secret_basic"
+    ) {
+      return registrationError(c, "invalid_client_metadata", "token_endpoint_auth_method is not supported.");
+    }
+
+    if (body.client_name !== undefined && typeof body.client_name !== "string") {
+      return registrationError(c, "invalid_client_metadata", "client_name must be a string.");
+    }
+
+    if (body.scope !== undefined && typeof body.scope !== "string") {
+      return registrationError(c, "invalid_client_metadata", "scope must be a string.");
+    }
+
+    let clientId = generateClientId();
+    while (oktaStore.oauthClients.findOneBy("client_id", clientId)) {
+      clientId = generateClientId();
+    }
+
+    const clientSecret = tokenEndpointAuthMethod === "none" ? undefined : generateClientSecret();
+    const client = oktaStore.oauthClients.insert({
+      client_id: clientId,
+      ...(clientSecret ? { client_secret: clientSecret } : {}),
+      name: body.client_name || "Dynamic Client",
+      redirect_uris: body.redirect_uris,
+      response_types: responseTypes,
+      grant_types: grantTypes,
+      token_endpoint_auth_method: tokenEndpointAuthMethod,
+      auth_server_id: authServerId,
+    });
+
+    recordSideEffect(c, {
+      type: "create",
+      collection: "okta.oauth_clients",
+      id: client.id,
+      summary: `Registered OAuth client ${client.client_id}`,
+    });
+
+    const issuedAt = Math.floor(new Date(client.created_at).getTime() / 1000);
+    return c.json(
+      {
+        client_id: client.client_id,
+        ...(client.client_secret ? { client_secret: client.client_secret } : {}),
+        client_id_issued_at: issuedAt,
+        client_secret_expires_at: 0,
+        client_name: client.name,
+        redirect_uris: client.redirect_uris,
+        grant_types: client.grant_types,
+        response_types: client.response_types,
+        token_endpoint_auth_method: client.token_endpoint_auth_method,
+      },
+      201,
+    );
+  };
+
+  app.post("/oauth2/v1/clients", (c) => handleClientRegistration(c, ORG_AUTH_SERVER_ID));
+  app.post("/oauth2/:authServerId/v1/clients", (c) => handleClientRegistration(c, c.req.param("authServerId")));
 
   app.get("/oauth2/v1/keys", async (c) => {
     const { publicKey } = await keyPairPromise;

@@ -2,7 +2,9 @@ import { describe, it, expect } from "vitest";
 import { createEmulator } from "../api.js";
 
 describe("createEmulator", () => {
-  it("starts github and returns a url", async () => {
+  // The first test in the suite pays the cold-start plugin import cost, which
+  // can exceed the default 5s on CI runners (it hit 2.9s on a green run).
+  it("starts github and returns a url", { timeout: 15000 }, async () => {
     const github = await createEmulator({ service: "github", port: 14000 });
 
     expect(github.url).toBe("http://localhost:14000");

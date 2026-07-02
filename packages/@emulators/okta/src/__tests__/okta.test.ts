@@ -2,8 +2,9 @@ import { createHash } from "node:crypto";
 import { decodeJwt } from "jose";
 import { Hono } from "@emulators/core";
 import { beforeEach, describe, expect, it } from "vitest";
-import { Store, WebhookDispatcher, authMiddleware, type TokenMap } from "@emulators/core";
+import { Store, WebhookDispatcher, authMiddleware, createServer, type TokenMap } from "@emulators/core";
 import { getOktaStore, oktaPlugin, seedFromConfig } from "../index.js";
+import { manifest } from "../manifest.js";
 
 const base = "http://localhost:4000";
 
@@ -156,6 +157,89 @@ async function exchangeCode(
   });
 }
 
+function dcrRequestBody(tokenEndpointAuthMethod: "none" | "client_secret_post" = "none") {
+  return {
+    redirect_uris: ["http://localhost:3000/dcr-callback"],
+    client_name: "Executor DCR Client",
+    grant_types: ["authorization_code", "refresh_token"],
+    response_types: ["code"],
+    token_endpoint_auth_method: tokenEndpointAuthMethod,
+    scope: "openid profile email offline_access",
+  };
+}
+
+async function registerClient(
+  app: Hono,
+  registrationEndpoint = `${base}/oauth2/default/v1/clients`,
+  tokenEndpointAuthMethod: "none" | "client_secret_post" = "none",
+): Promise<Record<string, unknown>> {
+  const res = await app.request(registrationEndpoint, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Accept: "application/json" },
+    body: JSON.stringify(dcrRequestBody(tokenEndpointAuthMethod)),
+  });
+  expect(res.status).toBe(201);
+  return (await res.json()) as Record<string, unknown>;
+}
+
+async function completePkceCodeFlow(
+  app: Hono,
+  store: Store,
+  options: {
+    authorizationEndpoint?: string;
+    tokenEndpoint?: string;
+    clientId: string;
+    clientSecret?: string;
+    redirectUri?: string;
+    includeClientSecret?: boolean;
+  },
+): Promise<Record<string, unknown>> {
+  const redirectUri = options.redirectUri ?? "http://localhost:3000/dcr-callback";
+  const verifier = "executor-pkce-verifier-12345";
+  const challenge = createHash("sha256").update(verifier).digest("base64url");
+  const authorizationEndpoint = options.authorizationEndpoint ?? `${base}/oauth2/default/v1/authorize`;
+
+  const authorizeUrl = new URL(authorizationEndpoint);
+  authorizeUrl.searchParams.set("client_id", options.clientId);
+  authorizeUrl.searchParams.set("redirect_uri", redirectUri);
+  authorizeUrl.searchParams.set("response_type", "code");
+  authorizeUrl.searchParams.set("state", "executor-state");
+  authorizeUrl.searchParams.set("code_challenge", challenge);
+  authorizeUrl.searchParams.set("code_challenge_method", "S256");
+  authorizeUrl.searchParams.set("scope", "openid profile email offline_access");
+
+  const authorizeRes = await app.request(authorizeUrl.toString(), { headers: { Accept: "text/html" } });
+  expect(authorizeRes.status).toBe(200);
+
+  const { code, state } = await getAuthCode(app, store, {
+    authServerId: "default",
+    clientId: options.clientId,
+    redirectUri,
+    scope: "openid profile email offline_access",
+    state: "executor-state",
+    codeChallenge: challenge,
+    codeChallengeMethod: "S256",
+  });
+  expect(code).toBeTruthy();
+  expect(state).toBe("executor-state");
+
+  const tokenUrl = new URL(options.tokenEndpoint ?? `${base}/oauth2/default/v1/token`);
+  const tokenRes = await app.request(tokenUrl.toString(), {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code,
+      client_id: options.clientId,
+      ...(options.includeClientSecret === false ? {} : { client_secret: options.clientSecret ?? "" }),
+      redirect_uri: redirectUri,
+      code_verifier: verifier,
+    }).toString(),
+  });
+  expect(tokenRes.status).toBe(200);
+  return (await tokenRes.json()) as Record<string, unknown>;
+}
+
 describe("Okta plugin integration", () => {
   let app: Hono;
   let store: Store;
@@ -180,7 +264,7 @@ describe("Okta plugin integration", () => {
       expect(body.introspection_endpoint).toBe(`${base}/oauth2/v1/introspect`);
       expect(body.registration_endpoint).toBe(`${base}/oauth2/v1/clients`);
       expect(body.code_challenge_methods_supported).toEqual(["plain", "S256"]);
-      expect(body.token_endpoint_auth_methods_supported).toEqual(["client_secret_post", "client_secret_basic", "none"]);
+      expect(body.token_endpoint_auth_methods_supported).toEqual(["client_secret_basic", "client_secret_post", "none"]);
       expect(body.request_parameter_supported).toBe(false);
     });
 
@@ -200,6 +284,40 @@ describe("Okta plugin integration", () => {
       expect(body.issuer).toBe(`${base}/oauth2/custom-as`);
       expect(body.authorization_endpoint).toBe(`${base}/oauth2/custom-as/v1/authorize`);
       expect(body.token_endpoint).toBe(`${base}/oauth2/custom-as/v1/token`);
+    });
+
+    it("returns path-insert metadata for both well-known suffixes", async () => {
+      for (const path of [
+        "/.well-known/oauth-authorization-server/oauth2/default",
+        "/.well-known/openid-configuration/oauth2/default",
+      ]) {
+        const res = await app.request(`${base}${path}`, { headers: { Accept: "application/json" } });
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as Record<string, unknown>;
+        expect(body.issuer).toBe(`${base}/oauth2/default`);
+        expect(body.authorization_endpoint).toBe(`${base}/oauth2/default/v1/authorize`);
+        expect(body.token_endpoint).toBe(`${base}/oauth2/default/v1/token`);
+        expect(body.registration_endpoint).toBe(`${base}/oauth2/default/v1/clients`);
+        expect(body.response_types_supported).toContain("code");
+        expect(body.code_challenge_methods_supported).toContain("S256");
+      }
+    });
+
+    it("returns the same auth-server metadata for suffix and path-insert aliases", async () => {
+      const paths = [
+        "/oauth2/default/.well-known/openid-configuration",
+        "/oauth2/default/.well-known/oauth-authorization-server",
+        "/.well-known/openid-configuration/oauth2/default",
+        "/.well-known/oauth-authorization-server/oauth2/default",
+      ];
+      const documents = await Promise.all(
+        paths.map(async (path) => {
+          const res = await app.request(`${base}${path}`, { headers: { Accept: "application/json" } });
+          expect(res.status).toBe(200);
+          return (await res.json()) as Record<string, unknown>;
+        }),
+      );
+      expect(documents.every((doc) => JSON.stringify(doc) === JSON.stringify(documents[0]))).toBe(true);
     });
 
     it("returns 404 for unknown custom auth server", async () => {
@@ -343,6 +461,126 @@ describe("Okta plugin integration", () => {
       expect(res.status).toBe(400);
       const body = (await res.json()) as Record<string, unknown>;
       expect(body.error).toBe("unsupported_grant_type");
+    });
+  });
+
+  describe("dynamic client registration", () => {
+    it("registers public and confidential clients with RFC 7591 responses", async () => {
+      const publicClient = await registerClient(app, `${base}/oauth2/default/v1/clients`, "none");
+      expect(typeof publicClient.client_id).toBe("string");
+      expect(publicClient.client_secret).toBeUndefined();
+      expect(publicClient.client_id_issued_at).toEqual(expect.any(Number));
+      expect(publicClient.client_secret_expires_at).toBe(0);
+      expect(publicClient.client_name).toBe("Executor DCR Client");
+      expect(publicClient.redirect_uris).toEqual(["http://localhost:3000/dcr-callback"]);
+      expect(publicClient.grant_types).toEqual(["authorization_code", "refresh_token"]);
+      expect(publicClient.response_types).toEqual(["code"]);
+      expect(publicClient.token_endpoint_auth_method).toBe("none");
+
+      const confidentialClient = await registerClient(app, `${base}/oauth2/default/v1/clients`, "client_secret_post");
+      expect(typeof confidentialClient.client_id).toBe("string");
+      expect(typeof confidentialClient.client_secret).toBe("string");
+      expect(confidentialClient.token_endpoint_auth_method).toBe("client_secret_post");
+    });
+
+    it("registered public client completes authorization-code PKCE S256 exchange", async () => {
+      const client = await registerClient(app, `${base}/oauth2/default/v1/clients`, "none");
+      const tokenBody = await completePkceCodeFlow(app, store, {
+        clientId: client.client_id as string,
+        includeClientSecret: false,
+      });
+      expect((tokenBody.access_token as string).startsWith("okta_")).toBe(true);
+      expect((tokenBody.refresh_token as string).startsWith("r_okta_")).toBe(true);
+      const claims = decodeJwt(tokenBody.id_token as string);
+      expect(claims.aud).toBe(client.client_id);
+      expect(claims.iss).toBe(`${base}/oauth2/default`);
+    });
+
+    it("rejects invalid metadata with an RFC 6749 error envelope", async () => {
+      const res = await app.request(`${base}/oauth2/default/v1/clients`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ ...dcrRequestBody(), redirect_uris: [] }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body).toEqual({
+        error: "invalid_client_metadata",
+        error_description: "redirect_uris must be a non-empty array of strings.",
+      });
+    });
+
+    it("rejects invalid redirect URIs with invalid_redirect_uri", async () => {
+      const res = await app.request(`${base}/oauth2/default/v1/clients`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ ...dcrRequestBody(), redirect_uris: ["not a url"] }),
+      });
+      expect(res.status).toBe(400);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.error).toBe("invalid_redirect_uri");
+      expect(body.error_description).toBe("Each redirect_uri must be an absolute HTTP or HTTPS URL.");
+    });
+
+    it("satisfies executor metadata probe then registers and completes PKCE", async () => {
+      const metadataRes = await app.request(`${base}/.well-known/oauth-authorization-server/oauth2/default`, {
+        headers: { Accept: "application/json" },
+      });
+      expect(metadataRes.status).toBe(200);
+      const metadata = (await metadataRes.json()) as Record<string, unknown>;
+      expect(metadata.registration_endpoint).toBe(`${base}/oauth2/default/v1/clients`);
+
+      const client = await registerClient(app, metadata.registration_endpoint as string, "none");
+      const tokenBody = await completePkceCodeFlow(app, store, {
+        authorizationEndpoint: metadata.authorization_endpoint as string,
+        tokenEndpoint: metadata.token_endpoint as string,
+        clientId: client.client_id as string,
+        includeClientSecret: false,
+      });
+      expect(tokenBody.token_type).toBe("Bearer");
+      expect(tokenBody.scope).toBe("openid profile email offline_access");
+    });
+
+    it("fires an armed registration fault once and records it in the ledger", async () => {
+      const server = createServer(oktaPlugin, { baseUrl: base, manifest });
+      oktaPlugin.seed?.(server.store, base);
+
+      const arm = await server.app.request(`${base}/_emulate/faults`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          match: { method: "POST", pathPattern: "/oauth2/default/v1/clients" },
+          response: {
+            status: 503,
+            body: { error: "temporarily_unavailable", error_description: "Injected failure." },
+          },
+        }),
+      });
+      expect(arm.status).toBe(200);
+
+      const first = await server.app.request(`${base}/oauth2/default/v1/clients`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(dcrRequestBody()),
+      });
+      expect(first.status).toBe(503);
+      expect(((await first.json()) as Record<string, unknown>).error).toBe("temporarily_unavailable");
+
+      const second = await server.app.request(`${base}/oauth2/default/v1/clients`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify(dcrRequestBody()),
+      });
+      expect(second.status).toBe(201);
+
+      const ledgerRes = await server.app.request(`${base}/_emulate/ledger`);
+      expect(ledgerRes.status).toBe(200);
+      const ledger = (await ledgerRes.json()) as { entries: Array<Record<string, unknown>> };
+      const faulted = ledger.entries.find(
+        (entry) => entry.path === "/oauth2/default/v1/clients" && entry.faulted === true,
+      );
+      expect(faulted).toBeDefined();
+      expect((faulted?.response as Record<string, unknown>).status).toBe(503);
     });
   });
 
