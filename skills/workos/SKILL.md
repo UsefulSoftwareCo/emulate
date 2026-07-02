@@ -51,4 +51,4 @@ curl -X POST "$WORKOS_EMULATOR_URL/_emulate/seed" -H "Content-Type: application/
 }'
 ```
 
-Inspect calls at `GET /_emulate/ledger`; reset with `POST /_emulate/reset`.
+Inspect calls at `GET /_emulate/ledger`; reset with `POST /_emulate/reset`. Use `POST /_emulate/faults` to arm one-shot failures; matching faulted requests show `faulted: true` and `faultId` in the ledger.

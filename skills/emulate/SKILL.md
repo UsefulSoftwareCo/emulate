@@ -50,6 +50,10 @@ Provider traffic and control-plane traffic are separate. Provider routes stay fa
 | `GET /_emulate/state` | Current emulator store snapshot |
 | `GET /_emulate/ledger` | Recent API calls with sensitive fields redacted (optional `?limit=`) |
 | `DELETE /_emulate/ledger` | Clear the request ledger |
+| `POST /_emulate/faults` | Arm a one-shot or counted fault against matching provider requests |
+| `GET /_emulate/faults` | List armed faults with remaining counts |
+| `DELETE /_emulate/faults` | Clear all armed faults |
+| `DELETE /_emulate/faults/:id` | Clear one armed fault |
 | `GET /_emulate/logs` | Webhook deliveries plus recent requests |
 | `POST /_emulate/instances` | Return URLs for a lazily created hosted instance |
 | `POST /_emulate/seed` | Add runtime seed data using the service seed schema |
@@ -97,10 +101,15 @@ The request ledger is a core feature, not a debug afterthought. `GET /_emulate/l
 - sanitized request headers and body
 - authenticated identity
 - response status and a one-line summary
+- `faulted` and `faultId` when `/_emulate/faults` injected the response
 - `sideEffects` and `webhookDeliveries`
 - `durationMs`
 
 Send `X-Correlation-Id` on a request to trace it end to end, then read it back from the matching ledger entry. Use `sideEffects` and `webhookDeliveries` to assert what an application's call actually did.
+
+### Fault injection
+
+Use `POST /_emulate/faults` to arm a one-shot or counted response for matching provider requests. The body is `{ "match": { "operationId": "...", "method": "GET", "pathPattern": "/v1/*" }, "response": { "status": 503, "body": { "error": "temporary" } }, "times": 1 }`. Match criteria are combined, and `pathPattern` is a glob where `*` matches any characters in the request path. Matched requests short-circuit, decrement `remaining`, and still appear in `GET /_emulate/ledger` with `faulted: true` and `faultId`.
 
 ## Host-Based Routing (Deployed Emulators)
 

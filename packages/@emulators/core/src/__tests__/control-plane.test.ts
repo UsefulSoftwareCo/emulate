@@ -49,6 +49,7 @@ describe("control plane", () => {
 
     const quickstart = await (await app.request("/_emulate/quickstart")).text();
     expect(quickstart).toContain("Provider base URL: https://demo.instance.emulators.dev");
+    expect(quickstart).toContain("/_emulate/faults");
 
     const state = (await (await app.request("/_emulate/state")).json()) as { collections: Record<string, unknown> };
     expect(state.collections["demo.things"]).toBeDefined();
@@ -93,6 +94,82 @@ describe("control plane", () => {
     expect(ledger.entries[0]!.identity.user?.login).toBe("admin");
   });
 
+  it("arms, lists, clears, and records one-shot faults", async () => {
+    const { app, store } = createServer(plugin, {
+      baseUrl: "https://demo.instance.emulators.dev",
+      manifest: {
+        id: "demo",
+        name: "Demo",
+        description: "Demo emulator.",
+        surfaces: [{ id: "rest", kind: "rest", title: "REST API", status: "partial", basePath: "/" }],
+        auth: [{ id: "bearer", title: "Bearer token", type: "bearer-token", status: "partial" }],
+        specs: [
+          {
+            kind: "manual",
+            title: "Manual behavior",
+            coverage: "partial",
+            operations: [{ operationId: "listThings", method: "GET", path: "/things", status: "hand-authored" }],
+          },
+        ],
+      },
+    });
+    plugin.seed?.(store, "https://demo.instance.emulators.dev");
+
+    const armRes = await app.request("/_emulate/faults", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        match: { operationId: "listThings" },
+        response: { status: 503, body: { error: "planned" } },
+      }),
+    });
+    expect(armRes.status).toBe(200);
+    const { fault } = (await armRes.json()) as { fault: { id: string; remaining: number } };
+    expect(fault.remaining).toBe(1);
+
+    let faults = (await (await app.request("/_emulate/faults")).json()) as { faults: Array<{ id: string }> };
+    expect(faults.faults.map((f) => f.id)).toContain(fault.id);
+
+    const faulted = await app.request("/things");
+    expect(faulted.status).toBe(503);
+    expect(await faulted.json()).toEqual({ error: "planned" });
+
+    const ledger = (await (await app.request("/_emulate/ledger")).json()) as {
+      entries: Array<{ path: string; response: { status: number }; faulted?: boolean; faultId?: string }>;
+    };
+    expect(ledger.entries[0]).toMatchObject({
+      path: "/things",
+      response: { status: 503 },
+      faulted: true,
+      faultId: fault.id,
+    });
+
+    const normal = await app.request("/things");
+    expect(normal.status).toBe(200);
+    expect(((await normal.json()) as { things: Thing[] }).things).toHaveLength(1);
+
+    faults = (await (await app.request("/_emulate/faults")).json()) as { faults: Array<{ id: string }> };
+    expect(faults.faults).toHaveLength(0);
+
+    const pathFaultRes = await app.request("/_emulate/faults", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ match: { method: "GET", pathPattern: "/things" }, response: { status: 429 } }),
+    });
+    const pathFault = (await pathFaultRes.json()) as { fault: { id: string } };
+    const clearOne = await app.request(`/_emulate/faults/${pathFault.fault.id}`, { method: "DELETE" });
+    expect(clearOne.status).toBe(200);
+
+    await app.request("/_emulate/faults", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ match: { method: "GET", pathPattern: "/things" }, response: { status: 500 } }),
+    });
+    await app.request("/_emulate/faults", { method: "DELETE" });
+    faults = (await (await app.request("/_emulate/faults")).json()) as { faults: Array<{ id: string }> };
+    expect(faults.faults).toHaveLength(0);
+  });
+
   it("runs the supplied reset callback", async () => {
     let resets = 0;
     const { app, store, ledger } = createServer(plugin, {
@@ -111,6 +188,11 @@ describe("control plane", () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ name: "created" }),
     });
+    await app.request("/_emulate/faults", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ match: { method: "GET", pathPattern: "/unused" }, response: { status: 503 } }),
+    });
     let things = (await (await app.request("/things")).json()) as { things: Thing[] };
     expect(things.things).toHaveLength(2);
 
@@ -121,6 +203,8 @@ describe("control plane", () => {
     things = (await (await app.request("/things")).json()) as { things: Thing[] };
     expect(things.things).toHaveLength(1);
     expect(things.things[0]!.name).toBe("seeded");
+    const faults = (await (await app.request("/_emulate/faults")).json()) as { faults: unknown[] };
+    expect(faults.faults).toHaveLength(0);
   });
 
   it("creates default bearer credentials through the control plane", async () => {

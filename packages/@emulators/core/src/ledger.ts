@@ -1,6 +1,7 @@
 import type { MiddlewareHandler } from "./http.js";
 import type { AppEnv, AuthUser, AuthApp } from "./middleware/auth.js";
 import type { WebhookDispatcher } from "./webhooks.js";
+import { faultLedgerFields } from "./faults.js";
 
 export interface LedgerIdentity {
   user?: Pick<AuthUser, "login" | "id" | "scopes">;
@@ -36,6 +37,10 @@ export interface LedgerEntry {
   route?: string;
   /** Provider operation id, when the handler advertises one. */
   operationId?: string;
+  /** True when the response was injected by the shared one-shot fault system. */
+  faulted?: boolean;
+  /** The armed fault id that produced this response. */
+  faultId?: string;
   request: {
     headers: Record<string, string>;
     body?: unknown;
@@ -181,6 +186,7 @@ export function createLedgerMiddleware(ledger: RequestLedger, options: LedgerOpt
       query: url.search,
       route,
       operationId,
+      ...faultLedgerFields(c),
       request: {
         headers: requestHeaders,
         ...requestBody,

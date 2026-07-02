@@ -740,6 +740,6 @@ curl -X POST "$SLACK_EMULATOR_URL/_emulate/credentials" \
   -d '{"type":"oauth-authorization-code","redirect_uris":["http://localhost:3000/api/auth/callback/slack"]}'
 ```
 
-Inspect calls with `GET /_emulate/ledger`: each entry includes a correlation id (set `X-Correlation-Id` on a request to trace it), the matched route and operation id, sanitized headers and body, authenticated identity, response status, side effects, and webhook deliveries (the `event_callback` payloads dispatched on state changes). Use `POST /_emulate/seed` to add runtime seed data and `POST /_emulate/reset` to replay seeds.
+Inspect calls with `GET /_emulate/ledger`: each entry includes a correlation id (set `X-Correlation-Id` on a request to trace it), the matched route and operation id, sanitized headers and body, authenticated identity, response status, side effects, and webhook deliveries (the `event_callback` payloads dispatched on state changes). Use `POST /_emulate/seed` to add runtime seed data and `POST /_emulate/reset` to replay seeds. Use `POST /_emulate/faults` to arm one-shot failures; matching faulted requests show `faulted: true` and `faultId` in the ledger.
 
 Hosted Slack is at `https://slack.emulators.dev` (the bare service host is useful without an instance) with instance hosts of the form `slack.<instance>.emulators.dev`. The apex `https://emulators.dev` is a links-out catalog of every emulator; discover the same catalog machine-readably at `GET /_emulate/services` from any host. Per-service docs live at `https://docs.emulators.dev/slack`.

@@ -78,6 +78,26 @@ describe("EmulatorClient", () => {
     expect(await client.ledger.list()).toHaveLength(0);
   });
 
+  it("arms, lists, and clears faults with typed entries", async () => {
+    const { client } = makeClient();
+
+    const fault = await client.faults.arm({
+      match: { method: "GET", pathPattern: "/things" },
+      response: { status: 503, body: { error: "planned" } },
+    });
+    expect(fault.id).toMatch(/^fault_/);
+    expect(fault.remaining).toBe(1);
+
+    expect((await client.faults.list()).map((f) => f.id)).toEqual([fault.id]);
+
+    await client.faults.clear(fault.id);
+    expect(await client.faults.list()).toHaveLength(0);
+
+    await client.faults.arm({ match: { method: "GET", pathPattern: "/things" }, response: { status: 429 } });
+    await client.faults.clear();
+    expect(await client.faults.list()).toHaveLength(0);
+  });
+
   it("mints credentials in the service's shape", async () => {
     const { client } = makeClient();
     const credential = await client.credentials.mint({ type: "bearer-token", login: "tester" });

@@ -4,9 +4,13 @@ export type { ServiceName } from "./registry.js";
 export {
   EmulatorClient,
   EmulatorControlError,
+  type ArmedFault,
   type ConnectionsQuery,
   type CoverageResponse,
   type CredentialRequest,
+  type FaultArmInput,
+  type FaultMatch,
+  type FaultResponse,
   type IssuedCredential,
   type LedgerEntry,
   type LedgerIdentity,
@@ -111,7 +115,7 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
 
   let resetService = () => {};
   let applyRuntimeSeed = (_seed: unknown) => {};
-  const { app, store, webhooks, ledger, tokenMap } = createServer(loaded.plugin, {
+  const { app, store, webhooks, ledger, faults, tokenMap } = createServer(loaded.plugin, {
     port,
     baseUrl,
     tokens,
@@ -128,6 +132,7 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
   const seed = () => {
     webhooks.clear();
     ledger.clear();
+    faults.clear();
     loaded.plugin.seed?.(store, baseUrl);
     if (svcSeedConfig && loaded.seedFromConfig) {
       loaded.seedFromConfig(store, baseUrl, svcSeedConfig, webhooks);

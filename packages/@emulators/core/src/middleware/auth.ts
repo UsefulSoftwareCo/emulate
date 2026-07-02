@@ -58,6 +58,8 @@ export type AppEnv = {
     correlationId?: string;
     /** Provider operation id a handler can advertise for the ledger. */
     operationId?: string;
+    /** One-shot fault marker set by the shared fault injection middleware. */
+    fault?: import("../faults.js").FaultLedgerMarker;
     /** Side effects a handler records onto the active request's ledger entry. */
     ledgerEffects?: import("../ledger.js").LedgerSideEffect[];
   };

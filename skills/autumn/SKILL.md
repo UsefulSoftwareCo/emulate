@@ -53,4 +53,4 @@ curl -X POST "$AUTUMN_EMULATOR_URL/checkout/settle" -H "Content-Type: applicatio
 
 This deferral lets a test reproduce the real "page is stale until reload" race: the redirect back lands before the subscription is active.
 
-Inspect calls at `GET /_emulate/ledger`; reset with `POST /_emulate/reset`.
+Inspect calls at `GET /_emulate/ledger`; reset with `POST /_emulate/reset`. Use `POST /_emulate/faults` to arm one-shot failures; matching faulted requests show `faulted: true` and `faultId` in the ledger.

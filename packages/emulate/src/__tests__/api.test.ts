@@ -172,6 +172,61 @@ describe("createEmulator", () => {
     await spotify.close();
   });
 
+  it("injects a one-shot fault into a real service emulator", async () => {
+    const spotify = await createEmulator({ service: "spotify", port: 14051 });
+
+    const credential = await spotify.credentials.mint({ type: "oauth-client-credentials", name: "Fault Test" });
+    const basic = Buffer.from(`${credential.client_id}:${credential.client_secret}`).toString("base64");
+    const tokenRes = await fetch(`${spotify.url}/api/token`, {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${basic}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: "grant_type=client_credentials",
+    });
+    const token = (await tokenRes.json()) as { access_token: string };
+
+    const fault = await spotify.faults.arm({
+      match: { operationId: "search" },
+      response: { status: 503, body: { error: { message: "planned outage" } } },
+    });
+    expect((await spotify.faults.list()).map((f) => f.id)).toContain(fault.id);
+
+    const searchUrl = `${spotify.url}/v1/search?q=daft&type=artist`;
+    const faulted = await fetch(searchUrl, { headers: { Authorization: `Bearer ${token.access_token}` } });
+    expect(faulted.status).toBe(503);
+    expect(await faulted.json()).toEqual({ error: { message: "planned outage" } });
+
+    const ledger = await spotify.ledger.list();
+    expect(ledger[0]).toMatchObject({
+      path: "/v1/search",
+      operationId: "search",
+      response: { status: 503 },
+      faulted: true,
+      faultId: fault.id,
+    });
+
+    const normal = await fetch(searchUrl, { headers: { Authorization: `Bearer ${token.access_token}` } });
+    expect(normal.status).toBe(200);
+    const normalBody = (await normal.json()) as { artists: { items: unknown[] } };
+    expect(normalBody.artists.items.length).toBeGreaterThan(0);
+    expect(await spotify.faults.list()).toHaveLength(0);
+
+    const cleared = await spotify.faults.arm({
+      match: { method: "GET", pathPattern: "/v1/search" },
+      response: { status: 429 },
+    });
+    await spotify.faults.clear(cleared.id);
+    expect(await spotify.faults.list()).toHaveLength(0);
+
+    await spotify.faults.arm({ match: { method: "GET", pathPattern: "/v1/*" }, response: { status: 500 } });
+    await spotify.faults.clear();
+    expect(await spotify.faults.list()).toHaveLength(0);
+
+    await spotify.close();
+  });
+
   it("creates Microsoft OAuth client credentials and exchanges them for a Graph app token", async () => {
     const microsoft = await createEmulator({ service: "microsoft", port: 14055 });
 

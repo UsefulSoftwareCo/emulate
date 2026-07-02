@@ -59,9 +59,10 @@ The core server registers `/_emulate` routes for every service. These routes are
 - `/_emulate/seed` adds runtime seed data using the service seed schema.
 - `/_emulate/instances` returns URLs for hosted instances, which deployments create lazily when first used.
 - `/_emulate/ledger` returns recent request and response records with auth headers, tokens, client secrets, API keys, and similar fields redacted. See the [Request Ledger](/docs/ledger).
+- `/_emulate/faults` arms, lists, and clears one-shot or counted fault responses for matching provider requests.
 - `/_emulate/logs` returns webhook deliveries plus the most recent provider requests.
 - `/_emulate/state` returns the current store snapshot.
-- `/_emulate/reset` resets state, webhooks, and the request ledger, then replays seed data.
+- `/_emulate/reset` resets state, webhooks, faults, and the request ledger, then replays seed data.
 - `/_emulate/services` returns a machine-readable catalog of every hosted service and is available from any host, including the apex.
 
 Service manifests are hand-authored metadata derived from the real service. OpenAPI, GraphQL, MCP, OAuth metadata, and provider discovery documents are useful inputs, but emulate only exposes the protocols and auth modes that fit each service.

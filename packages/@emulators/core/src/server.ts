@@ -14,6 +14,7 @@ import { registerFontRoutes } from "./fonts.js";
 import { RequestLedger, createLedgerMiddleware } from "./ledger.js";
 import { registerControlPlane, type CredentialRequest, type IssuedCredential } from "./control-plane.js";
 import { createDefaultManifest, type ServiceManifest } from "./manifest.js";
+import { FaultRegistry, createFaultMiddleware } from "./faults.js";
 
 export interface ServerOptions {
   port?: number;
@@ -42,6 +43,7 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
   const store = new Store();
   const webhooks = new WebhookDispatcher();
   const ledger = new RequestLedger();
+  const faults = new FaultRegistry();
 
   const tokenMap: TokenMap = new Map();
   if (options.tokens) {
@@ -77,6 +79,7 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
       store,
       webhooks,
       ledger,
+      faults,
       tokenMap,
       ledgerPersistent: options.ledgerPersistent,
       hostSuffix: options.hostSuffix,
@@ -87,6 +90,7 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
   }
 
   app.use("*", createLedgerMiddleware(ledger, { webhooks }));
+  app.use("*", createFaultMiddleware(faults, options.manifest ?? createDefaultManifest(plugin.name)));
 
   const rateLimitCounters = new Map<string, { remaining: number; resetAt: number }>();
   let lastPruneAt = Math.floor(Date.now() / 1000);
@@ -140,5 +144,5 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
     ),
   );
 
-  return { app, store, webhooks, ledger, port, baseUrl, tokenMap };
+  return { app, store, webhooks, ledger, faults, port, baseUrl, tokenMap };
 }
