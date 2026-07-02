@@ -70,6 +70,27 @@ describe("GitLab GraphQL surface", () => {
     expect(messages.some((m) => /must have a selection of subfields/.test(m))).toBe(true);
   });
 
+  it("returns deprecated fields from introspection even with includeDeprecated:false", async () => {
+    // gitlab.com (graphql-ruby) returns deprecated fields regardless of the
+    // includeDeprecated argument; graphql-js hides them. The emulator mirrors
+    // gitlab so client generators see the same fields. metadata.featureFlags is
+    // deprecated (Experiment) yet present on the live API, and is the field whose
+    // required `names` argument triggers issue 1146.
+    const query = `{ __schema { types { name fields(includeDeprecated: false) { name isDeprecated } } } }`;
+    const res = await gql(app, query);
+    const body = (await res.json()) as GraphQLResponse;
+    expect(body.errors).toBeUndefined();
+    const types = (
+      body.data?.__schema as {
+        types: Array<{ name: string; fields: Array<{ name: string; isDeprecated: boolean }> | null }>;
+      }
+    ).types;
+    const metadata = types.find((t) => t.name === "Metadata");
+    const featureFlags = metadata?.fields?.find((f) => f.name === "featureFlags");
+    expect(featureFlags).toBeDefined();
+    expect(featureFlags?.isDeprecated).toBe(true);
+  });
+
   it("returns a verbatim validation error when a required argument is missing", async () => {
     // featureFlags requires names: [String!]!; omitting it is the other failure
     // mode the executor plugin produces (dropped nested required argument).

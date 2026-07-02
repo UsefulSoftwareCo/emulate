@@ -1,6 +1,34 @@
-import { graphql, type ExecutionResult } from "graphql";
+import { graphql, parse, print, visit, Kind, type ExecutionResult } from "graphql";
 import type { RouteContext } from "@emulators/core";
 import { getGitLabSchema } from "../schema.js";
+
+// GitLab's GraphQL API (graphql-ruby) returns deprecated fields and enum values
+// from introspection regardless of the `includeDeprecated` argument. graphql-js,
+// which backs this emulator, instead honors `includeDeprecated: false` and hides
+// them. To stay faithful to gitlab.com, rewrite every `includeDeprecated`
+// argument in an incoming query to true before execution, so introspection
+// exposes deprecated members (such as metadata.featureFlags) exactly as the real
+// API does. This is what lets client query generators reproduce against the
+// emulator the same operations they would emit against gitlab.com (issue 1146:
+// a deprecated field with a required argument was selected without it).
+function forceIncludeDeprecated(query: string): string {
+  if (!query.includes("includeDeprecated")) return query;
+  let document;
+  try {
+    document = parse(query);
+  } catch {
+    // Let graphql() surface the parse error with its own verbatim message.
+    return query;
+  }
+  return print(
+    visit(document, {
+      Argument(node) {
+        if (node.name.value !== "includeDeprecated") return undefined;
+        return { ...node, value: { kind: Kind.BOOLEAN, value: true } };
+      },
+    }),
+  );
+}
 
 // GitLab's GraphQL API (gitlab.com/api/graphql), emulated with graphql-js for
 // real parsing, validation, and introspection against gitlab's full schema.
@@ -53,7 +81,7 @@ export function graphqlRoutes(ctx: RouteContext): void {
     try {
       result = await graphql({
         schema: getGitLabSchema(),
-        source: body.query,
+        source: forceIncludeDeprecated(body.query),
         rootValue: root,
         variableValues: body.variables,
         operationName: body.operationName,

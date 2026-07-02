@@ -1,14 +1,21 @@
 # Changelog
 
-## 0.10.0
+## 0.11.0
 
 <!-- release:start -->
 
 ### New Features
 
-- **One-shot fault injection** — every emulator's control plane can now arm failures against otherwise-real endpoints: `POST /_emulate/faults` with a match (`operationId`, `method`, and/or a `pathPattern` glob) and a response (`status`, optional `body`/`headers`/`delayMs`) makes the next `times` matching requests short-circuit with that response, then disarms. Faulted requests still land in the request ledger marked `faulted: true` with the `faultId`, so a test can prove the fault fired and that the caller's fallback ran. Typed surface on both `createEmulator` and `connectEmulator`: `client.faults.arm(...)`, `.list()`, `.clear(id?)`. `reset()` clears armed faults. This is the missing piece for exercising error paths (failed token exchanges, rejected dynamic client registrations, flaky upstreams) against real-shaped services instead of hand-written mocks.
+- **Okta dynamic client registration (RFC 7591)** — the Okta emulator now serves a real registration endpoint at `POST /oauth2/v1/clients` (org-level, matching real Okta) and `POST /oauth2/{authServerId}/v1/clients` (per auth server). Registered clients persist into the same store as pre-seeded ones, so a freshly minted client immediately completes the authorize and token flows, including PKCE S256. Public clients (`token_endpoint_auth_method: "none"`) receive no secret; confidential clients do. Rejections use RFC 6749 error envelopes (`invalid_client_metadata`, `invalid_redirect_uri`), and registration participates in the ledger and one-shot fault injection like any other route.
+- **RFC 8414 path-insert discovery** — authorization-server metadata is now also served at the path-insert well-known forms (`/.well-known/oauth-authorization-server/oauth2/{id}` and `/.well-known/openid-configuration/oauth2/{id}`) alongside the existing suffix forms, plus an org-level `/.well-known/oauth-authorization-server`. Standards-following OAuth clients derive the path-insert form first, so discovery against the emulator no longer 404s. Metadata now advertises `registration_endpoint`, `code_challenge_methods_supported: ["S256"]`, and `token_endpoint_auth_methods_supported`.
 
 <!-- release:end -->
+
+## 0.10.0
+
+### New Features
+
+- **One-shot fault injection** — every emulator's control plane can now arm failures against otherwise-real endpoints: `POST /_emulate/faults` with a match (`operationId`, `method`, and/or a `pathPattern` glob) and a response (`status`, optional `body`/`headers`/`delayMs`) makes the next `times` matching requests short-circuit with that response, then disarms. Faulted requests still land in the request ledger marked `faulted: true` with the `faultId`, so a test can prove the fault fired and that the caller's fallback ran. Typed surface on both `createEmulator` and `connectEmulator`: `client.faults.arm(...)`, `.list()`, `.clear(id?)`. `reset()` clears armed faults. This is the missing piece for exercising error paths (failed token exchanges, rejected dynamic client registrations, flaky upstreams) against real-shaped services instead of hand-written mocks.
 
 ## 0.9.1
 
