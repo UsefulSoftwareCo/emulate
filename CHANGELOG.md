@@ -1,8 +1,16 @@
 # Changelog
 
-## 0.13.0
+## 0.13.1
 
 <!-- release:start -->
+
+### Fixes
+
+- **Seeded drive items land on the seed's own user** — `drive_items` (and other resources) that omit `user_email` now attach to the first user declared in the seed config instead of the plugin's built-in default user, so a token minted for the seeded user sees the seeded files (and their `content`) under `/me/drive`.
+
+<!-- release:end -->
+
+## 0.13.0
 
 ### New Features
 
@@ -14,8 +22,6 @@
 
 - **Graph responses match live Microsoft Graph**, verified by the parity harness against real recordings: errors carry `innerError`, unknown bearer tokens return 401 `InvalidAuthenticationToken` instead of resolving to a fallback user, malformed drive item and event ids return the real 400 error codes, the `/v1.0` catch-all returns 400 `BadRequest` with the unresolved segment, messages expose `conversationIndex`, users expose `preferredLanguage`, and drive item, calendar, and event serializations follow the shapes real Graph returns.
 - **Router wildcard support** — the core router now matches mid-pattern wildcards (for example `/v1.0/me/drive/*`), which the path-addressed content routes require.
-
-<!-- release:end -->
 
 ## 0.12.0
 
@@ -42,13 +48,11 @@
 
 - **Autumn customer balances carry their feature** — 0.9.0's per-feature `balances` on `customers.get_or_create` omitted the nested `feature` object, but autumn-js's `useCustomer` always requests `expand: ["balances.feature"]` and asserts the expansion, so every consuming UI render threw `[customerToFeatures] please expand balances.feature` into the app's error boundary. Every balance entry now embeds its feature, matching the real API's expanded shape.
 
-
 ## 0.9.0
 
 ### New Features
 
 - **Autumn checkout and free-trial flow** — the Autumn emulator now backs a real billing UI end to end. `plans.list` returns a seedable plan catalog with per-customer eligibility (`attach_action`, `status`, `trialing`, `trial_available`), `billing.attach` and `billing.open_customer_portal` are supported, and a paid plan or a card-required free trial routes attach through a hosted checkout page. Completing checkout redirects to the app's `success_url` without activating the subscription; activation lands when the checkout settles (`POST /checkout/settle`), mirroring Stripe's `checkout.session.completed` webhook arriving after the redirect. `customers.get_or_create` now returns SDK-shaped subscriptions and per-feature balances. This makes the "billing page stays stale until a reload after checkout" race reproducible in tests.
-
 
 ## 0.8.1
 
