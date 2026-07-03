@@ -1,14 +1,20 @@
 # Changelog
 
-## 0.13.1
+## 0.13.2
 
 <!-- release:start -->
+
+### New Features
+
+- **Autumn `balances.check`** — the Autumn emulator now supports the SDK's `check()` call (`POST /v1/balances.check`). Access is computed from the same plan items and tracked usage that drive customer balances: unlimited and overage-allowed features always pass, metered features pass while remaining balance covers `required_balance` (default 1), and a feature the customer's plan does not carry is allowed with a `null` balance. The response carries the full balance object (`granted`, `remaining`, `usage`, `unlimited`, `overage_allowed`) in the shape autumn-js validates, and the route participates in fault injection and the request ledger like every other operation.
+
+<!-- release:end -->
+
+## 0.13.1
 
 ### Fixes
 
 - **Seeded drive items land on the seed's own user** — `drive_items` (and other resources) that omit `user_email` now attach to the first user declared in the seed config instead of the plugin's built-in default user, so a token minted for the seeded user sees the seeded files (and their `content`) under `/me/drive`.
-
-<!-- release:end -->
 
 ## 0.13.0
 

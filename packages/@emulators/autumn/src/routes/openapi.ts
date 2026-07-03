@@ -107,6 +107,23 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
           responses: { "200": ok("Event confirmation."), "400": ok("Validation error.") },
         },
       },
+      "/v1/balances.check": {
+        post: {
+          operationId: "balances.check",
+          tags: ["balances"],
+          summary: "Check feature access for a customer",
+          requestBody: jsonBody(
+            {
+              customer_id: { type: "string" },
+              feature_id: { type: "string" },
+              required_balance: { type: "number" },
+            },
+            ["customer_id", "feature_id"],
+            "The customer and feature to check. `required_balance` defaults to 1.",
+          ),
+          responses: { "200": ok("Access decision with the feature balance."), "400": ok("Validation error.") },
+        },
+      },
       "/v1/plans.list": {
         post: {
           operationId: "plans.list",

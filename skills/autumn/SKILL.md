@@ -6,7 +6,7 @@ allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 
 # Autumn Emulator
 
-Stateful Autumn billing emulation: customers (get_or_create), seedable subscriptions, a seedable plan catalog with per-customer eligibility (`plans.list`), usage tracking, `billing.attach` / `billing.open_customer_portal`, and a hosted checkout flow for paid plans and card-required free trials.
+Stateful Autumn billing emulation: customers (get_or_create), seedable subscriptions, a seedable plan catalog with per-customer eligibility (`plans.list`), usage tracking (`balances.track`), feature access checks (`balances.check`), `billing.attach` / `billing.open_customer_portal`, and a hosted checkout flow for paid plans and card-required free trials.
 
 ## Start
 
@@ -38,6 +38,14 @@ curl -X POST "$AUTUMN_EMULATOR_URL/_emulate/seed" -H "Content-Type: application/
   ],
   "customers": [{ "id": "org_123", "subscriptions": [{ "plan_id": "team", "status": "active" }] }]
 }'
+```
+
+## Check feature access
+
+`balances.check` answers whether a customer can use a feature, computed from the same plan items and tracked usage that drive customer balances. Unlimited and overage-allowed features always pass; metered features pass while remaining balance covers `required_balance` (default 1). A feature the customer's plan does not carry is allowed with a `null` balance.
+
+```ts
+const { allowed } = await autumn.check({ customerId: "org_123", featureId: "executions" });
 ```
 
 ## Checkout flow

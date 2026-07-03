@@ -1,7 +1,13 @@
 import type { RouteContext } from "@emulators/core";
 
 import { getAutumnStore } from "../store.js";
-import { ensureCustomer, serializeCustomer, serializePlan, activateSubscription } from "../serialize.js";
+import {
+  ensureCustomer,
+  serializeCustomer,
+  serializePlan,
+  activateSubscription,
+  balanceForFeature,
+} from "../serialize.js";
 
 /** Autumn v1 RPC-style API (paths mirror autumn-js: /v1/<group>.<method>). */
 export function autumnApiRoutes(ctx: RouteContext): void {
@@ -54,6 +60,43 @@ export function autumnApiRoutes(ctx: RouteContext): void {
       code: "event_received",
       customer_id: customerId,
       feature_id: featureId,
+    });
+  });
+
+  // Feature access check, shaped after autumn-js's CheckResponse schema
+  // (allowed, customer_id, entity_id, required_balance, balance, flag).
+  // `allowed` is computed from the same balance state customers.get_or_create
+  // serializes: unlimited features and overage-allowed features always pass,
+  // metered features pass while `remaining` covers the required balance.
+  // A feature the customer's plan does not carry gets a permissive
+  // `allowed: true` with a null balance. The SDK types leave this case
+  // ambiguous (CheckResponse.balance is nullable either way), so the emulator
+  // deliberately fails open: an unseeded feature should not block every
+  // request in the application under test. Seed a plan item with included: 0
+  // to model a feature that denies access.
+  app.post("/v1/balances.check", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const customerId = String(body.customer_id ?? body.customerId ?? "");
+    const featureId = String(body.feature_id ?? body.featureId ?? "");
+    if (!customerId || !featureId) {
+      return c.json({ message: "customer_id and feature_id are required", code: "invalid_request" }, 400);
+    }
+    const requiredBalance = typeof body.required_balance === "number" ? body.required_balance : 1;
+    const entityId = typeof body.entity_id === "string" ? body.entity_id : null;
+    const store = as();
+    // Real Autumn auto-creates unknown customers on check (the SDK's own
+    // backend flow relies on get_or_create semantics), so mirror that here.
+    const customer = ensureCustomer(store, customerId, body);
+    const balance = balanceForFeature(store, customer, featureId);
+    const allowed =
+      balance === undefined || balance.unlimited || balance.overage_allowed || balance.remaining >= requiredBalance;
+    return c.json({
+      allowed,
+      customer_id: customerId,
+      entity_id: entityId,
+      required_balance: requiredBalance,
+      balance: balance ?? null,
+      flag: null,
     });
   });
 

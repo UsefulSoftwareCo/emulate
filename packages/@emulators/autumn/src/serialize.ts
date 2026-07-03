@@ -106,10 +106,25 @@ function serializeSubscription(sub: AutumnSubscription): Record<string, unknown>
   };
 }
 
-function balancesFor(as: AutumnStore, customer: AutumnCustomer): Record<string, unknown> {
+/** One feature balance in the snake_case wire shape autumn-js's
+ *  `Balance$inboundSchema` requires: every field below is non-optional in the
+ *  SDK schema, so a balance is either absent (null) or complete. */
+export interface SerializedBalance {
+  feature_id: string;
+  feature: Record<string, unknown>;
+  granted: number;
+  remaining: number;
+  usage: number;
+  unlimited: boolean;
+  overage_allowed: boolean;
+  max_purchase: number | null;
+  next_reset_at: number | null;
+}
+
+function balancesFor(as: AutumnStore, customer: AutumnCustomer): Record<string, SerializedBalance> {
   const planId = activeSubscription(customer)?.plan_id ?? "free";
   const plan = as.plans.findOneBy("plan_id", planId);
-  const balances: Record<string, unknown> = {};
+  const balances: Record<string, SerializedBalance> = {};
   for (const item of plan?.items ?? []) {
     const unlimited = item.unlimited === true;
     const granted = unlimited ? 0 : (item.included ?? 0);
@@ -127,6 +142,17 @@ function balancesFor(as: AutumnStore, customer: AutumnCustomer): Record<string, 
     };
   }
   return balances;
+}
+
+/** The customer's balance for one feature, or undefined when the customer's
+ *  current plan has no item for it. Shares `balancesFor` so `balances.check`
+ *  and `customers.get_or_create` can never disagree about a balance. */
+export function balanceForFeature(
+  as: AutumnStore,
+  customer: AutumnCustomer,
+  featureId: string,
+): SerializedBalance | undefined {
+  return balancesFor(as, customer)[featureId];
 }
 
 export function serializeCustomer(as: AutumnStore, customer: AutumnCustomer): Record<string, unknown> {

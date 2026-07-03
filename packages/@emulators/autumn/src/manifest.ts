@@ -4,7 +4,7 @@ export const manifest: ServiceManifest = {
   id: "autumn",
   name: "Autumn",
   description:
-    "Stateful Autumn billing emulator: customers (with seedable subscriptions and a plan catalog), usage tracking, plan eligibility, and a hosted checkout flow for paid plans and card-required free trials.",
+    "Stateful Autumn billing emulator: customers (with seedable subscriptions and a plan catalog), usage tracking, feature access checks, plan eligibility, and a hosted checkout flow for paid plans and card-required free trials.",
   docsUrl: "https://docs.emulators.dev/autumn",
   surfaces: [
     { id: "rest", kind: "rest", title: "Autumn v1 API", status: "partial", basePath: "/v1" },
@@ -27,6 +27,7 @@ export const manifest: ServiceManifest = {
         { operationId: "customers.list", method: "POST", path: "/v1/customers.list", status: "hand-authored" },
         { operationId: "customers.update", method: "POST", path: "/v1/customers.update", status: "hand-authored" },
         { operationId: "balances.track", method: "POST", path: "/v1/balances.track", status: "hand-authored" },
+        { operationId: "balances.check", method: "POST", path: "/v1/balances.check", status: "hand-authored" },
         { operationId: "plans.list", method: "POST", path: "/v1/plans.list", status: "hand-authored" },
         { operationId: "billing.attach", method: "POST", path: "/v1/billing.attach", status: "hand-authored" },
         {
