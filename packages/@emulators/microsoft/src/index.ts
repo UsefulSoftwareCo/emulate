@@ -223,8 +223,14 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: Microsoft
     }
   }
 
+  // Resources that omit an explicit user_email attach to the user this seed
+  // config introduced, not whatever default user the plugin seeded first.
+  // Seed authors mint their delegated token for their own seeded user, so a
+  // drive item (or message/event) without user_email must land on that user's
+  // drive to stay visible under /me.
+  const firstConfigUserEmail = config.users?.[0]?.email;
   const firstUser = ms.users.all()[0];
-  const defaultUserEmail = firstUser?.email ?? "testuser@outlook.com";
+  const defaultUserEmail = firstConfigUserEmail ?? firstUser?.email ?? "testuser@outlook.com";
 
   if (config.calendars) {
     for (const calendar of config.calendars) {

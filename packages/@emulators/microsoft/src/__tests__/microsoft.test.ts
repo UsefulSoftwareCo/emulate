@@ -1249,4 +1249,38 @@ describe("Microsoft plugin integration", () => {
     const body = (await res.json()) as { error: Record<string, unknown> };
     expect(body.error.code).toBe("Request_ResourceNotFound");
   });
+
+  it("serves seeded drive_items content byte-exact under the seeded user's drive", async () => {
+    // A seed that introduces its own user and a drive item without an explicit
+    // user_email must attach the item to that seeded user, so a token minted for
+    // that user sees it under /me/drive with the seeded content and mimeType.
+    seedFromConfig(store, base, {
+      users: [{ email: "parity@example.com", name: "Parity User" }],
+      drive_items: [{ name: "Seeded Notes.txt", mime_type: "text/plain", content: "Notes" }],
+    });
+    const accessToken = await getAccessToken(app, "openid email profile Files.ReadWrite.All", "parity@example.com");
+
+    const childrenRes = await app.request(`${base}/v1.0/me/drive/root/children`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    expect(childrenRes.status).toBe(200);
+    const children = (await childrenRes.json()) as { value: Array<Record<string, any>> };
+    const seeded = children.value.find((item) => item.name === "Seeded Notes.txt");
+    expect(seeded).toBeTruthy();
+    expect(seeded!.size).toBe(Buffer.byteLength("Notes"));
+    expect(seeded!.file.mimeType).toBe("text/plain");
+    expect(seeded!["@microsoft.graph.downloadUrl"]).toBe(`${base}/v1.0/_content/${seeded!.id}`);
+
+    const redirectRes = await app.request(`${base}/v1.0/me/drive/items/${seeded!.id}/content`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      redirect: "manual",
+    });
+    expect(redirectRes.status).toBe(302);
+    expect(redirectRes.headers.get("location")).toBe(seeded!["@microsoft.graph.downloadUrl"]);
+
+    const downloadRes = await app.request(redirectRes.headers.get("location") ?? "");
+    expect(downloadRes.status).toBe(200);
+    expect(downloadRes.headers.get("content-type")).toBe("text/plain");
+    expect(await downloadRes.text()).toBe("Notes");
+  });
 });
