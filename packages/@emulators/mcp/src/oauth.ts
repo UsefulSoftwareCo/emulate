@@ -58,7 +58,7 @@ function userButtonsHtml(store: Store, baseUrl: string, hidden: ConsentFields): 
         name: u.name ?? undefined,
         email: u.email ?? undefined,
         formAction: `${baseUrl}/authorize/approve`,
-        hiddenFields: hidden,
+        hiddenFields: { ...hidden, login: u.login },
       }),
     )
     .join("\n");
@@ -66,11 +66,16 @@ function userButtonsHtml(store: Store, baseUrl: string, hidden: ConsentFields): 
 
 // Copy-pasteable instructions to seed a user into THIS instance (the only way to
 // add an authorizable identity). The github seed shape lives under the `github` key.
+function shellSingleQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
 function seedHintHtml(baseUrl: string, login: string): string {
   const who = login || "octocat";
-  const cmd = `curl -X POST ${baseUrl}/__seed \\
+  const payload = JSON.stringify({ github: { users: [{ login: who }] } });
+  const cmd = `curl -X POST ${shellSingleQuote(`${baseUrl}/__seed`)} \\
   -H 'content-type: application/json' \\
-  -d '{"github":{"users":[{"login":"${who}"}]}}'`;
+  -d ${shellSingleQuote(payload)}`;
   return `<p class="empty" style="text-align:left;margin-top:18px">Only <strong>seeded</strong> users can be authorized. Add one to this instance, then retry:</p>
 <pre style="white-space:pre-wrap;word-break:break-all;background:#0b0e14;border:1px solid #222a35;border-radius:8px;padding:12px;font-size:12px;text-align:left;color:#d6dae0">${escapeBasic(cmd)}</pre>`;
 }
@@ -218,6 +223,7 @@ export function registerOAuthRoutes(ctx: RouteContext): void {
             code_challenge: codeChallenge,
             code_challenge_method: codeChallengeMethod,
             resource,
+            login: user.login,
           },
         }),
       )
