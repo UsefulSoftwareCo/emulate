@@ -1,15 +1,34 @@
 # Changelog
 
-## 0.11.0
+## 0.13.0
 
 <!-- release:start -->
 
 ### New Features
 
-- **Okta dynamic client registration (RFC 7591)** — the Okta emulator now serves a real registration endpoint at `POST /oauth2/v1/clients` (org-level, matching real Okta) and `POST /oauth2/{authServerId}/v1/clients` (per auth server). Registered clients persist into the same store as pre-seeded ones, so a freshly minted client immediately completes the authorize and token flows, including PKCE S256. Public clients (`token_endpoint_auth_method: "none"`) receive no secret; confidential clients do. Rejections use RFC 6749 error envelopes (`invalid_client_metadata`, `invalid_redirect_uri`), and registration participates in the ledger and one-shot fault injection like any other route.
-- **RFC 8414 path-insert discovery** — authorization-server metadata is now also served at the path-insert well-known forms (`/.well-known/oauth-authorization-server/oauth2/{id}` and `/.well-known/openid-configuration/oauth2/{id}`) alongside the existing suffix forms, plus an org-level `/.well-known/oauth-authorization-server`. Standards-following OAuth clients derive the path-insert form first, so discovery against the emulator no longer 404s. Metadata now advertises `registration_endpoint`, `code_challenge_methods_supported: ["S256"]`, and `token_endpoint_auth_methods_supported`.
+- **OneDrive file content endpoints** — the Microsoft emulator now supports real Graph file upload and download: `PUT /v1.0/me/drive/root:/{path}:/content` (path-addressed create/replace with automatic intermediate folder creation), `PUT /v1.0/me/drive/items/{id}/content` (replace by id), and `GET .../content` returning a 302 to a working preauthenticated download URL served by the emulator itself. Content is stored base64 so binary payloads round-trip byte-exact. MIME types derive from the file extension like real OneDrive, items carry real `eTag`/`cTag` formats and `quickXorHash`, and folder creation via `POST .../children` honors `@microsoft.graph.conflictBehavior`.
+- **Drive-scoped Graph routes** — `/v1.0/drives/{driveId}` addressing (drive, root, children, items, content) alongside the existing `/me/drive` forms.
+- **Microsoft Graph parity harness** — `tools/parity/ms-run.mjs` runs 38 self-contained probes against real graph.microsoft.com or the emulator and `tools/parity/diff.mjs` compares the recordings, mirroring the Google harness.
+
+### Fixes
+
+- **Graph responses match live Microsoft Graph**, verified by the parity harness against real recordings: errors carry `innerError`, unknown bearer tokens return 401 `InvalidAuthenticationToken` instead of resolving to a fallback user, malformed drive item and event ids return the real 400 error codes, the `/v1.0` catch-all returns 400 `BadRequest` with the unresolved segment, messages expose `conversationIndex`, users expose `preferredLanguage`, and drive item, calendar, and event serializations follow the shapes real Graph returns.
+- **Router wildcard support** — the core router now matches mid-pattern wildcards (for example `/v1.0/me/drive/*`), which the path-addressed content routes require.
 
 <!-- release:end -->
+
+## 0.12.0
+
+### Fixes
+
+- **Google emulator parity pass** — responses across Gmail, Calendar, Drive, and userinfo verified against live Google API recordings by the new parity harness (`tools/parity/run.mjs`), plus Drive simple media upload (`uploadType=media`) support with byte-exact binary round-trips.
+
+## 0.11.0
+
+### New Features
+
+- **Okta dynamic client registration (RFC 7591)** — the Okta emulator now serves a real registration endpoint at `POST /oauth2/v1/clients` (org-level, matching real Okta) and `POST /oauth2/{authServerId}/v1/clients` (per auth server). Registered clients persist into the same store as pre-seeded ones, so a freshly minted client immediately completes the authorize and token flows, including PKCE S256. Public clients (`token_endpoint_auth_method: "none"`) receive no secret; confidential clients do. Rejections use RFC 6749 error envelopes (`invalid_client_metadata`, `invalid_redirect_uri`), and registration participates in the ledger and one-shot fault injection like any other route.
+- **RFC 8414 path-insert discovery** — authorization-server metadata is now also served at the path-insert well-known forms (`/.well-known/oauth-authorization-server/oauth2/{id}` and `/.well-known/openid-configuration/oauth2/{id}`) alongside the existing suffix forms, plus an org-level `/.well-known/oauth-authorization-server`. Standards-following OAuth clients derive the path-insert form first, so discovery against the emulator no longer 404s. Metadata now advertises `registration_endpoint`, `code_challenge_methods_supported: ["S256"]`, and `token_endpoint_auth_methods_supported`.
 
 ## 0.10.0
 
@@ -23,7 +42,6 @@
 
 - **Autumn customer balances carry their feature** — 0.9.0's per-feature `balances` on `customers.get_or_create` omitted the nested `feature` object, but autumn-js's `useCustomer` always requests `expand: ["balances.feature"]` and asserts the expansion, so every consuming UI render threw `[customerToFeatures] please expand balances.feature` into the app's error boundary. Every balance entry now embeds its feature, matching the real API's expanded shape.
 
-<!-- release:end -->
 
 ## 0.9.0
 
@@ -31,7 +49,6 @@
 
 - **Autumn checkout and free-trial flow** — the Autumn emulator now backs a real billing UI end to end. `plans.list` returns a seedable plan catalog with per-customer eligibility (`attach_action`, `status`, `trialing`, `trial_available`), `billing.attach` and `billing.open_customer_portal` are supported, and a paid plan or a card-required free trial routes attach through a hosted checkout page. Completing checkout redirects to the app's `success_url` without activating the subscription; activation lands when the checkout settles (`POST /checkout/settle`), mirroring Stripe's `checkout.session.completed` webhook arriving after the redirect. `customers.get_or_create` now returns SDK-shaped subscriptions and per-feature balances. This makes the "billing page stays stale until a reload after checkout" race reproducible in tests.
 
-<!-- release:end -->
 
 ## 0.8.1
 
