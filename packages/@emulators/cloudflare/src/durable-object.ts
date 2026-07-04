@@ -1,9 +1,11 @@
 import {
   createServer,
   type AppKeyResolver,
+  type LedgerEntry,
   type LedgerSnapshot,
   type RequestLedger,
   type Store,
+  type StoreSnapshot,
   type TokenMap,
 } from "@emulators/core";
 import { SERVICES, issueCloudflareCredential } from "./services.js";
@@ -12,6 +14,8 @@ import { SERVICES, issueCloudflareCredential } from "./services.js";
 interface DurableObjectStorage {
   get<T = unknown>(key: string): Promise<T | undefined>;
   put(key: string, value: unknown): Promise<void>;
+  delete(key: string | string[]): Promise<boolean | number>;
+  list<T = unknown>(options?: { prefix?: string }): Promise<Map<string, T>>;
 }
 interface DurableObjectState {
   storage: DurableObjectStorage;
@@ -35,6 +39,9 @@ interface TokenEntry {
 interface PersistedState {
   seed?: SeedConfig;
   strict?: boolean;
+  // Legacy fields from the original single-value state record. New writes store
+  // these under split keys so an append-only ledger or credential list cannot
+  // make credential minting rewrite a value over the DO storage cap.
   snapshot?: unknown;
   minted?: TokenEntry[];
   ledger?: LedgerSnapshot;
@@ -51,36 +58,33 @@ interface Live {
 }
 
 const MUTATES = (method: string) => method !== "GET" && method !== "HEAD" && method !== "OPTIONS";
+const STATE_KEY = "state";
+const SNAPSHOT_META_KEY = "snapshot:meta";
+const SNAPSHOT_ITEM_PREFIX = "snapshot:item:";
+const SNAPSHOT_DATA_PREFIX = "snapshot:data:";
+const LEDGER_META_KEY = "ledger:meta";
+const LEDGER_ENTRY_PREFIX = "ledger:entry:";
+const MINTED_PREFIX = "minted:";
 
-// Durable Object storage caps each value at 128 KiB. A hosted instance persists
-// its whole state (store snapshot + request ledger + minted tokens) under one
-// "state" key. The minted-token list grows with every credential mint and is
-// never cleared, so on a long-lived shared instance it eventually pushes the
-// blob past the cap — at which point the put throws and EVERY future mutating
-// request (mints included) fails with a faithful-looking 400. Bound the list,
-// and shed the oldest history on the way down if a write overflows anyway.
-const MAX_MINTED = 500;
-const VALUE_TOO_LARGE = /larger than \d+ bytes/i;
+interface SnapshotCollectionMeta {
+  autoId: number;
+  indexFields: string[];
+}
+interface SnapshotMeta {
+  collections: Record<string, SnapshotCollectionMeta>;
+}
+interface LedgerMeta {
+  counter: number;
+  ids: string[];
+}
 
-const capMinted = (minted: TokenEntry[]): TokenEntry[] =>
-  minted.length > MAX_MINTED ? minted.slice(-MAX_MINTED) : minted;
-
-// Drop a quarter of the oldest sheddable history — debug ledger first, then
-// stale minted tokens — so an overflowing "state" blob converges under the cap.
-// Returns false when there is nothing left to shed (the write genuinely can't fit).
-const shedOldest = (persisted: PersistedState): boolean => {
-  const ledger = persisted.ledger?.entries;
-  if (ledger && ledger.length > 0) {
-    ledger.splice(0, Math.max(1, Math.ceil(ledger.length / 4)));
-    return true;
-  }
-  const minted = persisted.minted;
-  if (minted && minted.length > 0) {
-    minted.splice(0, Math.max(1, Math.ceil(minted.length / 4)));
-    return true;
-  }
-  return false;
-};
+const encodeKeyPart = (value: string): string => encodeURIComponent(value);
+const decodeKeyPart = (value: string): string => decodeURIComponent(value);
+const snapshotItemKey = (collection: string, id: number): string =>
+  `${SNAPSHOT_ITEM_PREFIX}${encodeKeyPart(collection)}:${id}`;
+const snapshotItemPrefix = (collection: string): string => `${SNAPSHOT_ITEM_PREFIX}${encodeKeyPart(collection)}:`;
+const snapshotDataKey = (key: string): string => `${SNAPSHOT_DATA_PREFIX}${encodeKeyPart(key)}`;
+const ledgerEntryKey = (id: string): string => `${LEDGER_ENTRY_PREFIX}${encodeKeyPart(id)}`;
 
 // One Durable Object instance == one stateful emulator instance. Its `store`
 // lives in DO memory (single-threaded → the serialized-write consistency the
@@ -95,6 +99,153 @@ export class EmulatorDurableObject {
     private readonly state: DurableObjectState,
     _env: unknown,
   ) {}
+
+  private async readPersistedState(): Promise<PersistedState> {
+    return (await this.state.storage.get<PersistedState>(STATE_KEY)) ?? {};
+  }
+
+  private async writeStateMeta(persisted: Pick<PersistedState, "seed" | "strict">): Promise<void> {
+    await this.state.storage.put(STATE_KEY, {
+      ...(persisted.seed !== undefined && { seed: persisted.seed }),
+      ...(persisted.strict !== undefined && { strict: persisted.strict }),
+    });
+  }
+
+  private async deleteKeys(keys: Iterable<string>): Promise<void> {
+    const list = [...keys];
+    if (list.length === 0) return;
+    await this.state.storage.delete(list);
+  }
+
+  private async deletePrefix(prefix: string): Promise<void> {
+    await this.deleteKeys((await this.state.storage.list({ prefix })).keys());
+  }
+
+  private async writeStoreSnapshot(snapshot: StoreSnapshot): Promise<void> {
+    const meta: SnapshotMeta = { collections: {} };
+    const expectedKeys = new Set<string>();
+    const writes: Array<Promise<void>> = [];
+
+    for (const [key, value] of Object.entries(snapshot.data)) {
+      const storageKey = snapshotDataKey(key);
+      expectedKeys.add(storageKey);
+      writes.push(this.state.storage.put(storageKey, value));
+    }
+
+    for (const [name, collection] of Object.entries(snapshot.collections)) {
+      meta.collections[name] = {
+        autoId: collection.autoId,
+        indexFields: collection.indexFields,
+      };
+      for (const item of collection.items) {
+        const storageKey = snapshotItemKey(name, item.id);
+        expectedKeys.add(storageKey);
+        writes.push(this.state.storage.put(storageKey, item));
+      }
+    }
+
+    await Promise.all(writes);
+    await this.state.storage.put(SNAPSHOT_META_KEY, meta);
+
+    const existingItems = await this.state.storage.list({ prefix: SNAPSHOT_ITEM_PREFIX });
+    const existingData = await this.state.storage.list({ prefix: SNAPSHOT_DATA_PREFIX });
+    await this.deleteKeys([...existingItems.keys(), ...existingData.keys()].filter((key) => !expectedKeys.has(key)));
+  }
+
+  private async readStoreSnapshot(legacySnapshot: unknown): Promise<StoreSnapshot | undefined> {
+    const meta = await this.state.storage.get<SnapshotMeta>(SNAPSHOT_META_KEY);
+    if (!meta) return legacySnapshot as StoreSnapshot | undefined;
+
+    const collections: StoreSnapshot["collections"] = {};
+    for (const [name, collectionMeta] of Object.entries(meta.collections)) {
+      const itemEntries = await this.state.storage.list<StoreSnapshot["collections"][string]["items"][number]>({
+        prefix: snapshotItemPrefix(name),
+      });
+      const items = [...itemEntries.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, item]) => item);
+      collections[name] = {
+        items,
+        autoId: collectionMeta.autoId,
+        indexFields: collectionMeta.indexFields,
+      };
+    }
+
+    const data: StoreSnapshot["data"] = {};
+    const dataEntries = await this.state.storage.list({ prefix: SNAPSHOT_DATA_PREFIX });
+    for (const [storageKey, value] of dataEntries) {
+      data[decodeKeyPart(storageKey.slice(SNAPSHOT_DATA_PREFIX.length))] = value;
+    }
+
+    return { collections, data };
+  }
+
+  private async clearStoreSnapshot(): Promise<void> {
+    await this.deletePrefix(SNAPSHOT_ITEM_PREFIX);
+    await this.deletePrefix(SNAPSHOT_DATA_PREFIX);
+    await this.state.storage.delete(SNAPSHOT_META_KEY);
+  }
+
+  private async writeLedger(snapshot: LedgerSnapshot): Promise<void> {
+    const ids = snapshot.entries.map((entry) => entry.id);
+    const expectedKeys = new Set(ids.map(ledgerEntryKey));
+    await Promise.all(snapshot.entries.map((entry) => this.state.storage.put(ledgerEntryKey(entry.id), entry)));
+    await this.state.storage.put(LEDGER_META_KEY, { counter: snapshot.counter, ids } satisfies LedgerMeta);
+
+    const existing = await this.state.storage.list({ prefix: LEDGER_ENTRY_PREFIX });
+    await this.deleteKeys([...existing.keys()].filter((key) => !expectedKeys.has(key)));
+  }
+
+  private async readLedger(legacyLedger: LedgerSnapshot | undefined): Promise<LedgerSnapshot | undefined> {
+    const meta = await this.state.storage.get<LedgerMeta>(LEDGER_META_KEY);
+    if (!meta) return legacyLedger;
+    const entries = (
+      await Promise.all(meta.ids.map((id) => this.state.storage.get<LedgerEntry>(ledgerEntryKey(id))))
+    ).filter((entry): entry is LedgerEntry => entry != null);
+    return { entries, counter: meta.counter };
+  }
+
+  private async clearLedger(): Promise<void> {
+    await this.deletePrefix(LEDGER_ENTRY_PREFIX);
+    await this.state.storage.delete(LEDGER_META_KEY);
+  }
+
+  private async mintedKey(token: string): Promise<string> {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+    const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+    return `${MINTED_PREFIX}${hex}`;
+  }
+
+  private async writeMinted(entry: TokenEntry): Promise<void> {
+    await this.state.storage.put(await this.mintedKey(entry.token), entry);
+  }
+
+  private async readMinted(legacyMinted: TokenEntry[] | undefined): Promise<TokenEntry[]> {
+    const byToken = new Map<string, TokenEntry>();
+    for (const entry of legacyMinted ?? []) byToken.set(entry.token, entry);
+    const stored = await this.state.storage.list<TokenEntry>({ prefix: MINTED_PREFIX });
+    for (const entry of [...stored.values()].sort((a, b) => a.token.localeCompare(b.token))) {
+      byToken.set(entry.token, entry);
+    }
+    return [...byToken.values()];
+  }
+
+  private async clearMinted(): Promise<void> {
+    await this.deletePrefix(MINTED_PREFIX);
+  }
+
+  private async migrateLegacyState(persisted: PersistedState): Promise<void> {
+    if (persisted.snapshot) {
+      const hasSplitSnapshot = Boolean(await this.state.storage.get(SNAPSHOT_META_KEY));
+      if (!hasSplitSnapshot) await this.writeStoreSnapshot(persisted.snapshot as StoreSnapshot);
+    }
+    if (persisted.ledger) {
+      const hasSplitLedger = Boolean(await this.state.storage.get(LEDGER_META_KEY));
+      if (!hasSplitLedger) await this.writeLedger(persisted.ledger);
+    }
+    await Promise.all((persisted.minted ?? []).map((entry) => this.writeMinted(entry)));
+    if (persisted.snapshot || persisted.ledger || persisted.minted) {
+      await this.writeStateMeta(persisted);
+    }
+  }
 
   private buildTokens(
     seed: SeedConfig | undefined,
@@ -129,9 +280,13 @@ export class EmulatorDurableObject {
     const entry = SERVICES[service];
     if (!entry) throw new Error(`unknown emulator service: ${service}`);
 
-    const persisted = (await this.state.storage.get<PersistedState>("state")) ?? {};
+    const persisted = await this.readPersistedState();
+    await this.migrateLegacyState(persisted);
     const strict = persisted.strict ?? true;
-    const tokens = this.buildTokens(persisted.seed, strict, persisted.minted);
+    const snapshot = await this.readStoreSnapshot(persisted.snapshot);
+    const ledgerSnapshot = await this.readLedger(persisted.ledger);
+    const minted = await this.readMinted(persisted.minted);
+    const tokens = this.buildTokens(persisted.seed, strict, minted);
 
     // eslint-disable-next-line prefer-const
     let cachedResolver: AppKeyResolver | undefined;
@@ -164,19 +319,14 @@ export class EmulatorDurableObject {
         const credential = issueCloudflareCredential(service, entry, store, baseUrl, tokenMap as TokenMap, request);
         // Persist minted bearer/API-key tokens so credentials created via
         // /_emulate/credentials survive Durable Object eviction (rebuilds restore
-        // tokens from persisted.minted), matching the legacy /__token endpoint.
+        // tokens from split credential records), matching the legacy /__token endpoint.
         if (typeof credential.token === "string" && credential.token.length > 0) {
-          const persistedState = (await this.state.storage.get<PersistedState>("state")) ?? {};
-          persistedState.minted = capMinted([
-            ...(persistedState.minted ?? []),
-            {
-              token: credential.token,
-              login: credential.login ?? "admin",
-              id: (tokenMap as TokenMap).get(credential.token)?.id ?? Date.now(),
-              scopes: credential.scopes ?? [],
-            },
-          ]);
-          await this.writeState(persistedState);
+          await this.writeMinted({
+            token: credential.token,
+            login: credential.login ?? "admin",
+            id: (tokenMap as TokenMap).get(credential.token)?.id ?? Date.now(),
+            scopes: credential.scopes ?? [],
+          });
         }
         await this.persist();
         return credential;
@@ -184,9 +334,9 @@ export class EmulatorDurableObject {
     });
     cachedResolver = entry.createAppKeyResolver?.(store);
 
-    if (persisted.snapshot) store.restore(persisted.snapshot as Parameters<Store["restore"]>[0]);
+    if (snapshot) store.restore(snapshot);
     else this.seedInto(store, service, baseUrl, persisted.seed);
-    ledger.restore(persisted.ledger);
+    ledger.restore(ledgerSnapshot);
     resetService = async () => {
       store.reset();
       webhooks.clear();
@@ -211,30 +361,13 @@ export class EmulatorDurableObject {
 
   private async persist(): Promise<void> {
     if (!this.live) return;
-    const persisted = (await this.state.storage.get<PersistedState>("state")) ?? {};
-    persisted.snapshot = this.live.store.snapshot();
-    // Persist the request ledger alongside state so inspection history survives
-    // Durable Object eviction (the vision treats the ledger as a first-class,
-    // durable feature, not an in-memory debug afterthought).
-    persisted.ledger = this.live.ledger.serialize();
-    await this.writeState(persisted);
-  }
-
-  // Write the "state" value, shedding the oldest history and retrying if the
-  // write overflows the Durable Object 128 KiB per-value cap. An oversized blob
-  // must never turn a mint or a routine persist into a faithful-looking 400 —
-  // the instance trims its own debug history instead of wedging.
-  private async writeState(persisted: PersistedState): Promise<void> {
-    for (;;) {
-      try {
-        await this.state.storage.put("state", persisted);
-        return;
-      } catch (err) {
-        if (!(err instanceof Error) || !VALUE_TOO_LARGE.test(err.message) || !shedOldest(persisted)) {
-          throw err;
-        }
-      }
-    }
+    const persisted = await this.readPersistedState();
+    await this.writeStoreSnapshot(this.live.store.snapshot());
+    // Persist the request ledger so inspection history survives Durable Object
+    // eviction. Entries are split by id because the ledger is intentionally
+    // durable, agent-readable history.
+    await this.writeLedger(this.live.ledger.serialize());
+    await this.writeStateMeta(persisted);
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -255,7 +388,10 @@ export class EmulatorDurableObject {
     if (path === "/__seed" && request.method === "POST") {
       const raw = (await request.json().catch(() => ({}))) as SeedConfig;
       const { strict, ...seed } = raw;
-      await this.state.storage.put("state", { seed, strict: strict !== false, minted: [] });
+      await this.clearStoreSnapshot();
+      await this.clearLedger();
+      await this.clearMinted();
+      await this.writeStateMeta({ seed, strict: strict !== false });
       this.live = undefined;
       await this.ensure(service, instance, baseUrl);
       await this.persist();
@@ -280,10 +416,8 @@ export class EmulatorDurableObject {
       const token = `emu_${service}_${crypto.randomUUID().replace(/-/g, "")}`;
       const scopeList = scopes ?? [];
       live.tokenMap.set(token, { login, id, scopes: scopeList });
-      const persisted = (await this.state.storage.get<PersistedState>("state")) ?? {};
-      persisted.minted = capMinted([...(persisted.minted ?? []), { token, login, id, scopes: scopeList }]);
-      persisted.snapshot = live.store.snapshot();
-      await this.writeState(persisted);
+      await this.writeMinted({ token, login, id, scopes: scopeList });
+      await this.persist();
       return Response.json({ token, login, scopes: scopeList });
     }
 

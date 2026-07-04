@@ -209,21 +209,63 @@ describe("cloudflare worker routing", () => {
 });
 
 describe("cloudflare durable object control plane", () => {
-  it("creates hosted credentials and persists the resulting state", async () => {
+  function makeState(options: { limit?: number; initial?: Record<string, unknown> } = {}) {
     const storage = new Map<string, unknown>();
-    const state = {
-      storage: {
-        async get<T>(key: string): Promise<T | undefined> {
-          return storage.get(key) as T | undefined;
+    const puts: Array<{ key: string; size: number }> = [];
+    const clone = <T>(value: T): T => (value === undefined ? value : JSON.parse(JSON.stringify(value)));
+    const sizeOf = (value: unknown): number => new TextEncoder().encode(JSON.stringify(value)).length;
+
+    for (const [key, value] of Object.entries(options.initial ?? {})) {
+      storage.set(key, clone(value));
+    }
+
+    return {
+      storage,
+      puts,
+      state: {
+        storage: {
+          async get<T>(key: string): Promise<T | undefined> {
+            return clone(storage.get(key) as T | undefined);
+          },
+          async put(key: string, value: unknown): Promise<void> {
+            const size = sizeOf(value);
+            puts.push({ key, size });
+            if (options.limit !== undefined && size > options.limit) {
+              throw new Error(
+                `Values cannot be larger than ${options.limit} bytes. A value of size ${size} was provided.`,
+              );
+            }
+            storage.set(key, clone(value));
+          },
+          async delete(key: string | string[]): Promise<boolean | number> {
+            if (Array.isArray(key)) {
+              let count = 0;
+              for (const item of key) {
+                if (storage.delete(item)) count++;
+              }
+              return count;
+            }
+            return storage.delete(key);
+          },
+          async list<T>(options?: { prefix?: string }): Promise<Map<string, T>> {
+            const out = new Map<string, T>();
+            for (const [key, value] of storage) {
+              if (!options?.prefix || key.startsWith(options.prefix)) {
+                out.set(key, clone(value) as T);
+              }
+            }
+            return out;
+          },
         },
-        async put(key: string, value: unknown): Promise<void> {
-          storage.set(key, value);
+        async blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T> {
+          return fn();
         },
-      },
-      async blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T> {
-        return fn();
       },
     };
+  }
+
+  it("creates hosted credentials and persists the resulting state", async () => {
+    const { storage, state } = makeState();
     const durableObject = new EmulatorDurableObject(state, {});
 
     const credentialRes = await durableObject.fetch(
@@ -254,29 +296,9 @@ describe("cloudflare durable object control plane", () => {
     const user = (await userRes.json()) as { login: string };
     expect(user.login).toBe("agent-user");
 
-    const persisted = storage.get("state") as { snapshot?: unknown } | undefined;
-    expect(persisted?.snapshot).toBeDefined();
+    expect(storage.get("snapshot:meta")).toBeDefined();
+    expect([...storage.keys()].some((key) => key.startsWith("minted:"))).toBe(true);
   });
-
-  function makeState() {
-    const storage = new Map<string, unknown>();
-    return {
-      storage,
-      state: {
-        storage: {
-          async get<T>(key: string): Promise<T | undefined> {
-            return storage.get(key) as T | undefined;
-          },
-          async put(key: string, value: unknown): Promise<void> {
-            storage.set(key, value);
-          },
-        },
-        async blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T> {
-          return fn();
-        },
-      },
-    };
-  }
 
   const idHeaders = (extra: Record<string, string> = {}) => ({
     "x-emulator-service": "github",
@@ -329,31 +351,9 @@ describe("cloudflare durable object control plane", () => {
     expect(Buffer.from(body.result?.content?.[0]?.data ?? "", "base64").byteLength).toBe(70);
   });
 
-  it("sheds old history instead of failing mints when the state value would overflow the cap", async () => {
-    // Durable Object storage caps each value at 128 KiB. A long-lived shared
-    // instance accrues minted tokens (and ledger entries) under one "state"
-    // key; once the blob crosses the cap, an unguarded put throws and every
-    // future mint 400s. Simulate the cap with a byte-limited fake store and
-    // prove the instance trims its oldest history rather than wedging.
-    const storage = new Map<string, unknown>();
+  it("splits minted credentials so credential history does not overflow one storage value", async () => {
     const LIMIT = 8_000;
-    const state = {
-      storage: {
-        async get<T>(key: string): Promise<T | undefined> {
-          return storage.get(key) as T | undefined;
-        },
-        async put(key: string, value: unknown): Promise<void> {
-          const size = new TextEncoder().encode(JSON.stringify(value)).length;
-          if (size > LIMIT) {
-            throw new Error(`Values cannot be larger than ${LIMIT} bytes. A value of size ${size} was provided.`);
-          }
-          storage.set(key, JSON.parse(JSON.stringify(value)));
-        },
-      },
-      async blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T> {
-        return fn();
-      },
-    };
+    const { storage, state, puts } = makeState({ limit: LIMIT });
     const makeDo = () => new EmulatorDurableObject(state, {});
     let durableObject = makeDo();
     const mint = (login: string) =>
@@ -369,21 +369,34 @@ describe("cloudflare durable object control plane", () => {
         }),
       );
 
+    let firstToken = "";
     let lastToken = "";
     for (let i = 0; i < 150; i++) {
       const res = await mint("agent");
-      expect(res.status, `mint ${i} must not fail on the 128 KiB value cap`).toBe(200);
+      expect(res.status, `mint ${i} must not fail on the per-value cap`).toBe(200);
       lastToken = ((await res.json()) as { credential: { token: string } }).credential.token;
+      firstToken ||= lastToken;
     }
 
-    // Shedding actually happened: fewer tokens persisted than were minted.
-    const persisted = storage.get("state") as { minted?: unknown[] };
-    expect(persisted.minted?.length).toBeLessThan(150);
+    expect(puts.every((put) => put.size <= LIMIT)).toBe(true);
+    expect([...storage.keys()].filter((key) => key.startsWith("minted:"))).toHaveLength(150);
+    expect((storage.get("state") as { minted?: unknown[] } | undefined)?.minted).toBeUndefined();
 
-    // The most recent token survives eviction — shedding drops the OLDEST
-    // history, never the credential we just issued.
+    // A fresh Durable Object over the same storage simulates eviction + rebuild.
+    // Split credential records keep both old and new tokens usable.
     durableObject = makeDo(); // fresh DO over the same storage == eviction + rebuild
-    const userRes = await durableObject.fetch(
+    const firstUserRes = await durableObject.fetch(
+      new Request("https://github.instance.emulators.dev/user", {
+        headers: {
+          authorization: `Bearer ${firstToken}`,
+          "x-emulator-service": "github",
+          "x-emulator-base-url": "https://github.instance.emulators.dev",
+        },
+      }),
+    );
+    expect(firstUserRes.status).toBe(200);
+
+    const lastUserRes = await durableObject.fetch(
       new Request("https://github.instance.emulators.dev/user", {
         headers: {
           authorization: `Bearer ${lastToken}`,
@@ -392,7 +405,72 @@ describe("cloudflare durable object control plane", () => {
         },
       }),
     );
-    expect(userRes.status).toBe(200);
+    expect(lastUserRes.status).toBe(200);
+  });
+
+  it("migrates a legacy oversized combined state blob before Resend credential mint writes", async () => {
+    const LIMIT = 8_000;
+    const legacyEntries = Array.from({ length: 70 }, (_, i) => ({
+      id: `req_${i + 1}`,
+      correlationId: `cor_${i + 1}`,
+      timestamp: "2026-07-04T09:00:00.000Z",
+      method: "POST",
+      host: "resend.emulators.dev",
+      path: "/emails",
+      query: "",
+      route: "/emails",
+      operationId: "emails.send",
+      request: {
+        headers: { "content-type": "application/json" },
+        body: { to: `user-${i}@example.com`, subject: "executor", html: "x".repeat(120) },
+      },
+      identity: {},
+      response: {
+        status: 200,
+        headers: { "content-type": "application/json" },
+        body: { id: `email_${i}`, object: "email" },
+      },
+      summary: "POST /emails -> 200",
+      sideEffects: [],
+      webhookDeliveries: [],
+      durationMs: 1,
+    }));
+    const legacyMinted = Array.from({ length: 120 }, (_, i) => ({
+      token: `re_legacy_${String(i).padStart(4, "0")}`,
+      login: "admin",
+      id: i + 1,
+      scopes: [],
+    }));
+    const legacyState = {
+      strict: true,
+      snapshot: { collections: {}, data: {} },
+      ledger: { entries: legacyEntries, counter: legacyEntries.length + 1 },
+      minted: legacyMinted,
+    };
+    const legacySize = new TextEncoder().encode(JSON.stringify(legacyState)).length;
+    expect(legacySize).toBeGreaterThan(LIMIT);
+
+    const { storage, state, puts } = makeState({ limit: LIMIT, initial: { state: legacyState } });
+    const durableObject = new EmulatorDurableObject(state, {});
+    const credentialRes = await durableObject.fetch(
+      new Request("https://resend.emulators.dev/_emulate/credentials", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-emulator-service": "resend",
+          "x-emulator-base-url": "https://resend.emulators.dev",
+        },
+        body: JSON.stringify({ type: "api-key" }),
+      }),
+    );
+
+    expect(credentialRes.status).toBe(200);
+    const body = (await credentialRes.json()) as { credential: { token: string } };
+    expect(body.credential.token).toMatch(/^re_/);
+    expect(puts.every((put) => put.size <= LIMIT)).toBe(true);
+    expect(storage.get("state")).toEqual({ strict: true });
+    expect([...storage.keys()].filter((key) => key.startsWith("minted:"))).toHaveLength(121);
+    expect([...storage.keys()].filter((key) => key.startsWith("ledger:entry:"))).toHaveLength(70);
   });
 
   it("persists the request ledger across durable object eviction", async () => {
