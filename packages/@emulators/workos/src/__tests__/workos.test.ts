@@ -126,6 +126,35 @@ describe("workos emulator with the real @workos-inc/node SDK", () => {
     }
   });
 
+  it("deletes an organization and cascades its memberships", async () => {
+    const code = await signInAndGetCode("dana@example.com");
+    const auth = await workos.userManagement.authenticateWithCode({
+      code,
+      clientId: CLIENT_ID,
+      session: { sealSession: true, cookiePassword: COOKIE_PASSWORD },
+    });
+
+    const org = await workos.organizations.createOrganization({ name: "Doomed Org" });
+    await workos.userManagement.createOrganizationMembership({
+      organizationId: org.id,
+      userId: auth.user.id,
+      roleSlug: "admin",
+    });
+
+    // The real SDK's delete resolves (204 No Content), no throw.
+    await expect(workos.organizations.deleteOrganization(org.id)).resolves.toBeUndefined();
+
+    // The org is gone: fetching it now 404s.
+    await expect(workos.organizations.getOrganization(org.id)).rejects.toThrow();
+
+    // Its memberships cascaded, so the user no longer lists it.
+    const memberships = await workos.userManagement.listOrganizationMemberships({
+      userId: auth.user.id,
+      statuses: ["active", "pending"] as never,
+    });
+    expect(memberships.data.map((m) => m.organizationId)).not.toContain(org.id);
+  });
+
   it("creates a pending organization membership when an invitation is sent", async () => {
     const org = await workos.organizations.createOrganization({ name: "Invite Org" });
     const invitation = await workos.userManagement.sendInvitation({
