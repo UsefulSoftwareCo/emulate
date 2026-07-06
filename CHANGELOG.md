@@ -1,14 +1,20 @@
 # Changelog
 
-## 0.13.2
+## 0.13.3
 
 <!-- release:start -->
 
 ### New Features
 
-- **Autumn `balances.check`** — the Autumn emulator now supports the SDK's `check()` call (`POST /v1/balances.check`). Access is computed from the same plan items and tracked usage that drive customer balances: unlimited and overage-allowed features always pass, metered features pass while remaining balance covers `required_balance` (default 1), and a feature the customer's plan does not carry is allowed with a `null` balance. The response carries the full balance object (`granted`, `remaining`, `usage`, `unlimited`, `overage_allowed`) in the shape autumn-js validates, and the route participates in fault injection and the request ledger like every other operation.
+- **WorkOS `organizations.deleteOrganization`** — the WorkOS emulator now supports the SDK's org delete (`DELETE /organizations/:id`), returning 204 No Content like the real API. Deletion cascades to the organization's memberships, so a subsequent `getOrganization` 404s and the org drops out of `listOrganizationMemberships`, matching real WorkOS.
 
 <!-- release:end -->
+
+## 0.13.2
+
+### New Features
+
+- **Autumn `balances.check`** — the Autumn emulator now supports the SDK's `check()` call (`POST /v1/balances.check`). Access is computed from the same plan items and tracked usage that drive customer balances: unlimited and overage-allowed features always pass, metered features pass while remaining balance covers `required_balance` (default 1), and a feature the customer's plan does not carry is allowed with a `null` balance. The response carries the full balance object (`granted`, `remaining`, `usage`, `unlimited`, `overage_allowed`) in the shape autumn-js validates, and the route participates in fault injection and the request ledger like every other operation.
 
 ## 0.13.1
 

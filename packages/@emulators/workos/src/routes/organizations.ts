@@ -35,6 +35,18 @@ export function organizationRoutes(ctx: RouteContext): void {
     return c.json(serializeOrganization(updated));
   });
 
+  app.delete("/organizations/:id", (c) => {
+    const organization = ws().organizations.findOneBy("workos_id", c.req.param("id"));
+    if (!organization) return workosError(c, 404, "entity_not_found", "Organization not found.");
+    // Real WorkOS cascades org deletion to its memberships, so a listing for a
+    // deleted org comes back empty and members lose access.
+    for (const membership of ws().memberships.findBy("organization_id", organization.workos_id)) {
+      ws().memberships.delete(membership.id);
+    }
+    ws().organizations.delete(organization.id);
+    return c.body(null, 204);
+  });
+
   app.get("/organizations/:id/roles", (c) => {
     const organization = ws().organizations.findOneBy("workos_id", c.req.param("id"));
     if (!organization) return workosError(c, 404, "entity_not_found", "Organization not found.");
