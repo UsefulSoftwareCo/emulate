@@ -78,6 +78,18 @@ interface LedgerMeta {
   ids: string[];
 }
 
+// Durable Object storage allows at most 128 concurrent operations (and at most
+// 128 keys per delete call). Run storage fan-outs in bounded batches so a large
+// ledger or snapshot cannot trip "too many concurrent storage operations".
+const STORAGE_BATCH_SIZE = 64;
+const inBatches = async <T, R>(items: readonly T[], run: (item: T) => Promise<R>): Promise<R[]> => {
+  const results: R[] = [];
+  for (let i = 0; i < items.length; i += STORAGE_BATCH_SIZE) {
+    results.push(...(await Promise.all(items.slice(i, i + STORAGE_BATCH_SIZE).map(run))));
+  }
+  return results;
+};
+
 const encodeKeyPart = (value: string): string => encodeURIComponent(value);
 const decodeKeyPart = (value: string): string => decodeURIComponent(value);
 const snapshotItemKey = (collection: string, id: number): string =>
@@ -114,7 +126,10 @@ export class EmulatorDurableObject {
   private async deleteKeys(keys: Iterable<string>): Promise<void> {
     const list = [...keys];
     if (list.length === 0) return;
-    await this.state.storage.delete(list);
+    // storage.delete accepts at most 128 keys per call.
+    for (let i = 0; i < list.length; i += STORAGE_BATCH_SIZE) {
+      await this.state.storage.delete(list.slice(i, i + STORAGE_BATCH_SIZE));
+    }
   }
 
   private async deletePrefix(prefix: string): Promise<void> {
@@ -124,12 +139,12 @@ export class EmulatorDurableObject {
   private async writeStoreSnapshot(snapshot: StoreSnapshot): Promise<void> {
     const meta: SnapshotMeta = { collections: {} };
     const expectedKeys = new Set<string>();
-    const writes: Array<Promise<void>> = [];
+    const writes: Array<{ key: string; value: unknown }> = [];
 
     for (const [key, value] of Object.entries(snapshot.data)) {
       const storageKey = snapshotDataKey(key);
       expectedKeys.add(storageKey);
-      writes.push(this.state.storage.put(storageKey, value));
+      writes.push({ key: storageKey, value });
     }
 
     for (const [name, collection] of Object.entries(snapshot.collections)) {
@@ -140,11 +155,11 @@ export class EmulatorDurableObject {
       for (const item of collection.items) {
         const storageKey = snapshotItemKey(name, item.id);
         expectedKeys.add(storageKey);
-        writes.push(this.state.storage.put(storageKey, item));
+        writes.push({ key: storageKey, value: item });
       }
     }
 
-    await Promise.all(writes);
+    await inBatches(writes, (write) => this.state.storage.put(write.key, write.value));
     await this.state.storage.put(SNAPSHOT_META_KEY, meta);
 
     const existingItems = await this.state.storage.list({ prefix: SNAPSHOT_ITEM_PREFIX });
@@ -187,7 +202,7 @@ export class EmulatorDurableObject {
   private async writeLedger(snapshot: LedgerSnapshot): Promise<void> {
     const ids = snapshot.entries.map((entry) => entry.id);
     const expectedKeys = new Set(ids.map(ledgerEntryKey));
-    await Promise.all(snapshot.entries.map((entry) => this.state.storage.put(ledgerEntryKey(entry.id), entry)));
+    await inBatches(snapshot.entries, (entry) => this.state.storage.put(ledgerEntryKey(entry.id), entry));
     await this.state.storage.put(LEDGER_META_KEY, { counter: snapshot.counter, ids } satisfies LedgerMeta);
 
     const existing = await this.state.storage.list({ prefix: LEDGER_ENTRY_PREFIX });
@@ -198,7 +213,7 @@ export class EmulatorDurableObject {
     const meta = await this.state.storage.get<LedgerMeta>(LEDGER_META_KEY);
     if (!meta) return legacyLedger;
     const entries = (
-      await Promise.all(meta.ids.map((id) => this.state.storage.get<LedgerEntry>(ledgerEntryKey(id))))
+      await inBatches(meta.ids, (id) => this.state.storage.get<LedgerEntry>(ledgerEntryKey(id)))
     ).filter((entry): entry is LedgerEntry => entry != null);
     return { entries, counter: meta.counter };
   }
@@ -241,7 +256,7 @@ export class EmulatorDurableObject {
       const hasSplitLedger = Boolean(await this.state.storage.get(LEDGER_META_KEY));
       if (!hasSplitLedger) await this.writeLedger(persisted.ledger);
     }
-    await Promise.all((persisted.minted ?? []).map((entry) => this.writeMinted(entry)));
+    await inBatches(persisted.minted ?? [], (entry) => this.writeMinted(entry));
     if (persisted.snapshot || persisted.ledger || persisted.minted) {
       await this.writeStateMeta(persisted);
     }
