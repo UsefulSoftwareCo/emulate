@@ -12,6 +12,33 @@ const ok = (description: string) => ({
   content: { "application/json": { schema: { type: "object" } } },
 });
 const idOrName = { name: "idOrName", in: "path", required: true, schema: { type: "string" } };
+const runtimeLogRowSchema = {
+  type: "object",
+  required: [
+    "rowId",
+    "timestampInMs",
+    "level",
+    "message",
+    "messageTruncated",
+    "source",
+    "domain",
+    "requestMethod",
+    "requestPath",
+    "responseStatusCode",
+  ],
+  properties: {
+    rowId: { type: "string" },
+    timestampInMs: { type: "number" },
+    level: { type: "string", enum: ["info", "error", "warning", "debug", "trace", "fatal"] },
+    message: { type: "string" },
+    messageTruncated: { type: "boolean" },
+    source: { type: "string", enum: ["delimiter", "edge-function", "edge-middleware", "request", "serverless"] },
+    domain: { type: "string" },
+    requestMethod: { type: "string" },
+    requestPath: { type: "string" },
+    responseStatusCode: { type: "number" },
+  },
+};
 
 function buildSpec(baseUrl: string): Record<string, unknown> {
   return {
@@ -112,6 +139,28 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
           summary: "List deployments",
           parameters: [{ name: "limit", in: "query", required: false, schema: { type: "integer" } }],
           responses: { "200": ok("Deployment list.") },
+        },
+      },
+      "/v1/projects/{projectId}/deployments/{deploymentId}/runtime-logs": {
+        get: {
+          operationId: "getRuntimeLogs",
+          summary: "Stream deployment runtime logs",
+          parameters: [
+            { name: "projectId", in: "path", required: true, schema: { type: "string" } },
+            { name: "deploymentId", in: "path", required: true, schema: { type: "string" } },
+            { name: "teamId", in: "query", required: false, schema: { type: "string" } },
+            { name: "slug", in: "query", required: false, schema: { type: "string" } },
+          ],
+          responses: {
+            "200": {
+              description: "Newline-delimited runtime log rows.",
+              content: {
+                "application/stream+json": {
+                  schema: runtimeLogRowSchema,
+                },
+              },
+            },
+          },
         },
       },
     },

@@ -26,6 +26,10 @@ import {
   resolveTeamScope,
 } from "../helpers.js";
 
+export const RUNTIME_LOGS_BACKLOG_COUNT = 6;
+export const RUNTIME_LOGS_INTERVAL_MS = 15_000;
+export const RUNTIME_LOGS_DURATION_MS = 300_000;
+
 function vercelErr(c: Context, status: ContentfulStatusCode, code: string, message: string) {
   return c.json({ error: { code, message } }, status);
 }
@@ -77,6 +81,111 @@ function findDeploymentByIdOrUrl(vs: VercelStore, idOrUrl: string): VercelDeploy
 function assertDeploymentAccess(vs: VercelStore, dep: VercelDeployment, accountId: string): boolean {
   const project = vs.projects.findOneBy("uid", dep.projectId as VercelProject["uid"]);
   return !!project && project.accountId === accountId;
+}
+
+type RuntimeLogRow = {
+  rowId: string;
+  timestampInMs: number;
+  level: "info" | "error" | "warning" | "debug" | "trace" | "fatal";
+  message: string;
+  messageTruncated: boolean;
+  source: "delimiter" | "edge-function" | "edge-middleware" | "request" | "serverless";
+  domain: string;
+  requestMethod: string;
+  requestPath: string;
+  responseStatusCode: number;
+};
+
+const runtimeLogPaths = ["/", "/api/hello", "/favicon.ico", "/missing", "/api/hello", "/"];
+
+function runtimeLogBacklogRows(dep: VercelDeployment, now: number): RuntimeLogRow[] {
+  return runtimeLogPaths.slice(0, RUNTIME_LOGS_BACKLOG_COUNT).map((path, index) => {
+    const isMissing = path === "/missing";
+    const isError = index === 4;
+    const status = isError ? 500 : isMissing ? 404 : 200;
+    return {
+      rowId: generateUid("log"),
+      timestampInMs: now - (RUNTIME_LOGS_BACKLOG_COUNT - index) * 1000,
+      level: isError ? "error" : "info",
+      message: isError ? `stderr: failed to render ${path} for deployment ${dep.uid}` : `${status} GET ${path}`,
+      messageTruncated: false,
+      source: "request",
+      domain: dep.url,
+      requestMethod: "GET",
+      requestPath: path,
+      responseStatusCode: status,
+    };
+  });
+}
+
+function runtimeLogTailRow(dep: VercelDeployment, serial: number): RuntimeLogRow {
+  const path = runtimeLogPaths[serial % runtimeLogPaths.length] ?? "/";
+  const status = path === "/missing" ? 404 : 200;
+  return {
+    rowId: generateUid("log"),
+    timestampInMs: Date.now(),
+    level: "info",
+    message: `${status} GET ${path}`,
+    messageTruncated: false,
+    source: "request",
+    domain: dep.url,
+    requestMethod: "GET",
+    requestPath: path,
+    responseStatusCode: status,
+  };
+}
+
+function runtimeLogsStream(dep: VercelDeployment): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  let interval: ReturnType<typeof setInterval> | undefined;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let closed = false;
+
+  const clearTimers = () => {
+    if (interval !== undefined) clearInterval(interval);
+    if (timeout !== undefined) clearTimeout(timeout);
+    interval = undefined;
+    timeout = undefined;
+  };
+
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      const enqueue = (row: RuntimeLogRow) => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(`${JSON.stringify(row)}\n`));
+        } catch {
+          closed = true;
+          clearTimers();
+        }
+      };
+
+      for (const row of runtimeLogBacklogRows(dep, Date.now())) {
+        enqueue(row);
+      }
+
+      let serial = 0;
+      interval = setInterval(() => {
+        enqueue(runtimeLogTailRow(dep, serial));
+        serial += 1;
+      }, RUNTIME_LOGS_INTERVAL_MS);
+
+      timeout = setTimeout(() => {
+        if (closed) return;
+        closed = true;
+        clearTimers();
+        try {
+          controller.close();
+        } catch {
+          /* stream already closed */
+        }
+      }, RUNTIME_LOGS_DURATION_MS);
+    },
+    cancel() {
+      closed = true;
+      clearTimers();
+    },
+  });
 }
 
 function defaultProjectPayload(
@@ -377,6 +486,32 @@ export function deploymentsRoutes({ app, store, baseUrl }: RouteContext): void {
     const rows = vs.deploymentFiles.findBy("deploymentId", dep.uid as VercelDeploymentFile["deploymentId"]);
     const tree = buildFileTreeFromRows(rows, () => generateUid("file"));
     return c.json({ files: tree });
+  });
+
+  app.get("/v1/projects/:projectId/deployments/:deploymentId/runtime-logs", (c) => {
+    const auth = c.get("authUser");
+    if (!auth) {
+      return vercelErr(c, 401, "not_authenticated", "Authentication required");
+    }
+
+    const scope = resolveTeamScope(c, vs);
+    if (!scope) {
+      return vercelErr(c, 400, "bad_request", "Could not resolve team or account scope");
+    }
+
+    const project = lookupProject(vs, c.req.param("projectId"), scope.accountId);
+    const dep = vs.deployments.findOneBy("uid", c.req.param("deploymentId") as VercelDeployment["uid"]);
+    if (!project || !dep || dep.projectId !== project.uid || !assertDeploymentAccess(vs, dep, scope.accountId)) {
+      return vercelErr(c, 404, "not_found", "Deployment not found");
+    }
+
+    return new Response(runtimeLogsStream(dep), {
+      status: 200,
+      headers: {
+        "content-type": "application/stream+json; charset=utf-8",
+        "cache-control": "no-cache, no-transform",
+      },
+    });
   });
 
   app.post("/v13/deployments", async (c) => {

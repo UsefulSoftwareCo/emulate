@@ -50,6 +50,12 @@ export const manifest: ServiceManifest = {
         { operationId: "getDeployment", method: "GET", path: "/v13/deployments/:idOrUrl", status: "hand-authored" },
         { operationId: "deleteDeployment", method: "DELETE", path: "/v13/deployments/:id", status: "hand-authored" },
         {
+          operationId: "getRuntimeLogs",
+          method: "GET",
+          path: "/v1/projects/:projectId/deployments/:deploymentId/runtime-logs",
+          status: "hand-authored",
+        },
+        {
           operationId: "cancelDeployment",
           method: "PATCH",
           path: "/v12/deployments/:id/cancel",

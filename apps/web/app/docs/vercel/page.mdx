@@ -32,6 +32,7 @@ Every endpoint below is fully stateful with Vercel-style JSON responses and curs
 - `PATCH /v12/deployments/:id/cancel` - cancel building deployment
 - `GET /v2/deployments/:id/aliases` - list deployment aliases
 - `GET /v3/deployments/:idOrUrl/events` - get build events/logs
+- `GET /v1/projects/:projectId/deployments/:deploymentId/runtime-logs` - stream runtime logs
 - `GET /v6/deployments/:id/files` - list deployment files
 - `POST /v2/files` - upload file (by SHA digest)
 

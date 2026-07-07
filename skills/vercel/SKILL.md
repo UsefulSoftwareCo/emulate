@@ -275,6 +275,10 @@ curl http://localhost:4000/v2/deployments/dpl_abc123/aliases \
 curl "http://localhost:4000/v3/deployments/dpl_abc123/events?direction=forward&limit=50" \
   -H "Authorization: Bearer $TOKEN"
 
+# Stream runtime logs
+curl -sN --max-time 3 "http://localhost:4000/v1/projects/prj_abc123/deployments/dpl_abc123/runtime-logs" \
+  -H "Authorization: Bearer $TOKEN"
+
 # List deployment files
 curl http://localhost:4000/v6/deployments/dpl_abc123/files \
   -H "Authorization: Bearer $TOKEN"
@@ -286,6 +290,10 @@ curl -X POST http://localhost:4000/v2/files \
   -H "x-vercel-digest: sha256hash" \
   --data-binary @file.txt
 ```
+
+### Runtime logs (streaming)
+
+`GET /v1/projects/:projectId/deployments/:deploymentId/runtime-logs` returns `application/stream+json` with one JSON log row per line. It behaves like Vercel's live tail: recent rows are sent immediately, then the connection stays open and emits synthetic request rows periodically for up to 300 seconds. Use a bounded client while inspecting it manually so your terminal does not wait for the stream to close.
 
 ### Domains
 

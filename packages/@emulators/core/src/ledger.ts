@@ -75,6 +75,7 @@ export interface LedgerSnapshot {
 const DEFAULT_MAX_ENTRIES = 1000;
 const DEFAULT_MAX_BODY_CHARS = 20000;
 const REDACTED = "[redacted]";
+const STREAMING_BODY_OMITTED = "<streaming body omitted>";
 const SENSITIVE_HEADERS = new Set([
   "authorization",
   "cookie",
@@ -158,7 +159,9 @@ export function createLedgerMiddleware(ledger: RequestLedger, options: LedgerOpt
     const response = await next();
     if (!response) return;
 
-    const responseBody = await readBody(response.clone(), maxBodyChars);
+    const responseBody = isStreamingContentType(response.headers.get("content-type") ?? "")
+      ? { body: STREAMING_BODY_OMITTED }
+      : await readBody(response.clone(), maxBodyChars);
     const route = c.req.routePath;
     const operationId = c.get("operationId");
     const sideEffects = (c.get("ledgerEffects") as LedgerSideEffect[] | undefined) ?? [];
@@ -227,6 +230,9 @@ async function readBody(
   if (method === "GET" || method === "HEAD") return {};
 
   const contentType = responseOrRequest.headers.get("content-type") ?? "";
+  if (responseOrRequest instanceof Response && isStreamingContentType(contentType)) {
+    return { body: STREAMING_BODY_OMITTED };
+  }
   if (responseOrRequest instanceof Response && responseOrRequest.status === 204) return {};
 
   let text: string;
@@ -254,6 +260,15 @@ async function readBody(
     return { body: params, bodyTruncated: truncated || undefined };
   }
   return { body: clipped, bodyTruncated: truncated || undefined };
+}
+
+function isStreamingContentType(contentType: string): boolean {
+  const normalized = contentType.toLowerCase();
+  return (
+    normalized.includes("application/stream+json") ||
+    normalized.includes("text/event-stream") ||
+    normalized.includes("application/x-ndjson")
+  );
 }
 
 function headersToRecord(headers: Headers): Record<string, string> {
