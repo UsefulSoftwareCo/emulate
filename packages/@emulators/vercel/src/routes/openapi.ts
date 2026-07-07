@@ -145,6 +145,8 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
         get: {
           operationId: "getRuntimeLogs",
           summary: "Stream deployment runtime logs",
+          description:
+            "Deployments with runtimeActivity false hold the connection without status or headers until activity appears or the idle hold ends.",
           parameters: [
             { name: "projectId", in: "path", required: true, schema: { type: "string" } },
             { name: "deploymentId", in: "path", required: true, schema: { type: "string" } },

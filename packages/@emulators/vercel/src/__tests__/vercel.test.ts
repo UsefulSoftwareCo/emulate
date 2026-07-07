@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import type { AddressInfo } from "node:net";
 import { createServer, serve, type LedgerEntry } from "@emulators/core";
-import { vercelPlugin, seedFromConfig } from "../index.js";
+import { vercelPlugin, seedFromConfig, getVercelStore } from "../index.js";
 import { manifest } from "../manifest.js";
 
 const base = "http://localhost:4000";
@@ -42,11 +42,12 @@ async function startHttpServer(app: ReturnType<typeof createTestServer>["app"]) 
   };
 }
 
-async function createDeployment(app: ReturnType<typeof createTestServer>["app"], name = `it-project-${Date.now()}`) {
+async function createDeployment(app: ReturnType<typeof createTestServer>["app"], body: Record<string, unknown> = {}) {
+  const name = typeof body.name === "string" ? body.name : `it-project-${Date.now()}`;
   const res = await app.request(`${base}/v13/deployments`, {
     method: "POST",
     headers: { ...authHeaders(), "Content-Type": "application/json" },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, ...body }),
   });
   expect(res.status).toBe(200);
   return (await res.json()) as { id: string; projectId: string; url: string };
@@ -189,5 +190,42 @@ describe("Vercel plugin integration", () => {
     expect(entry).toBeDefined();
     expect(entry?.response.status).toBe(200);
     expect(entry?.response.body).toBe("<streaming body omitted>");
+  });
+
+  it("GET /v1/projects/:projectId/deployments/:deploymentId/runtime-logs sends no response for idle deployments", async () => {
+    const deployment = await createDeployment(app, { runtimeActivity: false });
+    const http = await startHttpServer(app);
+    const abort = new AbortController();
+    const timeoutResult = Symbol("timeout");
+
+    const fetchPromise = fetch(
+      `${http.url}/v1/projects/${deployment.projectId}/deployments/${deployment.id}/runtime-logs`,
+      {
+        signal: abort.signal,
+        headers: authHeaders(),
+      },
+    );
+    const handledFetch = fetchPromise.catch((error: unknown) => error);
+
+    try {
+      const result = await Promise.race([
+        fetchPromise.then(() => "response"),
+        new Promise<typeof timeoutResult>((resolve) => setTimeout(() => resolve(timeoutResult), 2000)),
+      ]);
+
+      expect(result).toBe(timeoutResult);
+    } finally {
+      abort.abort();
+      await handledFetch;
+      await http.close();
+    }
+  });
+
+  it("POST /v13/deployments persists runtimeActivity false", async () => {
+    const server = createTestServer();
+    const deployment = await createDeployment(server.app, { runtimeActivity: false });
+    const stored = getVercelStore(server.store).deployments.findOneBy("uid", deployment.id);
+
+    expect(stored?.runtimeActivity).toBe(false);
   });
 });

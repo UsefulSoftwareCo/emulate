@@ -29,6 +29,7 @@ import {
 export const RUNTIME_LOGS_BACKLOG_COUNT = 6;
 export const RUNTIME_LOGS_INTERVAL_MS = 15_000;
 export const RUNTIME_LOGS_DURATION_MS = 300_000;
+export const RUNTIME_LOGS_IDLE_HOLD_MS = 300_000;
 
 function vercelErr(c: Context, status: ContentfulStatusCode, code: string, message: string) {
   return c.json({ error: { code, message } }, status);
@@ -185,6 +186,27 @@ function runtimeLogsStream(dep: VercelDeployment): ReadableStream<Uint8Array> {
       closed = true;
       clearTimers();
     },
+  });
+}
+
+function waitForIdleRuntimeLogs(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) {
+    return Promise.reject(signal.reason);
+  }
+
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, RUNTIME_LOGS_IDLE_HOLD_MS);
+
+    const onAbort = () => {
+      clearTimeout(timeout);
+      signal.removeEventListener("abort", onAbort);
+      reject(signal.reason);
+    };
+
+    signal.addEventListener("abort", onAbort, { once: true });
   });
 }
 
@@ -488,7 +510,7 @@ export function deploymentsRoutes({ app, store, baseUrl }: RouteContext): void {
     return c.json({ files: tree });
   });
 
-  app.get("/v1/projects/:projectId/deployments/:deploymentId/runtime-logs", (c) => {
+  app.get("/v1/projects/:projectId/deployments/:deploymentId/runtime-logs", async (c) => {
     const auth = c.get("authUser");
     if (!auth) {
       return vercelErr(c, 401, "not_authenticated", "Authentication required");
@@ -503,6 +525,10 @@ export function deploymentsRoutes({ app, store, baseUrl }: RouteContext): void {
     const dep = vs.deployments.findOneBy("uid", c.req.param("deploymentId") as VercelDeployment["uid"]);
     if (!project || !dep || dep.projectId !== project.uid || !assertDeploymentAccess(vs, dep, scope.accountId)) {
       return vercelErr(c, 404, "not_found", "Deployment not found");
+    }
+
+    if (!dep.runtimeActivity) {
+      await waitForIdleRuntimeLogs(c.req.raw.signal);
     }
 
     return new Response(runtimeLogsStream(dep), {
@@ -572,6 +598,7 @@ export function deploymentsRoutes({ app, store, baseUrl }: RouteContext): void {
       readyState: "READY",
       readySubstate: null,
       state: "READY",
+      runtimeActivity: typeof body.runtimeActivity === "boolean" ? body.runtimeActivity : true,
       creatorId: user.uid,
       inspectorUrl,
       meta,

@@ -110,6 +110,7 @@ export interface VercelDeployment extends Entity {
   readyState: "QUEUED" | "BUILDING" | "INITIALIZING" | "READY" | "ERROR" | "CANCELED";
   readySubstate: "STAGED" | "ROLLING" | "PROMOTED" | null;
   state: "QUEUED" | "BUILDING" | "INITIALIZING" | "READY" | "ERROR" | "CANCELED";
+  runtimeActivity: boolean;
   creatorId: string;
   inspectorUrl: string;
   meta: Record<string, string>;

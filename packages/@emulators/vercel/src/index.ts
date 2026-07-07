@@ -1,6 +1,6 @@
 import type { Hono } from "@emulators/core";
 import type { AppEnv, RouteContext, ServicePlugin, Store, WebhookDispatcher, TokenMap } from "@emulators/core";
-import type { VercelEnvVar } from "./entities.js";
+import type { VercelDeployment, VercelEnvVar, VercelProject } from "./entities.js";
 import { getVercelStore } from "./store.js";
 import { generateUid, nowMs } from "./helpers.js";
 import { userRoutes } from "./routes/user.js";
@@ -36,6 +36,11 @@ export interface VercelSeedConfig {
     outputDirectory?: string;
     rootDirectory?: string;
     nodeVersion?: string;
+    deployments?: Array<{
+      name?: string;
+      target?: "production" | "preview" | "staging";
+      runtimeActivity?: boolean;
+    }>;
     envVars?: Array<{
       key: string;
       value: string;
@@ -49,6 +54,110 @@ export interface VercelSeedConfig {
     name: string;
     redirect_uris: string[];
   }>;
+}
+
+function primaryHostFromBaseUrl(baseUrl: string): string {
+  try {
+    const u = new URL(baseUrl);
+    if (u.hostname && u.hostname !== "localhost" && u.hostname !== "127.0.0.1") {
+      return u.hostname;
+    }
+  } catch {
+    /* ignore */
+  }
+  return "vercel.app";
+}
+
+function deploymentHostname(name: string, uid: string, baseUrl: string): string {
+  const slug = `${name}-${uid.slice(4, 12)}`;
+  return `${slug}.${primaryHostFromBaseUrl(baseUrl)}`;
+}
+
+function productionProjectAlias(projectName: string, baseUrl: string): string {
+  return `${projectName}.${primaryHostFromBaseUrl(baseUrl)}`;
+}
+
+function targetKey(target: VercelDeployment["target"]): "production" | "preview" | "staging" {
+  if (target === "production") return "production";
+  if (target === "staging") return "staging";
+  return "preview";
+}
+
+function upsertProjectDeploymentRefs(
+  vs: ReturnType<typeof getVercelStore>,
+  projectId: number,
+  dep: VercelDeployment,
+): void {
+  const project = vs.projects.get(projectId);
+  if (!project) return;
+  const createdAt = new Date(dep.created_at).getTime();
+  const entry = { id: dep.uid, url: dep.url, state: dep.state, createdAt };
+  const latest = [{ ...entry }, ...project.latestDeployments.filter((d) => d.id !== dep.uid)];
+  const targets = { ...project.targets };
+  targets[targetKey(dep.target)] = { ...entry };
+  vs.projects.update(project.id, { latestDeployments: latest, targets });
+}
+
+function seedDeployment(
+  vs: ReturnType<typeof getVercelStore>,
+  baseUrl: string,
+  project: VercelProject,
+  input: { name?: string; target?: "production" | "preview" | "staging"; runtimeActivity?: boolean },
+): void {
+  const user = vs.users.all()[0];
+  if (!user) return;
+
+  const name = input.name ?? project.name;
+  const uid = generateUid("dpl");
+  const url = deploymentHostname(name, uid, baseUrl);
+  const target = input.target ?? "preview";
+  const t = nowMs();
+  const dep = vs.deployments.insert({
+    uid,
+    name,
+    url,
+    projectId: project.uid,
+    source: "seed",
+    target,
+    readyState: "READY",
+    readySubstate: null,
+    state: "READY",
+    runtimeActivity: input.runtimeActivity ?? true,
+    creatorId: user.uid,
+    inspectorUrl: `${baseUrl.replace(/\/$/, "")}/deployments/${uid}`,
+    meta: {},
+    gitSource: null,
+    buildingAt: t,
+    readyAt: t,
+    canceledAt: null,
+    errorCode: null,
+    errorMessage: null,
+    regions: ["iad1"],
+    functions: null,
+    routes: null,
+    plan: "hobby",
+    aliasAssigned: true,
+    aliasError: null,
+    bootedAt: t,
+  });
+
+  vs.deploymentAliases.insert({
+    uid: generateUid("als"),
+    alias: url,
+    deploymentId: dep.uid,
+    projectId: project.uid,
+  });
+
+  if (target === "production") {
+    vs.deploymentAliases.insert({
+      uid: generateUid("als"),
+      alias: productionProjectAlias(project.name, baseUrl),
+      deploymentId: dep.uid,
+      projectId: project.uid,
+    });
+  }
+
+  upsertProjectDeploymentRefs(vs, project.id, dep);
 }
 
 function seedDefaults(store: Store, _baseUrl: string): void {
@@ -190,6 +299,12 @@ export function seedFromConfig(store: Store, baseUrl: string, config: VercelSeed
             comment: null,
             decrypted: false,
           });
+        }
+      }
+
+      if (p.deployments) {
+        for (const deployment of p.deployments) {
+          seedDeployment(vs, baseUrl, project, deployment);
         }
       }
     }

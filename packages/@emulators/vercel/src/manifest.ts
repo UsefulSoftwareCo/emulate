@@ -136,8 +136,15 @@ export const manifest: ServiceManifest = {
       {
         key: "projects",
         title: "Projects",
-        description: "Projects owned by a user or team, optionally with env vars.",
-        example: [{ name: "my-app", team: "my-team", framework: "nextjs" }],
+        description: "Projects owned by a user or team, optionally with env vars and seeded deployments.",
+        example: [
+          {
+            name: "my-app",
+            team: "my-team",
+            framework: "nextjs",
+            deployments: [{ target: "preview", runtimeActivity: false }],
+          },
+        ],
       },
       {
         key: "integrations",
@@ -156,7 +163,14 @@ export const manifest: ServiceManifest = {
     example: {
       users: [{ username: "developer", name: "Developer", email: "dev@example.com" }],
       teams: [{ slug: "my-team", name: "My Team" }],
-      projects: [{ name: "my-app", team: "my-team", framework: "nextjs" }],
+      projects: [
+        {
+          name: "my-app",
+          team: "my-team",
+          framework: "nextjs",
+          deployments: [{ target: "preview", runtimeActivity: false }],
+        },
+      ],
       integrations: [
         {
           client_id: "oac_example_client_id",

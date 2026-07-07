@@ -32,14 +32,14 @@ npm install @emulators/vercel
 - `PATCH /v1/projects/:idOrName/protection-bypass` — manage bypass secrets
 
 ### Deployments
-- `POST /v13/deployments` — create deployment (auto-transitions to READY)
+- `POST /v13/deployments` — create deployment (auto-transitions to READY; accepts `runtimeActivity: false`)
 - `GET /v13/deployments/:idOrUrl` — get deployment (by ID or URL)
 - `GET /v6/deployments` — list deployments (filter by project, target, state)
 - `DELETE /v13/deployments/:id` — delete deployment (cascades)
 - `PATCH /v12/deployments/:id/cancel` — cancel building deployment
 - `GET /v2/deployments/:id/aliases` — list deployment aliases
 - `GET /v3/deployments/:idOrUrl/events` — get build events/logs
-- `GET /v1/projects/:projectId/deployments/:deploymentId/runtime-logs` — stream runtime logs
+- `GET /v1/projects/:projectId/deployments/:deploymentId/runtime-logs` — stream runtime logs; idle deployments hold the response without headers
 - `GET /v6/deployments/:id/files` — list deployment files
 - `POST /v2/files` — upload file (by SHA digest)
 
@@ -77,6 +77,9 @@ vercel:
     - name: my-app
       team: my-team
       framework: nextjs
+      deployments:
+        - target: preview
+          runtimeActivity: false
   integrations:
     - client_id: "oac_abc123"
       client_secret: "secret_abc123"
