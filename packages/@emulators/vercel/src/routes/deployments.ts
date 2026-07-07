@@ -527,7 +527,9 @@ export function deploymentsRoutes({ app, store, baseUrl }: RouteContext): void {
       return vercelErr(c, 404, "not_found", "Deployment not found");
     }
 
-    if (!dep.runtimeActivity) {
+    // Strict false only: deployments persisted before this field existed have
+    // no runtimeActivity value and must keep the default active behavior.
+    if (dep.runtimeActivity === false) {
       await waitForIdleRuntimeLogs(c.req.raw.signal);
     }
 
