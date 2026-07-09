@@ -159,7 +159,7 @@ github:
 All services are available on host-based routing when deployed: `github`, `gitlab`, `mcp`, `vercel`, `google`, `okta`, `microsoft`, `spotify`, `slack`, `apple`, `aws`, `resend`, `stripe`, `mongoatlas`, `clerk`, `x`, `workos`, `autumn`, and `posthog`. Each one supports three addressing forms:
 
 ```text
-https://github.emulators.dev                     # service host (no instance)
+https://github.emulators.dev                     # service host (control plane only)
 https://github.my-instance.emulators.dev         # instance host
 https://emulators.dev/github/my-instance         # local/path form
 ```
@@ -170,7 +170,7 @@ Create instances with `POST /_emulate/instances`: the server generates an ungues
 
 ### Useful without an instance
 
-The bare service host (for example `https://github.emulators.dev`) serves a service-level control plane so a human or agent can learn what the service is and connect without first creating an instance. It responds to `GET /_emulate`, `/_emulate/manifest`, `/_emulate/quickstart`, `/_emulate/specs`, `/_emulate/coverage`, `/_emulate/connections`, `/_emulate/openapi`, and `POST /_emulate/instances`.
+The bare service host (for example `https://github.emulators.dev`) serves a service-level control plane so a human or agent can learn what the service is and connect without first creating an instance. It responds to `GET /_emulate`, `/_emulate/manifest`, `/_emulate/quickstart`, `/_emulate/specs`, `/_emulate/coverage`, `/_emulate/connections`, `/_emulate/openapi`, and `POST /_emulate/instances`. There is no shared instance behind the service host: provider routes return a 404 pointing at instance creation, so all provider traffic happens on an instance of your own.
 
 A global catalog lists every hosted service from any host, including the apex:
 

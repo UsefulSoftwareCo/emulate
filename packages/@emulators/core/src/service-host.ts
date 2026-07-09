@@ -187,7 +187,7 @@ export function renderCatalogPage(
       <div class="s-card">
         <div class="section-heading">For agents</div>
         <p class="info-text">Machine-readable catalog: <a href="/_emulate/services">/_emulate/services</a></p>
-        <p class="info-text">Each service host serves <code>/_emulate/manifest</code>, <code>/_emulate/quickstart</code>, and <code>/_emulate/connections</code>, and the provider API directly against a default instance.</p>
+        <p class="info-text">Each service host serves <code>/_emulate/manifest</code>, <code>/_emulate/quickstart</code>, and <code>/_emulate/connections</code>, plus <code>POST /_emulate/instances</code> to create a private instance for provider traffic.</p>
       </div>
     `,
   );

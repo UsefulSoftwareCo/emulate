@@ -69,6 +69,8 @@ Inspect calls with `GET /_emulate/ledger`: each entry includes a correlation
 id, matched route, sanitized headers and body, response status, and side
 effects.
 
-Hosted GitLab is at `https://gitlab.emulators.dev` with instance hosts of the
-form `gitlab.<instance>.emulators.dev`. Per-service docs live at
-`https://docs.emulators.dev/gitlab`.
+Hosted GitLab lives on instance hosts of the form
+`gitlab.<instance>.emulators.dev`. The bare service host
+`https://gitlab.emulators.dev` is control plane only: create an instance with
+`POST /_emulate/instances` and use the returned URLs for provider traffic.
+Per-service docs live at `https://docs.emulators.dev/gitlab`.

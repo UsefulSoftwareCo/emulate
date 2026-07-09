@@ -80,7 +80,7 @@ The core provides shared middleware:
 The `@emulators/cloudflare` package runs the same plugins on Cloudflare Workers with host-based routing. The `emulate-hosts` worker serves `emulators.dev/*` and `*.emulators.dev/*`:
 
 - The apex `emulators.dev` is the emulator catalog, a links-out landing built from `GET /_emulate/services`. It is not the docs site.
-- A service host such as `github.emulators.dev` serves a service-level control plane and is useful before any instance exists.
+- A service host such as `github.emulators.dev` serves a service-level control plane and is useful before any instance exists. It has no shared instance of its own; provider traffic requires a created instance.
 - An instance host such as `github.my-run.emulators.dev` (or the compatibility path form `emulators.dev/github/my-run`) serves one stateful instance.
 
 Each instance is backed by one Cloudflare Durable Object. The `EmulatorDurableObject` class is declared through a wrangler `migrations` entry (`new_classes`), and both the instance state and the request ledger are snapshotted to Durable Object storage so an instance survives eviction. Instances are created lazily through `POST /_emulate/instances`.

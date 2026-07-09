@@ -62,8 +62,8 @@ Global catalog:
   autumn, posthog, and mcp.
   Microsoft Graph includes OneDrive file content upload/download routes under
   /v1.0/me/drive and /v1.0/drives/:driveId.
-  Service host:    <service>.emulators.dev (useful without an instance; serves
-                   a service-level /_emulate control plane)
+  Service host:    <service>.emulators.dev (control plane only, no shared
+                   instance; create one via POST /_emulate/instances)
   Instance host:   <service>.<instance>.emulators.dev
   Local/path form: <origin>/<service>/<instance>
 

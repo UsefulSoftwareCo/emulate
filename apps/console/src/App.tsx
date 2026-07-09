@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, Route, Routes } from "react-router-dom";
-import { DEFAULT_INSTANCE, hostRoute } from "./api";
+import { hostRoute } from "./api";
 import Home from "./views/Home";
 import Service from "./views/Service";
 
@@ -53,11 +53,7 @@ export default function App() {
           <Route
             path="/"
             element={
-              route.service ? (
-                <Service serviceOverride={route.service} instanceOverride={route.instance ?? DEFAULT_INSTANCE} />
-              ) : (
-                <Home />
-              )
+              route.service ? <Service serviceOverride={route.service} instanceOverride={route.instance} /> : <Home />
             }
           />
           <Route path="/:service" element={<Service />} />

@@ -119,7 +119,7 @@ Hosted emulators are reachable on `*.emulators.dev`. All services are available:
 | Form | Example | Notes |
 |------|---------|-------|
 | Apex catalog | `https://emulators.dev` | The apex is a links-out catalog landing page listing every emulator and linking to each one's host. `GET /_emulate/services` returns the same catalog machine-readably |
-| Service host | `https://github.emulators.dev` | Useful without an instance: serves `/_emulate`, `/_emulate/manifest`, `/_emulate/quickstart`, `/_emulate/specs`, `/_emulate/coverage`, `/_emulate/connections`, `/_emulate/openapi`, and `POST /_emulate/instances` |
+| Service host | `https://github.emulators.dev` | Control plane only, no shared instance: serves `/_emulate`, `/_emulate/manifest`, `/_emulate/quickstart`, `/_emulate/specs`, `/_emulate/coverage`, `/_emulate/connections`, `/_emulate/openapi`, and `POST /_emulate/instances`. Provider routes return 404 with instance-creation guidance |
 | Instance host | `https://github.my-run.emulators.dev` | One stateful instance: `<service>.<instance>.emulators.dev` (e.g. `stripe.ci-48291.emulators.dev`). State and the ledger persist across eviction |
 | Local / path form | `http://localhost:4001/github/my-run` | `<origin>/<service>/<instance>` |
 

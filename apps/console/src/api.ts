@@ -7,10 +7,6 @@ export const ORIGIN = typeof window !== "undefined" ? window.location.origin : "
 
 const HOST_SUFFIX = "emulators.dev";
 
-// The service host (e.g. github.emulators.dev) is itself a default, stateful
-// instance. Named instances use the cert-safe path form on the apex.
-export const DEFAULT_INSTANCE = "default";
-
 const onEmulatorsHost = (): boolean => {
   if (typeof window === "undefined") return false;
   const h = window.location.hostname;
@@ -55,10 +51,10 @@ export const serviceHost = (service: string): string => {
 export const base = (service: string, instance: string): string => {
   if (typeof window === "undefined") return "";
   const route = hostRoute();
-  // On this service's own host, talk same-origin: the service host is the default
-  // instance, and a matching named-instance host serves itself.
-  if (route.service === service && (!route.instance || route.instance === instance)) return ORIGIN;
-  // Otherwise address via the cert-safe path form on the apex.
+  // A matching named-instance host serves itself same-origin. A bare service
+  // host does not: it is control plane only (no shared default instance), so
+  // instances are addressed via the cert-safe path form on the apex.
+  if (route.service === service && route.instance === instance) return ORIGIN;
   return `${apexOrigin()}/${service}/${encodeURIComponent(instance)}`;
 };
 

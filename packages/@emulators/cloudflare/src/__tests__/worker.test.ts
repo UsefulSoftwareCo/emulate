@@ -102,56 +102,45 @@ describe("cloudflare worker routing", () => {
     expect(created.instance).toMatch(/^[0-9a-f]{24}$/);
   });
 
-  it("routes the service host to a default instance over the valid 1-label cert", async () => {
-    const seen: Array<{
-      idName: string;
-      url: string;
-      service: string | null;
-      instance: string | null;
-      baseUrl: string | null;
-    }> = [];
+  it("serves the service host as control plane only, with no shared default instance", async () => {
+    let doHits = 0;
     const env: Env = {
       EMULATE_HOST_SUFFIX: "emulators.dev",
       EMULATOR: {
         idFromName: (n) => n,
-        get: (id) => ({
-          async fetch(request) {
-            seen.push({
-              idName: String(id),
-              url: request.url,
-              service: request.headers.get("x-emulator-service"),
-              instance: request.headers.get("x-emulator-instance"),
-              baseUrl: request.headers.get("x-emulator-base-url"),
-            });
+        get: () => ({
+          async fetch() {
+            doHits++;
             return Response.json({ ok: true });
           },
         }),
       },
     };
 
-    // Provider API and /_emulate both resolve to the default instance.
-    await worker.fetch(
+    // The service-level control plane answers without any instance (or DO call).
+    const manifestRes = await worker.fetch(new Request("https://github.emulators.dev/_emulate/manifest"), env);
+    expect(manifestRes.status).toBe(200);
+    const manifest = (await manifestRes.json()) as { manifest: { id: string }; instance: unknown };
+    expect(manifest.manifest.id).toBe("github");
+    expect(manifest.instance).toBeNull();
+
+    // Provider routes have no shared instance behind the well-known host: they
+    // point at instance creation instead of serving world-readable state.
+    const provider = await worker.fetch(
       new Request("https://github.emulators.dev/user", { headers: { accept: "application/json" } }),
       env,
     );
-    await worker.fetch(new Request("https://github.emulators.dev/_emulate/manifest"), env);
+    expect(provider.status).toBe(404);
+    await expect(provider.json()).resolves.toMatchObject({
+      error: "instance_required",
+      createInstance: "https://github.emulators.dev/_emulate/instances",
+    });
 
-    expect(seen).toEqual([
-      {
-        idName: "github:default",
-        url: "https://github.emulators.dev/user",
-        service: "github",
-        instance: "default",
-        baseUrl: "https://github.emulators.dev",
-      },
-      {
-        idName: "github:default",
-        url: "https://github.emulators.dev/_emulate/manifest",
-        service: "github",
-        instance: "default",
-        baseUrl: "https://github.emulators.dev",
-      },
-    ]);
+    // Same for instance-scoped control-plane routes like /_emulate/state.
+    const state = await worker.fetch(new Request("https://github.emulators.dev/_emulate/state"), env);
+    expect(state.status).toBe(404);
+
+    expect(doHits).toBe(0);
   });
 
   it("serves the SPA to browser navigations but the no-JS landing to agents", async () => {
@@ -174,12 +163,23 @@ describe("cloudflare worker routing", () => {
       env,
     );
     expect(browser.headers.get("content-type")).toContain("text/html");
-    expect(doHits).toBe(0); // SPA served directly, no DO call
 
+    // Agent root gets the server-rendered service landing; agents asking for
+    // JSON get the service-level manifest. Neither touches a Durable Object.
     const agent = await worker.fetch(new Request("https://github.emulators.dev/", { headers: { accept: "*/*" } }), env);
     expect(agent.status).toBe(200);
-    expect(doHits).toBe(1); // agent root forwarded to the default instance's /_emulate landing
-    await expect(agent.json()).resolves.toMatchObject({ path: "/_emulate" });
+    expect(agent.headers.get("content-type")).toContain("text/html");
+    expect(await agent.text()).toContain("Create an instance");
+
+    const agentJson = await worker.fetch(
+      new Request("https://github.emulators.dev/", { headers: { accept: "application/json" } }),
+      env,
+    );
+    expect(agentJson.status).toBe(200);
+    const body = (await agentJson.json()) as { manifest: { id: string } };
+    expect(body.manifest.id).toBe("github");
+
+    expect(doHits).toBe(0);
   });
 
   it("lists the deployed service catalog from any host", async () => {

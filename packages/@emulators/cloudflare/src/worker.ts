@@ -1,4 +1,10 @@
-import { buildInstanceCreation, randomInstanceName, renderCatalogPage, servicesCatalog } from "@emulators/core";
+import {
+  buildInstanceCreation,
+  randomInstanceName,
+  renderCatalogPage,
+  serviceHostControlPlane,
+  servicesCatalog,
+} from "@emulators/core";
 import { EmulatorDurableObject } from "./durable-object.js";
 import { SERVICES } from "./services.js";
 import { SERVICE_ICONS } from "./icons.js";
@@ -37,9 +43,6 @@ export interface Env {
 }
 
 const DEFAULT_HOST_SUFFIX = "emulators.dev";
-// The service host (e.g. github.emulators.dev) IS a usable, stateful instance.
-// Named, isolated instances use the cert-safe path form emulators.dev/<svc>/<id>.
-const DEFAULT_INSTANCE = "default";
 // The instance segment selects the MCP surface's auth/scope preset:
 //  - oauth | bearer | query: how `/mcp` authenticates.
 //  - scope-discovery: oauth, but the protected-resource metadata stays silent on
@@ -86,7 +89,7 @@ async function forwardToDurableObject(
 }
 
 // Router:
-// - `<service>.<suffix>`            -> the service host == a default stateful instance.
+// - `<service>.<suffix>`            -> the service-level control plane (no shared instance).
 // - `<service>.<instance>.<suffix>` -> a named instance host (requires a 2-label cert).
 // - `/<service>/<instance>/...`     -> the cert-safe path form (named instances, local dev).
 // - apex / bare `/<service>`        -> the catalog (SPA for browsers, server-rendered for agents).
@@ -121,8 +124,11 @@ export default {
       });
     }
 
-    // SERVICE HOST: <service>.<suffix> with no instance label. The host itself is a
-    // default, stateful instance, served same-origin over the valid 1-label cert.
+    // SERVICE HOST: <service>.<suffix> with no instance label. Control plane
+    // only — there is deliberately NO shared default instance behind it. A
+    // well-known host with world-readable state and a world-writable control
+    // plane is exactly the polling target the unguessable instance names exist
+    // to prevent, so provider traffic requires an instance of your own.
     if (hostRoute?.service && !hostRoute.instance) {
       const service = hostRoute.service;
       const entry = SERVICES[service];
@@ -148,26 +154,45 @@ export default {
       if (!entry) return html(consoleHtml);
 
       // Root: browsers get the interactive console; agents/raw fetches get the
-      // server-rendered default-instance landing (no JS) or its JSON manifest.
+      // server-rendered service landing (no JS) or the service-level manifest.
       if (url.pathname === "/" || url.pathname === "") {
         if (isBrowserNavigation(request)) return html(consoleHtml);
-        return forwardToDurableObject(env, request, {
+        const landing = serviceHostControlPlane(wantsJson(request) ? "/_emulate/manifest" : "/_emulate", "GET", {
+          manifest: entry.manifest,
           service,
-          instance: DEFAULT_INSTANCE,
-          baseUrl: `${url.protocol}//${service}.${suffix}`,
-          innerPath: wantsJson(request) ? "/_emulate/manifest" : "/_emulate",
-          search: "",
+          origin: apexOrigin,
+          protocol: url.protocol,
+          hostSuffix: suffix,
+          ledgerPersistent: true,
         });
+        if (landing) return landing;
       }
 
-      // Everything else (provider API + /_emulate/*) → the default instance.
-      return forwardToDurableObject(env, request, {
+      // Service-level control plane (manifest, quickstart, specs, coverage,
+      // connections, openapi) — answerable without any instance.
+      const controlPlane = serviceHostControlPlane(url.pathname, request.method, {
+        manifest: entry.manifest,
         service,
-        instance: DEFAULT_INSTANCE,
-        baseUrl: `${url.protocol}//${service}.${suffix}`,
-        innerPath: url.pathname,
-        search: url.search,
+        origin: apexOrigin,
+        protocol: url.protocol,
+        hostSuffix: suffix,
+        ledgerPersistent: true,
       });
+      if (controlPlane) return controlPlane;
+
+      // Browsers exploring other paths still get the console SPA.
+      if (isBrowserNavigation(request)) return html(consoleHtml);
+
+      // Provider routes have no shared instance to serve: point the caller at
+      // instance creation instead.
+      return Response.json(
+        {
+          error: "instance_required",
+          message: `${service}.${suffix} is a service host with no shared instance. Create one with POST ${url.protocol}//${service}.${suffix}/_emulate/instances and use the returned providerBaseUrl.`,
+          createInstance: `${url.protocol}//${service}.${suffix}/_emulate/instances`,
+        },
+        { status: 404 },
+      );
     }
 
     // NAMED INSTANCE HOST: <service>.<instance>.<suffix> (needs a 2-label cert).
