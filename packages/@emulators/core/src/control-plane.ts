@@ -51,7 +51,28 @@ export interface ControlPlaneOptions {
   issueCredential?: (request: CredentialRequest) => IssuedCredential | Promise<IssuedCredential>;
 }
 
-export const INSTANCE_NOTES = "Hosted deployments create instances lazily when the returned URL is first used.";
+export const INSTANCE_NOTES =
+  "Hosted deployments create instances lazily when the returned URL is first used. " +
+  "The instance URL is a capability: anyone who has it can read and modify the instance, so save the returned URLs. " +
+  "Never store real secrets in an emulator.";
+
+// Instances are addressed by name alone, with no auth in front of the control
+// plane, so the generated name is the only thing keeping one caller's state,
+// ledger, and minted credentials away from everyone else. Always mix in 96 bits
+// of crypto randomness; a caller-supplied name is a readable prefix, never the
+// whole identity.
+const INSTANCE_SUFFIX_BYTES = 12;
+// Keep the full name a valid DNS label for the <service>.<instance>.<suffix> host form.
+const INSTANCE_NAME_MAX = 63;
+
+export function randomInstanceName(prefix?: string): string {
+  const bytes = new Uint8Array(INSTANCE_SUFFIX_BYTES);
+  crypto.getRandomValues(bytes);
+  const suffix = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  const cleaned = slug(prefix ?? "");
+  if (!cleaned) return suffix;
+  return `${cleaned.slice(0, INSTANCE_NAME_MAX - suffix.length - 1)}-${suffix}`;
+}
 
 export interface InstanceCreation {
   service: string;
@@ -202,7 +223,7 @@ export function registerControlPlane(app: Hono<AppEnv>, options: ControlPlaneOpt
   });
   app.post("/_emulate/instances", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as { instance?: string; service?: string };
-    const nextInstance = slug(body.instance ?? `${manifest.id}-${randomId().slice(0, 8)}`);
+    const nextInstance = randomInstanceName(body.instance);
     const service = slug(body.service ?? manifest.id);
     const origin = new URL(instance.providerBaseUrl).origin;
     return c.json(

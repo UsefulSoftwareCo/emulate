@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createServer } from "../server.js";
+import { randomInstanceName } from "../control-plane.js";
 import type { ServicePlugin } from "../plugin.js";
 import type { Store } from "../store.js";
 
@@ -286,5 +287,23 @@ describe("control plane", () => {
 
     const graphql = (await (await app.request("/_emulate/graphql")).json()) as { endpoint: string };
     expect(graphql.endpoint).toBe("https://demo.instance.emulators.dev/graphql");
+  });
+});
+
+describe("randomInstanceName", () => {
+  it("generates 96 bits of hex randomness", () => {
+    const name = randomInstanceName();
+    expect(name).toMatch(/^[0-9a-f]{24}$/);
+    expect(randomInstanceName()).not.toBe(name);
+  });
+
+  it("keeps a caller-supplied name as a prefix only", () => {
+    expect(randomInstanceName("My Run!")).toMatch(/^my-run-[0-9a-f]{24}$/);
+  });
+
+  it("stays within the DNS label limit for long prefixes", () => {
+    const name = randomInstanceName("x".repeat(100));
+    expect(name.length).toBeLessThanOrEqual(63);
+    expect(name).toMatch(/-[0-9a-f]{24}$/);
   });
 });

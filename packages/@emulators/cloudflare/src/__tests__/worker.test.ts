@@ -55,7 +55,7 @@ describe("cloudflare worker routing", () => {
     ]);
   });
 
-  it("creates named instance URLs in the cert-safe path form", async () => {
+  it("creates named instance URLs in the cert-safe path form with an unguessable suffix", async () => {
     const env: Env = {
       EMULATE_HOST_SUFFIX: "emulators.dev",
       EMULATOR: { idFromName: (n) => n, get: () => ({ fetch: async () => Response.json({}) }) },
@@ -71,13 +71,35 @@ describe("cloudflare worker routing", () => {
     );
 
     expect(response.status).toBe(200);
+    const created = (await response.json()) as {
+      service: string;
+      instance: string;
+      providerBaseUrl: string;
+      controlBaseUrl: string;
+    };
+    expect(created.service).toBe("github");
+    // The requested name is only a prefix: the instance URL is the sole access
+    // control, so the server always appends 96 bits of randomness.
+    expect(created.instance).toMatch(/^smoke-[0-9a-f]{24}$/);
     // Path form on the apex: a 2-label instance subdomain has no Universal SSL cert.
-    await expect(response.json()).resolves.toMatchObject({
-      service: "github",
-      instance: "smoke",
-      providerBaseUrl: "https://emulators.dev/github/smoke",
-      controlBaseUrl: "https://emulators.dev/github/smoke/_emulate",
-    });
+    expect(created.providerBaseUrl).toBe(`https://emulators.dev/github/${created.instance}`);
+    expect(created.controlBaseUrl).toBe(`https://emulators.dev/github/${created.instance}/_emulate`);
+  });
+
+  it("generates a fully random instance name when none is requested", async () => {
+    const env: Env = {
+      EMULATE_HOST_SUFFIX: "emulators.dev",
+      EMULATOR: { idFromName: (n) => n, get: () => ({ fetch: async () => Response.json({}) }) },
+    };
+
+    const response = await worker.fetch(
+      new Request("https://github.emulators.dev/_emulate/instances", { method: "POST" }),
+      env,
+    );
+
+    expect(response.status).toBe(200);
+    const created = (await response.json()) as { instance: string };
+    expect(created.instance).toMatch(/^[0-9a-f]{24}$/);
   });
 
   it("routes the service host to a default instance over the valid 1-label cert", async () => {

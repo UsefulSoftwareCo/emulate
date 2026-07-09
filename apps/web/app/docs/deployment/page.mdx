@@ -38,7 +38,9 @@ Hosted services are available on host-based routing. There are four address form
   </tbody>
 </table>
 
-Instance names are arbitrary, so a CI run can pick a unique one such as `stripe.ci-48291.emulators.dev`. The instance host form is preferred for public examples because the provider base URL is the origin, which matches a service-owned host.
+Create instances with `POST /_emulate/instances`: the server generates an unguessable name (an optional `{"instance":"<prefix>"}` body adds a readable prefix, so a CI run can request `ci` and get `stripe.ci-4f2a….emulators.dev`). The instance host form is preferred for public examples because the provider base URL is the origin, which matches a service-owned host.
+
+The instance URL is a capability. Hosted instances have no authentication in front of them, so anyone holding the URL can read state, read the ledger, and mint credentials on that instance. Save the returned URLs rather than re-deriving the name, and never put real secrets into an emulator. Addressing a hand-picked instance host directly still works, but a short hand-picked name on the public host is guessable by anyone who picks the same one.
 
 ## Apex catalog
 
@@ -81,7 +83,7 @@ The `emulate-hosts` worker serves `emulators.dev/*` (the apex catalog) and `*.em
 POST https://github.emulators.dev/_emulate/instances
 ```
 
-Instances are created lazily. Creating one, or simply addressing an instance host for the first time, returns the base URL, control base URL, and provider base URL for that instance. See the [Service Manifest](/docs/manifest) for the instance shape and [Request Ledger](/docs/ledger) for what persists.
+Instances are created lazily. Creating one returns the base URL, control base URL, and provider base URL for that instance, under a server-generated unguessable name; addressing an instance host for the first time also materializes it. See the [Service Manifest](/docs/manifest) for the instance shape and [Request Ledger](/docs/ledger) for what persists.
 
 ## Hosted services
 

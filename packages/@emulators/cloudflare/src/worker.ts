@@ -1,4 +1,4 @@
-import { buildInstanceCreation, renderCatalogPage, servicesCatalog } from "@emulators/core";
+import { buildInstanceCreation, randomInstanceName, renderCatalogPage, servicesCatalog } from "@emulators/core";
 import { EmulatorDurableObject } from "./durable-object.js";
 import { SERVICES } from "./services.js";
 import { SERVICE_ICONS } from "./icons.js";
@@ -128,10 +128,12 @@ export default {
       const entry = SERVICES[service];
 
       // Create a NAMED, isolated instance. Returned in the cert-safe path form
-      // (a 2-label instance subdomain has no Universal SSL certificate).
+      // (a 2-label instance subdomain has no Universal SSL certificate). A
+      // caller-supplied name only prefixes the generated one: the instance URL
+      // is the sole access control, so it must never be guessable.
       if (url.pathname === "/_emulate/instances" && request.method === "POST") {
         const body = (await request.json().catch(() => ({}))) as { instance?: string };
-        const instance = slug(body.instance ?? "") || `${service}-${randomId()}`;
+        const instance = randomInstanceName(body.instance);
         return Response.json(
           buildInstanceCreation({
             service,
@@ -237,17 +239,4 @@ export function parseHostRoute(
   if (labels.length === 1) return { service: labels[0], suffix: normalizedSuffix };
   if (labels.length < 2) return null;
   return { service: labels[0], instance: labels[1], suffix: normalizedSuffix };
-}
-
-function randomId(): string {
-  return crypto.randomUUID().replace(/-/g, "").slice(0, 8);
-}
-
-function slug(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9-]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 63);
 }

@@ -98,8 +98,9 @@ function renderServiceQuickstart(
     `# ${manifest.name} Emulator (service host)`,
     "",
     "Create an instance:",
-    `curl -s -X POST ${ctx.protocol}//${ctx.service}.${ctx.hostSuffix}/_emulate/instances -H 'content-type: application/json' -d '{"instance":"my-run"}'`,
+    `curl -s -X POST ${ctx.protocol}//${ctx.service}.${ctx.hostSuffix}/_emulate/instances`,
     `# ${INSTANCE_NOTES}`,
+    `# The server generates an unguessable name. An optional {"instance":"<prefix>"} body adds a readable prefix.`,
     "",
     "Then use the returned providerBaseUrl / controlBaseUrl. Example below uses a sample instance.",
     "",
@@ -118,9 +119,7 @@ function renderServiceLanding(
         `<tr><td>${escapeHtml(s.title)}</td><td><span class="badge">${escapeHtml(s.status)}</span></td><td><code>${escapeHtml(s.basePath ?? "")}</code></td></tr>`,
     )
     .join("");
-  const createCurl = `curl -s -X POST ${ctx.protocol}//${ctx.service}.${ctx.hostSuffix}/_emulate/instances \\
-  -H "content-type: application/json" \\
-  -d '{"instance":"my-run"}'`;
+  const createCurl = `curl -s -X POST ${ctx.protocol}//${ctx.service}.${ctx.hostSuffix}/_emulate/instances`;
 
   return renderCardPage(
     `${manifest.name} Emulator`,
@@ -128,7 +127,7 @@ function renderServiceLanding(
     `
       <div class="s-card">
         <div class="section-heading">Create an instance</div>
-        <p class="info-text">Each instance is isolated, stateful, and addressable at its own host.</p>
+        <p class="info-text">Each instance is isolated, stateful, and addressable at its own host. The server generates an unguessable name; an optional <code>{"instance":"&lt;prefix&gt;"}</code> body adds a readable prefix.</p>
         <pre class="code-block"><code>${escapeHtml(createCurl)}</code></pre>
         <p class="info-text">${escapeHtml(INSTANCE_NOTES)}</p>
         <p class="info-text">Sample instance host: <code>${escapeHtml(sample.providerBaseUrl)}</code></p>

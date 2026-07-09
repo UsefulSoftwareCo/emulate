@@ -58,7 +58,7 @@ Every running service also exposes a public control plane under `/_emulate`:
 | `POST /_emulate/reset`       | Reset state, webhooks, and request logs, then replay seed data                                                                      |
 | `POST /_emulate/seed`        | Add runtime seed data using the service seed schema                                                                                 |
 | `POST /_emulate/credentials` | Create bearer tokens, API keys, OAuth clients, or client-credentials apps where supported                                           |
-| `POST /_emulate/instances`   | Return URLs for a lazily created hosted instance                                                                                    |
+| `POST /_emulate/instances`   | Return URLs for a lazily created hosted instance with a server-generated, unguessable name                                          |
 
 The manifest is the machine-readable single source of truth for a service. Each plugin package owns its manifest and serves it at `/_emulate/manifest`. It describes service identity, supported surfaces, auth capabilities, specs with per-operation coverage, scenarios, seed schema, state model, reset behavior, inspector tabs, request ledger capabilities, copyable connection snippets, and a docs link. OpenAPI, GraphQL, MCP, discovery documents, and OAuth metadata can inform those surfaces, but the emulator only advertises protocols that match the real service shape.
 
@@ -165,6 +165,8 @@ https://emulators.dev/github/my-instance         # local/path form
 ```
 
 The instance host and path form route to the same stateful service instance. The subdomain form is preferred for public examples because the provider base URL is the origin itself, which better matches services such as GitHub that expose API, OAuth, GraphQL, and MCP surfaces under service-owned hosts. The instance control plane is available at `https://github.my-instance.emulators.dev/_emulate`.
+
+Create instances with `POST /_emulate/instances`: the server generates an unguessable name (an optional `{"instance":"<prefix>"}` body adds a readable prefix) and returns the instance URLs. The instance URL is a capability. There is no authentication in front of hosted instances, so anyone who has the URL can read state, read the ledger, and mint credentials on that instance. Treat the URL like a token: save the response instead of re-deriving the name, and never put real secrets into an emulator. Hand-picked instance names (addressing an instance host directly) still work for local and private deployments, but a hand-picked name on the public host is guessable by anyone who picks the same one.
 
 ### Useful without an instance
 

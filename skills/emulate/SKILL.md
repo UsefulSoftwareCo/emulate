@@ -125,6 +125,8 @@ Hosted emulators are reachable on `*.emulators.dev`. All services are available:
 
 A human or agent landing on a service host can learn what the service is and create an instance via `POST /_emulate/instances` without any repository context. Discover the full catalog at `GET /_emulate/services` from any host.
 
+`POST /_emulate/instances` generates an unguessable instance name; an optional `{"instance":"<prefix>"}` body adds a readable prefix. The instance URL is a capability: hosted instances have no authentication, so anyone holding the URL can read and modify the instance. Save the returned URLs rather than re-deriving the name, do not put real secrets into an emulator, and do not hand-pick short instance names on the public host.
+
 Docs are a separate site at `https://docs.emulators.dev`, with per-service docs at `https://docs.emulators.dev/<service>` (the `docsUrl` convention each manifest advertises). The apex `emulators.dev` is the catalog, not the docs.
 
 ## CLI

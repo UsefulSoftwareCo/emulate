@@ -41,7 +41,8 @@ Control plane (under /_emulate on each service):
   GET  /_emulate/ledger       request ledger (DELETE to clear)
   GET  /_emulate/faults       armed one-shot faults (POST to arm, DELETE to clear)
   GET  /_emulate/logs         webhook deliveries and recent requests
-  POST /_emulate/instances    create an instance
+  POST /_emulate/instances    create an instance (server-generated unguessable
+                              name; optional {"instance"} body adds a prefix)
   POST /_emulate/seed         seed state
   POST /_emulate/reset        reset state
   POST /_emulate/credentials  mint a credential (bearer token, API key, or

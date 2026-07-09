@@ -86,6 +86,7 @@ export {
   renderLandingPage,
   renderQuickstart,
   buildInstanceCreation,
+  randomInstanceName,
   INSTANCE_NOTES,
   type ControlPlaneOptions,
   type CredentialRequest,

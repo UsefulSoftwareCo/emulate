@@ -128,13 +128,25 @@ export async function postControl(service: string, instance: string, path: strin
   });
 }
 
-export const randomInstance = (prefix = "run"): string => `${prefix}-${Math.random().toString(36).slice(2, 8)}`;
+// The instance name is the only access control on hosted instances, so it must
+// be unguessable: 96 bits of crypto randomness, matching the server-side
+// generator in @emulators/core.
+export const randomInstance = (prefix = "run"): string => {
+  const bytes = new Uint8Array(12);
+  crypto.getRandomValues(bytes);
+  const suffix = Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  return `${prefix}-${suffix}`;
+};
+
+// Names generated before the crypto-random suffix (6 low-entropy chars). They
+// are guessable, so they get regenerated rather than reused.
+const LEGACY_WEAK_NAME = /^run-[a-z0-9]{6}$/;
 
 // Per-service instance id, remembered in localStorage.
 export function loadInstance(service: string): string {
   const key = `emu.instance.${service}`;
   let v = typeof localStorage !== "undefined" ? localStorage.getItem(key) : null;
-  if (!v) {
+  if (!v || LEGACY_WEAK_NAME.test(v)) {
     v = randomInstance();
     try {
       localStorage.setItem(key, v);
