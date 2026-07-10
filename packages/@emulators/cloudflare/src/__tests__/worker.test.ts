@@ -3,6 +3,26 @@ import { EmulatorDurableObject } from "../durable-object.js";
 import worker, { parseHostRoute, type Env } from "../worker.js";
 
 describe("cloudflare worker routing", () => {
+  it("passes docs.<suffix> through to the docs custom-domain worker", async () => {
+    const env: Env = {
+      EMULATE_HOST_SUFFIX: "emulators.dev",
+      EMULATOR: { idFromName: (n) => n, get: () => ({ fetch: async () => Response.json({}) }) },
+    };
+    const passedThrough: string[] = [];
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      passedThrough.push(input instanceof Request ? input.url : String(input));
+      return new Response("docs site");
+    }) as typeof fetch;
+    try {
+      const res = await worker.fetch(new Request("https://docs.emulators.dev/docs/deployment"), env);
+      expect(await res.text()).toBe("docs site");
+      expect(passedThrough).toEqual(["https://docs.emulators.dev/docs/deployment"]);
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
   it("parses service and instance from the preferred subdomain route", () => {
     expect(parseHostRoute("github.instance.emulators.dev", "emulators.dev")).toEqual({
       service: "github",

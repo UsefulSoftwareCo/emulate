@@ -97,6 +97,13 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const suffix = env.EMULATE_HOST_SUFFIX ?? DEFAULT_HOST_SUFFIX;
+
+    // The docs site is a separate worker on the docs.<suffix> custom domain.
+    // Routes take precedence over custom domains on the same hostname, so the
+    // *.<suffix>/* route lands here first; a same-URL fetch passes the request
+    // through to the custom-domain worker (the documented route -> custom
+    // domain chaining pattern).
+    if (url.hostname === `docs.${suffix}`) return fetch(request);
     const segments = url.pathname
       .replace(/^\/+/, "")
       .split("/")
