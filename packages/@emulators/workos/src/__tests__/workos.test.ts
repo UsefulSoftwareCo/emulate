@@ -181,6 +181,33 @@ describe("workos emulator with the real @workos-inc/node SDK", () => {
     expect(invitations.data.map((i) => i.email)).toContain("invitee@example.com");
   });
 
+  it("revokes the matching invitation when a pending membership is deleted", async () => {
+    const org = await workos.organizations.createOrganization({ name: "Revoke Invite Org" });
+    const invitation = await workos.userManagement.sendInvitation({
+      email: "revoked-invitee@example.com",
+      organizationId: org.id,
+    });
+    const memberships = await workos.userManagement.listOrganizationMemberships({
+      organizationId: org.id,
+      statuses: ["pending"] as never,
+    });
+    expect(memberships.data).toHaveLength(1);
+
+    await workos.userManagement.deleteOrganizationMembership(memberships.data[0]!.id);
+
+    const remaining = await workos.userManagement.listOrganizationMemberships({
+      organizationId: org.id,
+      statuses: ["active", "pending"] as never,
+    });
+    expect(remaining.data).toHaveLength(0);
+    const invitations = await workos.userManagement.listInvitations({
+      organizationId: org.id,
+    });
+    expect(invitations.data.find((candidate) => candidate.id === invitation.id)?.state).toBe(
+      "revoked",
+    );
+  });
+
   it("round-trips vault objects through workos.vault", async () => {
     const metadata = await workos.vault.createObject({
       name: "executor/secrets/test",

@@ -284,6 +284,17 @@ export function userManagementRoutes(ctx: RouteContext): void {
   app.delete("/user_management/organization_memberships/:id", (c) => {
     const membership = ws().memberships.findOneBy("workos_id", c.req.param("id"));
     if (!membership) return workosError(c, 404, "entity_not_found", "Membership not found.");
+    if (membership.status === "pending") {
+      const user = ws().users.findOneBy("workos_id", membership.user_id);
+      if (user) {
+        const invitations = ws()
+          .invitations.findBy("organization_id", membership.organization_id)
+          .filter((invitation) => invitation.email === user.email && invitation.state === "pending");
+        for (const invitation of invitations) {
+          ws().invitations.update(invitation.id, { state: "revoked" });
+        }
+      }
+    }
     ws().memberships.delete(membership.id);
     return c.body(null, 204);
   });
