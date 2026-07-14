@@ -212,9 +212,9 @@ export class EmulatorDurableObject {
   private async readLedger(legacyLedger: LedgerSnapshot | undefined): Promise<LedgerSnapshot | undefined> {
     const meta = await this.state.storage.get<LedgerMeta>(LEDGER_META_KEY);
     if (!meta) return legacyLedger;
-    const entries = (
-      await inBatches(meta.ids, (id) => this.state.storage.get<LedgerEntry>(ledgerEntryKey(id)))
-    ).filter((entry): entry is LedgerEntry => entry != null);
+    const entries = (await inBatches(meta.ids, (id) => this.state.storage.get<LedgerEntry>(ledgerEntryKey(id)))).filter(
+      (entry): entry is LedgerEntry => entry != null,
+    );
     return { entries, counter: meta.counter };
   }
 
