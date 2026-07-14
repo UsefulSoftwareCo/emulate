@@ -18,6 +18,7 @@ import { labelRoutes } from "./routes/labels.js";
 import { messageRoutes } from "./routes/messages.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { settingsRoutes } from "./routes/settings.js";
+import { searchConsoleRoutes } from "./routes/search-console.js";
 import { threadRoutes } from "./routes/threads.js";
 import { getGoogleStore } from "./store.js";
 
@@ -113,6 +114,12 @@ export interface GoogleSeedDriveItem {
   data?: string;
 }
 
+export interface GoogleSeedSearchConsoleSite {
+  user_email?: string;
+  site_url: string;
+  permission_level?: string;
+}
+
 export interface GoogleSeedConfig {
   port?: number;
   users?: GoogleSeedUser[];
@@ -127,6 +134,7 @@ export interface GoogleSeedConfig {
   calendars?: GoogleSeedCalendar[];
   calendar_events?: GoogleSeedCalendarEvent[];
   drive_items?: GoogleSeedDriveItem[];
+  search_console_sites?: GoogleSeedSearchConsoleSite[];
 }
 
 function seedDefaults(store: Store, _baseUrl: string): void {
@@ -214,6 +222,17 @@ function seedDefaults(store: Store, _baseUrl: string): void {
         mime_type: "application/pdf",
         parent_ids: ["drv_root_receipts"],
         data: "receipt-pdf-data",
+      },
+    ],
+    defaultEmail,
+  );
+  seedSearchConsoleSites(
+    store,
+    [
+      {
+        user_email: defaultEmail,
+        site_url: "sc-domain:example.com",
+        permission_level: "siteOwner",
       },
     ],
     defaultEmail,
@@ -353,6 +372,10 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: GoogleSee
   if (config.drive_items) {
     seedDriveItems(store, config.drive_items, fallbackEmail);
   }
+
+  if (config.search_console_sites) {
+    seedSearchConsoleSites(store, config.search_console_sites, fallbackEmail);
+  }
 }
 
 function seedLabels(store: Store, labels: GoogleSeedLabel[], fallbackEmail: string): void {
@@ -490,6 +513,27 @@ function seedDriveItems(store: Store, items: GoogleSeedDriveItem[], fallbackEmai
   }
 }
 
+function seedSearchConsoleSites(store: Store, sites: GoogleSeedSearchConsoleSite[], fallbackEmail: string): void {
+  const gs = getGoogleStore(store);
+
+  for (const site of sites) {
+    const userEmail = site.user_email ?? fallbackEmail;
+    if (
+      gs.searchConsoleSites
+        .all()
+        .some((existing) => existing.user_email === userEmail && existing.site_url === site.site_url)
+    ) {
+      continue;
+    }
+
+    gs.searchConsoleSites.insert({
+      user_email: userEmail,
+      site_url: site.site_url,
+      permission_level: site.permission_level ?? "siteOwner",
+    });
+  }
+}
+
 export const googlePlugin: ServicePlugin = {
   name: "google",
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
@@ -503,6 +547,7 @@ export const googlePlugin: ServicePlugin = {
     threadRoutes(ctx);
     labelRoutes(ctx);
     settingsRoutes(ctx);
+    searchConsoleRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {
     seedDefaults(store, baseUrl);

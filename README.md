@@ -348,6 +348,10 @@ google:
       name: Docs
       mime_type: application/vnd.google-apps.folder
       parent_ids: [root]
+  search_console_sites:
+    - user_email: testuser@example.com
+      site_url: sc-domain:example.com
+      permission_level: siteOwner
 
 slack:
   team:
@@ -799,9 +803,9 @@ curl -s -X POST http://localhost:4018/api/graphql \
 
 Because the full schema is real, this surface is well suited to testing GraphQL clients and generators against a large, production-shaped type system without calling gitlab.com. Use `/_emulate/manifest` for the declared coverage and `/_emulate/ledger` to inspect calls.
 
-## Google OAuth + Gmail, Calendar, and Drive APIs
+## Google OAuth + Gmail, Calendar, Drive, and Search Console APIs
 
-OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local inbox, calendar, and drive flows.
+OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local inbox, calendar, drive, and Search Console flows.
 
 - `GET /o/oauth2/v2/auth` - authorization endpoint
 - `POST /oauth2/token` - token exchange
@@ -826,6 +830,7 @@ OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local
 - `GET /gmail/v1/users/:userId/settings/forwardingAddresses`, `GET /gmail/v1/users/:userId/settings/sendAs`
 - `GET /calendar/v3/users/:userId/calendarList`, `GET /calendar/v3/calendars/:calendarId/events`, `POST /calendar/v3/calendars/:calendarId/events`, `DELETE /calendar/v3/calendars/:calendarId/events/:eventId`, `POST /calendar/v3/freeBusy`
 - `GET /drive/v3/files`, `GET /drive/v3/files/:fileId`, `POST /drive/v3/files`, `PATCH /drive/v3/files/:fileId`, `PUT /drive/v3/files/:fileId`, `DELETE /drive/v3/files/:fileId`, `POST /upload/drive/v3/files`
+- `GET /webmasters/v3/sites` - list Search Console sites available to the authenticated user
 
 ## Slack API
 
@@ -1121,7 +1126,7 @@ packages/
     adapter-next/   # Next.js App Router integration
     vercel/         # Vercel API service
     github/         # GitHub API service
-    google/         # Google OAuth 2.0 / OIDC + Gmail, Calendar, Drive
+    google/         # Google OAuth 2.0 / OIDC + Gmail, Calendar, Drive, Search Console
     slack/          # Slack Web API, OAuth v2, incoming webhooks
     apple/          # Apple Sign In / OIDC
     microsoft/      # Microsoft Entra ID OAuth 2.0 / OIDC + Graph users, mail, calendar, and files

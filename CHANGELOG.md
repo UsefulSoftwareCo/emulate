@@ -1,14 +1,20 @@
 # Changelog
 
-## 0.13.5
+## 0.13.6
 
 <!-- release:start -->
+
+### New Features
+
+- **Google Search Console sites** — the Google emulator now serves the authenticated `webmasters.sites.list` operation at `GET /webmasters/v3/sites`. Search Console properties and permission levels are seedable through `search_console_sites`, so consumers can prove OAuth-backed Search Console connections and health checks against a real-shaped upstream and inspect the exact call in the request ledger.
+
+<!-- release:end -->
+
+## 0.13.5
 
 ### Bug Fixes
 
 - **WorkOS `authorization.listOrganizationRoles`** — the WorkOS emulator now serves organization roles on the Authorization-API path (`GET /authorization/organizations/:id/roles`) the v10 Node SDK calls, alongside the legacy `GET /organizations/:id/roles`. Before this, `authorization.listOrganizationRoles` hit a 404, so any app loading an org's roles (a members page role picker, for example) got a 500.
-
-<!-- release:end -->
 
 ## 0.13.4
 

@@ -175,6 +175,18 @@ function createTestApp() {
         data: "pdf-handbook-data",
       },
     ],
+    search_console_sites: [
+      {
+        user_email: "testuser@example.com",
+        site_url: "sc-domain:example.com",
+        permission_level: "siteOwner",
+      },
+      {
+        user_email: "consumer@gmail.com",
+        site_url: "https://consumer.example/",
+        permission_level: "siteRestrictedUser",
+      },
+    ],
   });
 
   return { app };
@@ -238,6 +250,26 @@ describe("Google plugin integration", () => {
     expect(body.verified_email).toBe(true);
     expect(body.name).toBe("Test User");
     expect(body.picture).toBeUndefined();
+  });
+
+  it("lists Search Console sites for the authenticated user", async () => {
+    const res = await app.request(`${base}/webmasters/v3/sites`, { headers: authHeaders() });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      siteEntry: [
+        {
+          siteUrl: "sc-domain:example.com",
+          permissionLevel: "siteOwner",
+        },
+      ],
+    });
+  });
+
+  it("requires authentication to list Search Console sites", async () => {
+    const res = await app.request(`${base}/webmasters/v3/sites`);
+
+    expect(res.status).toBe(401);
   });
 
   it("lists paginated messages with Gmail-style filters", async () => {

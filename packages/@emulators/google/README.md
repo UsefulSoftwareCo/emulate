@@ -1,6 +1,6 @@
 # @emulators/google
 
-Google OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local Gmail, Calendar, and Drive flows.
+Google OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local Gmail, Calendar, Drive, and Search Console flows.
 
 Part of [emulate](https://github.com/vercel-labs/emulate) — local drop-in replacement services for CI and no-network sandboxes.
 
@@ -75,6 +75,9 @@ npm install @emulators/google
 - `PUT /drive/v3/files/:fileId` — update file content
 - `POST /upload/drive/v3/files` — upload file
 
+### Search Console
+- `GET /webmasters/v3/sites` — list sites available to the authenticated user
+
 ## Auth
 
 Standard OAuth 2.0 authorization code flow. Configure clients in the seed config.
@@ -122,6 +125,10 @@ google:
       name: Docs
       mime_type: application/vnd.google-apps.folder
       parent_ids: [root]
+  search_console_sites:
+    - user_email: testuser@example.com
+      site_url: sc-domain:example.com
+      permission_level: siteOwner
 ```
 
 ## Links

@@ -1,12 +1,12 @@
 ---
 name: google
-description: Emulated Google OAuth 2.0, OpenID Connect, Gmail, Calendar, and Drive for local development and testing. Use when the user needs to test Google sign-in locally, emulate OIDC discovery, handle Google token exchange, configure Google OAuth clients, work with Gmail messages/drafts/threads/labels, manage Calendar events, upload or list Drive files, or work with Google userinfo without hitting real Google APIs. Triggers include "Google OAuth", "emulate Google", "mock Google login", "test Google sign-in", "OIDC emulator", "Google OIDC", "Gmail API", "Google Calendar", "Google Drive", "local Google auth", or any task requiring a local Google API.
+description: Emulated Google OAuth 2.0, OpenID Connect, Gmail, Calendar, Drive, and Search Console for local development and testing. Use when the user needs to test Google sign-in locally, emulate OIDC discovery, handle Google token exchange, configure Google OAuth clients, work with Gmail messages/drafts/threads/labels, manage Calendar events, upload or list Drive files, list Search Console sites, or work with Google userinfo without hitting real Google APIs. Triggers include "Google OAuth", "emulate Google", "mock Google login", "test Google sign-in", "OIDC emulator", "Google OIDC", "Gmail API", "Google Calendar", "Google Drive", "Google Search Console", "local Google auth", or any task requiring a local Google API.
 allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
 ---
 
-# Google OAuth 2.0 / OIDC + Gmail, Calendar & Drive Emulator
+# Google OAuth 2.0 / OIDC + Gmail, Calendar, Drive & Search Console Emulator
 
-OAuth 2.0 and OpenID Connect emulation with authorization code flow, PKCE support, ID tokens, OIDC discovery, refresh tokens, plus Gmail, Google Calendar, and Google Drive REST API surfaces.
+OAuth 2.0 and OpenID Connect emulation with authorization code flow, PKCE support, ID tokens, OIDC discovery, refresh tokens, plus Gmail, Google Calendar, Google Drive, and Google Search Console REST API surfaces.
 
 ## Start
 
@@ -47,6 +47,7 @@ GOOGLE_EMULATOR_URL=http://localhost:4002
 | `https://gmail.googleapis.com/gmail/v1/...` | `$GOOGLE_EMULATOR_URL/gmail/v1/...` |
 | `https://www.googleapis.com/calendar/v3/...` | `$GOOGLE_EMULATOR_URL/calendar/v3/...` |
 | `https://www.googleapis.com/drive/v3/...` | `$GOOGLE_EMULATOR_URL/drive/v3/...` |
+| `https://searchconsole.googleapis.com/webmasters/v3/sites` | `$GOOGLE_EMULATOR_URL/webmasters/v3/sites` |
 
 ### google-auth-library (Node.js)
 
@@ -175,6 +176,10 @@ google:
       mime_type: text/markdown
       parent_ids: [drv_docs]
       data: "# Hello World"
+  search_console_sites:
+    - user_email: testuser@gmail.com
+      site_url: sc-domain:example.com
+      permission_level: siteOwner
 ```
 
 When no OAuth clients are configured, the emulator accepts any `client_id`. With clients configured, strict validation is enforced for `client_id`, `client_secret`, and `redirect_uri`.
@@ -546,6 +551,13 @@ curl -X DELETE http://localhost:4002/drive/v3/files/drv_readme \
 
 ## Common Patterns
 
+### List Search Console Sites
+
+```bash
+curl http://localhost:4002/webmasters/v3/sites \
+  -H "Authorization: Bearer $TOKEN"
+```
+
 ### Full Authorization Code Flow
 
 ```bash
@@ -605,7 +617,7 @@ curl "$BASE/gmail/v1/users/me/threads?labelIds=INBOX" \
 
 ## Discovery
 
-When using a running emulator URL, inspect `GET /_emulate/manifest` first to confirm supported surfaces (OAuth 2.0 / OIDC, Gmail, Calendar, Drive), auth capabilities, and per-operation spec coverage. Use `GET /_emulate/connections` for copyable SDK, CLI, env, and curl snippets and `GET /_emulate/quickstart` for setup notes.
+When using a running emulator URL, inspect `GET /_emulate/manifest` first to confirm supported surfaces (OAuth 2.0 / OIDC, Gmail, Calendar, Drive, Search Console), auth capabilities, and per-operation spec coverage. Use `GET /_emulate/connections` for copyable SDK, CLI, env, and curl snippets and `GET /_emulate/quickstart` for setup notes.
 
 Mint credentials with `POST /_emulate/credentials`, the canonical, uniform way to create a credential for any service (here an OAuth client):
 

@@ -160,3 +160,9 @@ export interface GoogleDriveItem extends Entity {
   trashed: boolean;
   data: string | null;
 }
+
+export interface GoogleSearchConsoleSite extends Entity {
+  user_email: string;
+  site_url: string;
+  permission_level: string;
+}

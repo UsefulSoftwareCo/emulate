@@ -6,13 +6,13 @@ import type { ServiceManifest } from "@emulators/core";
  * snippets, consumed by the CLI registry, the Cloudflare host, and the console.
  *
  * The emulator models Google's real OAuth 2.0 / OpenID Connect identity flow plus
- * hand-authored subsets of the Gmail, Calendar, and Drive REST APIs. Operation ids
+ * hand-authored subsets of the Gmail, Calendar, Drive, and Search Console REST APIs. Operation ids
  * follow the Google API Discovery naming convention (e.g. `gmail.users.messages.list`).
  */
 export const manifest: ServiceManifest = {
   id: "google",
   name: "Google",
-  description: "Stateful Google OAuth, OpenID Connect, Gmail, Calendar, and Drive emulator.",
+  description: "Stateful Google OAuth, OpenID Connect, Gmail, Calendar, Drive, and Search Console emulator.",
   docsUrl: "https://docs.emulators.dev/google",
   surfaces: [
     { id: "rest", kind: "rest", title: "REST API", status: "partial", basePath: "/" },
@@ -212,6 +212,19 @@ export const manifest: ServiceManifest = {
       ],
     },
     {
+      kind: "google-discovery",
+      title: "Search Console API subset",
+      coverage: "hand-authored",
+      operations: [
+        {
+          operationId: "webmasters.sites.list",
+          method: "GET",
+          path: "/webmasters/v3/sites",
+          status: "hand-authored",
+        },
+      ],
+    },
+    {
       kind: "manual",
       title: "Google API Discovery passthrough",
       coverage: "partial",
@@ -227,7 +240,8 @@ export const manifest: ServiceManifest = {
     },
   ],
   seedSchema: {
-    description: "Seed Google users, OAuth clients, Gmail labels and messages, calendars, events, and Drive items.",
+    description:
+      "Seed Google users, OAuth clients, Gmail labels and messages, calendars, events, Drive items, and Search Console sites.",
     fields: [
       {
         key: "users",
@@ -301,6 +315,17 @@ export const manifest: ServiceManifest = {
           },
         ],
       },
+      {
+        key: "search_console_sites",
+        title: "Search Console sites",
+        example: [
+          {
+            user_email: "testuser@example.com",
+            site_url: "sc-domain:example.com",
+            permission_level: "siteOwner",
+          },
+        ],
+      },
     ],
     example: {
       users: [
@@ -352,10 +377,17 @@ export const manifest: ServiceManifest = {
           parent_ids: ["root"],
         },
       ],
+      search_console_sites: [
+        {
+          user_email: "testuser@example.com",
+          site_url: "sc-domain:example.com",
+          permission_level: "siteOwner",
+        },
+      ],
     },
   },
   stateModel: {
-    description: "Entities mutated by Google OAuth, Gmail, Calendar, and Drive provider calls.",
+    description: "Entities mutated by Google OAuth, Gmail, Calendar, Drive, and Search Console provider calls.",
     collections: [
       { name: "google.users" },
       { name: "google.oauth_clients" },
@@ -370,6 +402,7 @@ export const manifest: ServiceManifest = {
       { name: "google.calendars" },
       { name: "google.calendar_events" },
       { name: "google.drive_items" },
+      { name: "google.search_console_sites" },
     ],
   },
   connections: [

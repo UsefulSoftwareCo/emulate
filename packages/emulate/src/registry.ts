@@ -484,9 +484,9 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   },
 
   google: {
-    label: "Google OAuth 2.0 / OpenID Connect + Gmail, Calendar, and Drive emulator",
+    label: "Google OAuth 2.0 / OpenID Connect + Gmail, Calendar, Drive, and Search Console emulator",
     endpoints:
-      "OAuth authorize, token exchange, userinfo, OIDC discovery, token revocation, Gmail messages/drafts/threads/labels/history/settings, Calendar lists/events/freebusy, Drive files/uploads",
+      "OAuth authorize, token exchange, userinfo, OIDC discovery, token revocation, Gmail messages/drafts/threads/labels/history/settings, Calendar lists/events/freebusy, Drive files/uploads, Search Console sites",
     async load() {
       const mod = await import("@emulators/google");
       return { plugin: mod.googlePlugin, manifest: mod.manifest, seedFromConfig: mod.seedFromConfig };
@@ -561,6 +561,13 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
             name: "Docs",
             mime_type: "application/vnd.google-apps.folder",
             parent_ids: ["root"],
+          },
+        ],
+        search_console_sites: [
+          {
+            user_email: "testuser@example.com",
+            site_url: "sc-domain:example.com",
+            permission_level: "siteOwner",
           },
         ],
       },
