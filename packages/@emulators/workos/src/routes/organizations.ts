@@ -1,4 +1,4 @@
-import type { RouteContext } from "@emulators/core";
+import type { Context, RouteContext } from "@emulators/core";
 
 import { getWorkosStore } from "../store.js";
 import { listEnvelope, serializeOrganization, workosError, workosId } from "../helpers.js";
@@ -47,7 +47,11 @@ export function organizationRoutes(ctx: RouteContext): void {
     return c.body(null, 204);
   });
 
-  app.get("/organizations/:id/roles", (c) => {
+  // Organization roles. The legacy path is `/organizations/:id/roles`; the
+  // WorkOS Node SDK v10 (`authorization.listOrganizationRoles`) calls the
+  // Authorization-API path `/authorization/organizations/:id/roles`. Serve
+  // both from one handler so either SDK generation resolves.
+  const organizationRoles = (c: Context) => {
     const organization = ws().organizations.findOneBy("workos_id", c.req.param("id"));
     if (!organization) return workosError(c, 404, "entity_not_found", "Organization not found.");
     const now = new Date().toISOString();
@@ -64,7 +68,9 @@ export function organizationRoutes(ctx: RouteContext): void {
       updated_at: now,
     });
     return c.json(listEnvelope([role("admin", "Admin"), role("member", "Member")]));
-  });
+  };
+  app.get("/organizations/:id/roles", organizationRoles);
+  app.get("/authorization/organizations/:id/roles", organizationRoles);
 
   // Domain-verification portal link (cloud's org routes call this).
   app.post("/portal/generate_link", async (c) => {

@@ -1,14 +1,26 @@
 # Changelog
 
-## 0.13.3
+## 0.13.5
 
 <!-- release:start -->
+
+### Bug Fixes
+
+- **WorkOS `authorization.listOrganizationRoles`** — the WorkOS emulator now serves organization roles on the Authorization-API path (`GET /authorization/organizations/:id/roles`) the v10 Node SDK calls, alongside the legacy `GET /organizations/:id/roles`. Before this, `authorization.listOrganizationRoles` hit a 404, so any app loading an org's roles (a members page role picker, for example) got a 500.
+
+<!-- release:end -->
+
+## 0.13.4
+
+### New Features
+
+- **WorkOS invitation revocation on pending-membership delete** — deleting a pending organization membership now revokes the matching outstanding invitation, so seat counts stay coherent (a deleted pending member frees its seat instead of leaving a dangling invite).
+
+## 0.13.3
 
 ### New Features
 
 - **WorkOS `organizations.deleteOrganization`** — the WorkOS emulator now supports the SDK's org delete (`DELETE /organizations/:id`), returning 204 No Content like the real API. Deletion cascades to the organization's memberships, so a subsequent `getOrganization` 404s and the org drops out of `listOrganizationMemberships`, matching real WorkOS.
-
-<!-- release:end -->
 
 ## 0.13.2
 
