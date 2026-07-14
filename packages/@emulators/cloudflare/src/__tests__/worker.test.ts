@@ -10,7 +10,7 @@ describe("cloudflare worker routing", () => {
     };
     const passedThrough: string[] = [];
     const realFetch = globalThis.fetch;
-    globalThis.fetch = (async (input: RequestInfo | URL) => {
+    globalThis.fetch = (async (input: Request | string | URL) => {
       passedThrough.push(input instanceof Request ? input.url : String(input));
       return new Response("docs site");
     }) as typeof fetch;
