@@ -450,10 +450,7 @@ export function graphRoutes({ app, store, baseUrl }: RouteContext): void {
       id: event.graph_id,
       summary: `Created event '${event.subject}'`,
     });
-    c.header(
-      "Location",
-      `${baseUrl}/v1.0/users('${user.email}')/events('${event.graph_id}')`,
-    );
+    c.header("Location", `${baseUrl}/v1.0/users('${user.email}')/events('${event.graph_id}')`);
     return c.json(
       {
         "@odata.context": `${baseUrl}/v1.0/$metadata#users('${encodeURIComponent(user.email)}')/events/$entity`,
@@ -472,7 +469,10 @@ export function graphRoutes({ app, store, baseUrl }: RouteContext): void {
     const eventId = c.req.param("id");
     const event = findEvent(ms.events.findBy("user_email", user.email), eventId);
     if (!event) {
-      return malformedEventId(c, eventId) ?? graphError(c, 404, "ErrorItemNotFound", "The specified object was not found in the store.");
+      return (
+        malformedEventId(c, eventId) ??
+        graphError(c, 404, "ErrorItemNotFound", "The specified object was not found in the store.")
+      );
     }
     const calendarRef = ms.calendars.findOneBy("graph_id", event.calendar_id);
     return c.json({

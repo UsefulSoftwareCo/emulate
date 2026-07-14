@@ -126,6 +126,14 @@ describe("workos emulator with the real @workos-inc/node SDK", () => {
     }
   });
 
+  it("lists organization roles through the SDK's Authorization surface", async () => {
+    const org = await workos.organizations.createOrganization({ name: "Roles Org" });
+    // The v10 SDK calls /authorization/organizations/:id/roles; the emulator
+    // must serve that path, not only the legacy /organizations/:id/roles.
+    const roles = await workos.authorization.listOrganizationRoles(org.id);
+    expect(roles.data.map((role) => role.slug).sort()).toEqual(["admin", "member"]);
+  });
+
   it("deletes an organization and cascades its memberships", async () => {
     const code = await signInAndGetCode("dana@example.com");
     const auth = await workos.userManagement.authenticateWithCode({
@@ -203,9 +211,7 @@ describe("workos emulator with the real @workos-inc/node SDK", () => {
     const invitations = await workos.userManagement.listInvitations({
       organizationId: org.id,
     });
-    expect(invitations.data.find((candidate) => candidate.id === invitation.id)?.state).toBe(
-      "revoked",
-    );
+    expect(invitations.data.find((candidate) => candidate.id === invitation.id)?.state).toBe("revoked");
   });
 
   it("round-trips vault objects through workos.vault", async () => {
