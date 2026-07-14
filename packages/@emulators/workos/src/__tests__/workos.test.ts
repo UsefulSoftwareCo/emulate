@@ -211,9 +211,7 @@ describe("workos emulator with the real @workos-inc/node SDK", () => {
     const invitations = await workos.userManagement.listInvitations({
       organizationId: org.id,
     });
-    expect(invitations.data.find((candidate) => candidate.id === invitation.id)?.state).toBe(
-      "revoked",
-    );
+    expect(invitations.data.find((candidate) => candidate.id === invitation.id)?.state).toBe("revoked");
   });
 
   it("round-trips vault objects through workos.vault", async () => {
