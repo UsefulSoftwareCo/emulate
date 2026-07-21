@@ -126,6 +126,32 @@ describe("workos emulator with the real @workos-inc/node SDK", () => {
     }
   });
 
+  it("ends the session via the SDK's logout URL and rejects later refreshes", async () => {
+    const code = await signInAndGetCode("carol@example.com");
+    const auth = await workos.userManagement.authenticateWithCode({
+      code,
+      clientId: CLIENT_ID,
+      session: { sealSession: true, cookiePassword: COOKIE_PASSWORD },
+    });
+
+    const session = workos.userManagement.loadSealedSession({
+      sessionData: auth.sealedSession as string,
+      cookiePassword: COOKIE_PASSWORD,
+    });
+    const logoutUrl = await session.getLogoutUrl({ returnTo: "http://127.0.0.1:9/goodbye" });
+    const parsed = new URL(logoutUrl);
+    expect(parsed.pathname).toBe("/user_management/sessions/logout");
+    expect(parsed.searchParams.get("session_id")).toMatch(/^session_/);
+
+    const response = await fetch(logoutUrl, { redirect: "manual" });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("http://127.0.0.1:9/goodbye");
+
+    // The session is revoked: its refresh token no longer mints tokens.
+    const refreshed = await session.refresh({ cookiePassword: COOKIE_PASSWORD });
+    expect(refreshed.authenticated).toBe(false);
+  });
+
   it("lists organization roles through the SDK's Authorization surface", async () => {
     const org = await workos.organizations.createOrganization({ name: "Roles Org" });
     // The v10 SDK calls /authorization/organizations/:id/roles; the emulator

@@ -155,6 +155,22 @@ export function userManagementRoutes(ctx: RouteContext): void {
     return c.redirect(target.toString(), 302);
   }
 
+  // --- Session logout (the SDK's getLogoutUrl points here) ------------------
+  // Real WorkOS ends the AuthKit session and redirects to return_to (or the
+  // configured app homepage). The emulator revokes the session so its refresh
+  // token stops working, then redirects; without return_to it renders a
+  // signed-out card since the emulator has no configured homepage.
+  app.get("/user_management/sessions/logout", (c) => {
+    const sessionId = c.req.query("session_id") ?? "";
+    const returnTo = c.req.query("return_to");
+    const session = ws().sessions.findOneBy("workos_id", sessionId);
+    if (session && !session.revoked) {
+      ws().sessions.update(session.id, { revoked: true });
+    }
+    if (returnTo) return c.redirect(returnTo, 302);
+    return c.html(renderCardPage("Signed out", "The AuthKit session has ended.", ""), 200);
+  });
+
   // --- Token endpoint: authorization_code + refresh_token grants -----------
   app.post("/user_management/authenticate", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;

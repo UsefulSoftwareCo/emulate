@@ -1,14 +1,20 @@
 # Changelog
 
-## 0.13.5
+## 0.13.6
 
 <!-- release:start -->
+
+### New Features
+
+- **WorkOS session logout** — the WorkOS emulator now serves AuthKit's session-end endpoint (`GET /user_management/sessions/logout?session_id=...&return_to=...`), the URL the Node SDK's `getLogoutUrl` builds. It revokes the session (its refresh token stops minting tokens, matching real WorkOS) and redirects to `return_to`, or renders a signed-out page when none is given. Apps can now exercise their full sign-out flow, including the hop through WorkOS, against the emulator.
+
+<!-- release:end -->
+
+## 0.13.5
 
 ### Bug Fixes
 
 - **WorkOS `authorization.listOrganizationRoles`** — the WorkOS emulator now serves organization roles on the Authorization-API path (`GET /authorization/organizations/:id/roles`) the v10 Node SDK calls, alongside the legacy `GET /organizations/:id/roles`. Before this, `authorization.listOrganizationRoles` hit a 404, so any app loading an org's roles (a members page role picker, for example) got a 500.
-
-<!-- release:end -->
 
 ## 0.13.4
 
