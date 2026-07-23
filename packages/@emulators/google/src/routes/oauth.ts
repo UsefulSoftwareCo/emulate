@@ -453,4 +453,17 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
 
     return c.body(null, 200);
   });
+
+  app.post("/_emulate/oauth/access-tokens/expire", (c) => {
+    const expired = tokenMap?.size ?? 0;
+    tokenMap?.clear();
+    return c.json({ expired });
+  });
+
+  app.post("/_emulate/oauth/refresh-tokens/revoke", (c) => {
+    const refreshTokens = getRefreshTokens(store);
+    const revoked = refreshTokens.size;
+    refreshTokens.clear();
+    return c.json({ revoked });
+  });
 }

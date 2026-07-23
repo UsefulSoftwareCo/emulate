@@ -947,6 +947,46 @@ describe("Google plugin integration", () => {
     expect(refreshBody.scope).toBe(tokenBody.scope);
   });
 
+  it("expires access tokens and revokes refresh tokens through emulator controls", async () => {
+    const authorize = await formRequest(app, "/o/oauth2/v2/auth/callback", {
+      email: "testuser@example.com",
+      redirect_uri: "http://localhost:3000/api/auth/callback/google",
+      scope: "openid email profile",
+      client_id: "emu_google_client_id",
+    });
+    const code = new URL(authorize.headers.get("Location")!).searchParams.get("code")!;
+    const tokenRes = await formRequest(app, "/oauth2/token", {
+      code,
+      grant_type: "authorization_code",
+      redirect_uri: "http://localhost:3000/api/auth/callback/google",
+      client_id: "emu_google_client_id",
+      client_secret: "emu_google_client_secret",
+    });
+    const tokens = (await tokenRes.json()) as { access_token: string; refresh_token: string };
+
+    expect((await app.request(`${base}/oauth2/v2/userinfo`, {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    })).status).toBe(200);
+    const expired = await app.request(`${base}/_emulate/oauth/access-tokens/expire`, { method: "POST" });
+    expect(expired.status).toBe(200);
+    expect(await expired.json()).toMatchObject({ expired: expect.any(Number) });
+    expect((await app.request(`${base}/oauth2/v2/userinfo`, {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    })).status).toBe(401);
+
+    const revoked = await app.request(`${base}/_emulate/oauth/refresh-tokens/revoke`, { method: "POST" });
+    expect(revoked.status).toBe(200);
+    expect(await revoked.json()).toEqual({ revoked: 1 });
+    const refresh = await formRequest(app, "/oauth2/token", {
+      grant_type: "refresh_token",
+      refresh_token: tokens.refresh_token,
+      client_id: "emu_google_client_id",
+      client_secret: "emu_google_client_secret",
+    });
+    expect(refresh.status).toBe(400);
+    expect(await refresh.json()).toMatchObject({ error: "invalid_grant" });
+  });
+
   it("derives, overrides, and omits the hd claim based on user config", async () => {
     async function getIdTokenClaims(email: string) {
       const authorize = await formRequest(app, "/o/oauth2/v2/auth/callback", {
