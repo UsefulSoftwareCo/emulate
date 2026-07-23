@@ -1,14 +1,21 @@
 # Changelog
 
-## 0.13.6
+## 0.13.7
 
 <!-- release:start -->
 
 ### New Features
 
-- **WorkOS session logout** — the WorkOS emulator now serves AuthKit's session-end endpoint (`GET /user_management/sessions/logout?session_id=...&return_to=...`), the URL the Node SDK's `getLogoutUrl` builds. It revokes the session (its refresh token stops minting tokens, matching real WorkOS) and redirects to `return_to`, or renders a signed-out page when none is given. Apps can now exercise their full sign-out flow, including the hop through WorkOS, against the emulator.
+- **MCP OAuth compliance scenario knobs** — the MCP emulator gains a seedable `oauth` config for exercising RFC 7591/8414/9728 client compliance: `issuerOverride` (advertise a lying issuer), `resourceOverride` (protected-resource metadata naming a foreign resource), `tokenEndpointAuthMethods` (advertise an exact list, or `"omit"` to drop the field so RFC 8414's client_secret_basic default applies), `dcrAuthMethodOverride` (the DCR response substitutes the requested token auth method), and `rejectClientNameContaining` (registration rejects branded client names with `invalid_client_metadata`). The token endpoint now supports HTTP Basic client authentication and enforces the registered method strictly: `client_secret_basic` clients must use Basic, `client_secret_post` clients must use the form body.
 
 <!-- release:end -->
+
+## 0.13.6
+
+### New Features
+
+- **WorkOS session logout** — the WorkOS emulator now serves AuthKit's session-end endpoint (`GET /user_management/sessions/logout?session_id=...&return_to=...`), the URL the Node SDK's `getLogoutUrl` builds. It revokes the session (its refresh token stops minting tokens, matching real WorkOS) and redirects to `return_to`, or renders a signed-out page when none is given. Apps can now exercise their full sign-out flow, including the hop through WorkOS, against the emulator.
+
 
 ## 0.13.5
 
