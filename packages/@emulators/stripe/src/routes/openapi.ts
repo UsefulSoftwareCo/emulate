@@ -1,4 +1,5 @@
 import type { RouteContext } from "@emulators/core";
+import { stringify as stringifyYaml } from "yaml";
 
 // OpenAPI 3.1 document for this Stripe emulator instance, pointed at itself,
 // with the bearer-token security scheme real Stripe uses for secret keys.
@@ -6,6 +7,11 @@ import type { RouteContext } from "@emulators/core";
 // are omitted so OpenAPI-aware clients only see what actually works.
 export function openapiRoutes({ app, baseUrl }: RouteContext): void {
   app.get("/openapi.json", (c) => c.json(buildSpec(baseUrl)));
+  app.get("/openapi.yaml", (c) =>
+    c.body(stringifyYaml(buildSpec(baseUrl)), 200, {
+      "content-type": "application/yaml; charset=UTF-8",
+    }),
+  );
 }
 
 const ok = (description: string) => ({
@@ -22,6 +28,9 @@ const formBody = (properties: Record<string, unknown>, required: readonly string
   content: {
     "application/x-www-form-urlencoded": {
       schema: { type: "object", properties, required: [...required] },
+      ...(Object.hasOwn(properties, "metadata")
+        ? { encoding: { metadata: { style: "deepObject", explode: true } } }
+        : {}),
     },
   },
 });

@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { Hono } from "@emulators/core";
+import { parse as parseYaml } from "yaml";
 import {
   Store,
   WebhookDispatcher,
@@ -49,6 +50,24 @@ describe("Stripe plugin", () => {
     webhooks = ctx.webhooks;
   });
 
+  describe("OpenAPI", () => {
+    it("serves the instance spec as YAML", async () => {
+      const response = await app.request(`${base}/openapi.yaml`);
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("application/yaml");
+      expect(parseYaml(await response.text())).toMatchObject({
+        openapi: "3.1.0",
+        servers: [{ url: base }],
+        paths: {
+          "/v1/customers": {
+            post: { operationId: "PostCustomers" },
+          },
+        },
+      });
+    });
+  });
+
   describe("customers", () => {
     it("creates and retrieves a customer", async () => {
       const createRes = await app.request(`${base}/v1/customers`, {
@@ -75,12 +94,18 @@ describe("Stripe plugin", () => {
           Authorization: "Bearer sk_test_abc123",
           "Content-Type": "application/x-www-form-urlencoded",
         },
-        body: "email=form%40test.com&name=Form+User",
+        body: "email=form%40test.com&name=Form+User&metadata%5Bsource%5D=e2e",
       });
       expect(createRes.status).toBe(200);
-      const customer = (await createRes.json()) as { id: string; email: string; name: string };
+      const customer = (await createRes.json()) as {
+        id: string;
+        email: string;
+        metadata: Record<string, string>;
+        name: string;
+      };
       expect(customer.email).toBe("form@test.com");
       expect(customer.name).toBe("Form User");
+      expect(customer.metadata).toEqual({ source: "e2e" });
     });
 
     it("returns Stripe-format error for missing customer", async () => {
