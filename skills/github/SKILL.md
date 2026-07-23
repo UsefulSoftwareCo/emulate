@@ -534,6 +534,26 @@ the protected-resource metadata omits `scopes_supported`, so a client must read
 An empty `scopes` with `scopeSource: resource` advertises a present-but-empty list
 (an authoritative "no scopes"), distinct from a silent document.
 
+**OAuth compliance scenarios.** The standalone MCP service also accepts an
+`oauth` seed block for RFC 7591, RFC 8414, and RFC 9728 failure-mode tests. The
+configuration is read at request time, so re-seeding a live instance changes the
+metadata and registration behavior immediately:
+
+```yaml
+mcp:
+  oauth:
+    issuerOverride: https://evil.example.com
+    resourceOverride: https://other.example.com/mcp
+    tokenEndpointAuthMethods: [client_secret_basic]
+    dcrAuthMethodOverride: client_secret_basic
+    rejectClientNameContaining: GitHub
+```
+
+Use `tokenEndpointAuthMethods: omit` to omit the authorization-server metadata
+field. A DCR override of `client_secret_basic` returns a client secret and makes
+the token endpoint require HTTP Basic; `client_secret_post` requires form-body
+credentials.
+
 ### Misc
 
 ```bash

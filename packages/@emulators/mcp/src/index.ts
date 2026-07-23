@@ -2,6 +2,7 @@ import type { Context, Hono } from "@emulators/core";
 import type { AppEnv, RouteContext, ServicePlugin, Store, TokenMap, WebhookDispatcher } from "@emulators/core";
 import { githubPlugin, seedFromConfig as githubSeed, type GitHubSeedConfig } from "@emulators/github";
 import { extractBearer, getMcpAuthConfig, resolveAuthUser, setMcpAuthConfig } from "./auth.js";
+import { setMcpOAuthConfig, type McpOAuthConfig } from "./oauth-config.js";
 import { registerOAuthRoutes } from "./oauth.js";
 import { setMcpScopeConfig } from "./scopes.js";
 import { handleMcpPost } from "./transport.js";
@@ -9,6 +10,8 @@ import { handleMcpPost } from "./transport.js";
 export { TOOL_DEFINITIONS } from "./tools.js";
 export { setMcpAuthConfig } from "./auth.js";
 export type { McpAuthMode } from "./auth.js";
+export { getMcpOAuthConfig, setMcpOAuthConfig } from "./oauth-config.js";
+export type { McpOAuthConfig } from "./oauth-config.js";
 export { getMcpScopeConfig, setMcpScopeConfig } from "./scopes.js";
 export type { McpScopeConfig, McpScopeSource } from "./scopes.js";
 export { manifest } from "./manifest.js";
@@ -27,6 +30,7 @@ export interface McpSeedConfig extends GitHubSeedConfig {
   // stays silent, forcing the RFC 8414 fallback), "both" (default), or "none".
   scopes?: string[];
   scopeSource?: "resource" | "authorization-server" | "both" | "none";
+  oauth?: McpOAuthConfig;
 }
 
 // Seed the MCP service. The GitHub store (users/repos/issues) is seeded via the
@@ -36,6 +40,7 @@ export interface McpSeedConfig extends GitHubSeedConfig {
 export function seedFromConfig(store: Store, baseUrl: string, config: McpSeedConfig): void {
   setMcpAuthConfig(store, { auth: config.auth, queryParam: config.queryParam });
   setMcpScopeConfig(store, { scopes: config.scopes, scopeSource: config.scopeSource });
+  setMcpOAuthConfig(store, config.oauth);
   githubSeed(store, baseUrl, config);
 }
 
@@ -101,6 +106,7 @@ export const mcpPlugin: ServicePlugin = {
     // Default seed: github defaults + oauth mode + default scope advertising.
     setMcpAuthConfig(store, {});
     setMcpScopeConfig(store, {});
+    setMcpOAuthConfig(store, {});
     githubPlugin.seed?.(store, baseUrl);
   },
 };

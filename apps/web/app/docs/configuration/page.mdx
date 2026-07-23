@@ -193,6 +193,22 @@ Google Workspace accounts include an `hd` claim in ID tokens and userinfo respon
 
 To override the derived value, set `hd` on a seeded user. To suppress the claim entirely, set `hd` to an empty string.
 
+## MCP OAuth Compliance Scenarios
+
+Use the standalone MCP emulator's `oauth` seed block to exercise RFC 7591, RFC 8414, and RFC 9728 client failure handling. The routes read this configuration for each request, so posting a new seed to `/_emulate/seed` updates a running instance:
+
+```yaml
+mcp:
+  oauth:
+    issuerOverride: https://evil.example.com
+    resourceOverride: https://other.example.com/mcp
+    tokenEndpointAuthMethods: [client_secret_basic]
+    dcrAuthMethodOverride: client_secret_basic
+    rejectClientNameContaining: GitHub
+```
+
+`tokenEndpointAuthMethods` may be an exact advertised list or the string `omit`. `dcrAuthMethodOverride` replaces the requested registration method in both stored client metadata and the DCR response. Confidential clients registered as `client_secret_basic` must authenticate at `/token` with HTTP Basic, while `client_secret_post` clients must use the form body.
+
 ## Slack Seed Config
 
 ```yaml

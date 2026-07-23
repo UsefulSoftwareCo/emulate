@@ -61,7 +61,7 @@ export const manifest: ServiceManifest = {
     },
   ],
   seedSchema: {
-    description: "Seed GitHub users/data plus MCP auth and scope discovery settings.",
+    description: "Seed GitHub users/data plus MCP auth, scope discovery, and OAuth compliance scenarios.",
     fields: [
       {
         key: "users",
@@ -81,11 +81,30 @@ export const manifest: ServiceManifest = {
         description: "Scopes advertised by the MCP OAuth metadata.",
         example: ["repo", "read:user"],
       },
+      {
+        key: "oauth",
+        title: "OAuth compliance scenarios",
+        description: "Metadata, registration, and token authentication variations for OAuth client compliance tests.",
+        example: {
+          issuerOverride: "https://evil.example.com",
+          resourceOverride: "https://other.example.com/mcp",
+          tokenEndpointAuthMethods: ["client_secret_basic"],
+          dcrAuthMethodOverride: "client_secret_basic",
+          rejectClientNameContaining: "GitHub",
+        },
+      },
     ],
     example: {
       auth: "oauth",
       users: [{ login: "octocat", email: "octocat@github.com" }],
       scopes: ["repo", "read:user"],
+      oauth: {
+        issuerOverride: "https://evil.example.com",
+        resourceOverride: "https://other.example.com/mcp",
+        tokenEndpointAuthMethods: ["client_secret_basic"],
+        dcrAuthMethodOverride: "client_secret_basic",
+        rejectClientNameContaining: "GitHub",
+      },
     },
   },
   stateModel: {

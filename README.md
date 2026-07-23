@@ -78,6 +78,22 @@ curl -s -X POST "$EMULATOR_URL/_emulate/faults" \
 
 Credential creation follows each service's real shape. For example, GitHub can mint a bearer token for a user, Spotify creates a client credentials app, Google/Microsoft/Apple/Okta/Clerk create OAuth/OIDC clients, Stripe and Resend create API-key style credentials, and AWS advertises provider-specific SDK credentials instead of pretending to be OAuth.
 
+### MCP OAuth compliance scenarios
+
+The standalone MCP emulator accepts an `oauth` seed block for RFC 7591, RFC 8414, and RFC 9728 client compliance tests. These settings are read for each request, so `POST /_emulate/seed` changes a running instance without restarting it:
+
+```yaml
+mcp:
+  oauth:
+    issuerOverride: https://evil.example.com
+    resourceOverride: https://other.example.com/mcp
+    tokenEndpointAuthMethods: [client_secret_basic]
+    dcrAuthMethodOverride: client_secret_basic
+    rejectClientNameContaining: GitHub
+```
+
+Set `tokenEndpointAuthMethods` to `omit` to leave `token_endpoint_auth_methods_supported` out of authorization-server metadata. A `client_secret_basic` DCR override returns and stores that method, mints a secret, and requires HTTP Basic authentication at `/token`; `client_secret_post` continues to require form-body credentials.
+
 ## CLI
 
 ```bash

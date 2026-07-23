@@ -3,6 +3,7 @@ import type { RouteContext, Store, TokenMap } from "@emulators/core";
 import { bodyStr, matchesRedirectUri, renderCardPage, renderUserButton } from "@emulators/core";
 import { getGitHubStore, seedFromConfig as seedGitHub } from "@emulators/github";
 import { createRemoteJWKSet, decodeProtectedHeader, decodeJwt, jwtVerify, type JWTPayload } from "jose";
+import { getMcpOAuthConfig } from "./oauth-config.js";
 import { getOAuthClients, getPendingCodes, isCodeExpired, type OAuthClientRecord } from "./oauth-store.js";
 import { authServerScopesSupported, getMcpScopeConfig, resourceScopesSupported } from "./scopes.js";
 
@@ -89,9 +90,14 @@ export function registerOAuthRoutes(ctx: RouteContext): void {
 
   // ---------- Protected-resource metadata (RFC 9728) ----------
   app.get("/.well-known/oauth-protected-resource", (c) => {
+    const oauthConfig = getMcpOAuthConfig(store);
     return c.json(
       withScopes(
-        { resource: baseUrl, authorization_servers: [baseUrl], bearer_methods_supported: ["header"] },
+        {
+          resource: oauthConfig.resourceOverride ?? baseUrl,
+          authorization_servers: [baseUrl],
+          bearer_methods_supported: ["header"],
+        },
         resourceScopesSupported(getMcpScopeConfig(store)),
       ),
     );
@@ -99,19 +105,26 @@ export function registerOAuthRoutes(ctx: RouteContext): void {
 
   // Some clients append the resource path to the well-known probe.
   app.get("/.well-known/oauth-protected-resource/mcp", (c) => {
+    const oauthConfig = getMcpOAuthConfig(store);
     return c.json(
       withScopes(
-        { resource: `${baseUrl}/mcp`, authorization_servers: [baseUrl], bearer_methods_supported: ["header"] },
+        {
+          resource: oauthConfig.resourceOverride ?? `${baseUrl}/mcp`,
+          authorization_servers: [baseUrl],
+          bearer_methods_supported: ["header"],
+        },
         resourceScopesSupported(getMcpScopeConfig(store)),
       ),
     );
   });
 
   // ---------- Authorization-server metadata (RFC 8414) ----------
-  const asMetadata = () =>
-    withScopes(
+  const asMetadata = () => {
+    const oauthConfig = getMcpOAuthConfig(store);
+    const authMethods = oauthConfig.tokenEndpointAuthMethods;
+    return withScopes(
       {
-        issuer: baseUrl,
+        issuer: oauthConfig.issuerOverride ?? baseUrl,
         authorization_endpoint: `${baseUrl}/authorize`,
         token_endpoint: `${baseUrl}/token`,
         registration_endpoint: `${baseUrl}/register`,
@@ -119,10 +132,13 @@ export function registerOAuthRoutes(ctx: RouteContext): void {
         grant_types_supported: ["authorization_code", JWT_BEARER_GRANT_TYPE],
         authorization_grant_profiles_supported: [ID_JAG_GRANT_PROFILE],
         code_challenge_methods_supported: ["S256"],
-        token_endpoint_auth_methods_supported: ["none", "client_secret_post"],
+        ...(authMethods === "omit"
+          ? {}
+          : { token_endpoint_auth_methods_supported: authMethods ?? ["none", "client_secret_post"] }),
       },
       authServerScopesSupported(getMcpScopeConfig(store)),
     );
+  };
   app.get("/.well-known/oauth-authorization-server", (c) => c.json(asMetadata()));
   // OpenID-style probe some MCP clients also try.
   app.get("/.well-known/oauth-authorization-server/mcp", (c) => c.json(asMetadata()));
@@ -130,6 +146,21 @@ export function registerOAuthRoutes(ctx: RouteContext): void {
   // ---------- Dynamic Client Registration (RFC 7591) ----------
   app.post("/register", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const oauthConfig = getMcpOAuthConfig(store);
+    const clientName = typeof body.client_name === "string" ? body.client_name : undefined;
+    if (
+      clientName &&
+      oauthConfig.rejectClientNameContaining &&
+      clientName.toLowerCase().includes(oauthConfig.rejectClientNameContaining.toLowerCase())
+    ) {
+      return c.json(
+        {
+          error: "invalid_client_metadata",
+          error_description: `client_name must not contain "${oauthConfig.rejectClientNameContaining}".`,
+        },
+        400,
+      );
+    }
     const redirectUris = Array.isArray(body.redirect_uris)
       ? body.redirect_uris.filter((u): u is string => typeof u === "string")
       : [];
@@ -143,18 +174,20 @@ export function registerOAuthRoutes(ctx: RouteContext): void {
       }
     }
 
-    const authMethod = typeof body.token_endpoint_auth_method === "string" ? body.token_endpoint_auth_method : "none";
+    const requestedAuthMethod =
+      typeof body.token_endpoint_auth_method === "string" ? body.token_endpoint_auth_method : "none";
+    const authMethod = oauthConfig.dcrAuthMethodOverride ?? requestedAuthMethod;
 
     const clientId = "mcp-client-" + randomUUID();
     const record: OAuthClientRecord = {
       client_id: clientId,
       redirect_uris: redirectUris,
-      client_name: typeof body.client_name === "string" ? body.client_name : undefined,
+      client_name: clientName,
       token_endpoint_auth_method: authMethod,
       created_at: Date.now(),
     };
-    // Issue a secret only for confidential clients (client_secret_post). Public
-    // clients (auth_method "none", the typical MCP loopback case) get none + use PKCE.
+    // Issue a secret only for confidential clients. Public clients (auth method
+    // "none", the typical MCP loopback case) get none and use PKCE.
     if (authMethod === "client_secret_post" || authMethod === "client_secret_basic") {
       record.client_secret = randomBytes(24).toString("base64url");
     }
@@ -310,9 +343,10 @@ export function registerOAuthRoutes(ctx: RouteContext): void {
     }
 
     const grantType = form.grant_type ?? "";
+    const credentials = parseClientCredentials(c.req.header("Authorization"), form);
     if (grantType === JWT_BEARER_GRANT_TYPE) {
       c.set("operationId", "mcp.oauth.jwtBearer");
-      const clientCheck = validateClientForTokenRequest(store, form.client_id ?? "", form.client_secret ?? "");
+      const clientCheck = validateClientForTokenRequest(store, credentials);
       if (clientCheck) return clientCheck;
 
       const assertion = form.assertion ?? "";
@@ -351,20 +385,15 @@ export function registerOAuthRoutes(ctx: RouteContext): void {
 
     const code = form.code ?? "";
     const redirectUri = form.redirect_uri ?? "";
-    const clientId = form.client_id ?? "";
-    const clientSecret = form.client_secret ?? "";
+    const clientId = credentials.clientId;
     const codeVerifier = form.code_verifier;
 
     const client = getOAuthClients(store).get(clientId);
     if (!client) {
       return c.json({ error: "invalid_client", error_description: "Unknown client_id." }, 401);
     }
-    // Confidential clients must present their secret.
-    if (client.client_secret) {
-      if (!constantTimeEqual(clientSecret, client.client_secret)) {
-        return c.json({ error: "invalid_client", error_description: "Bad client_secret." }, 401);
-      }
-    }
+    const clientCheck = validateRegisteredClientCredentials(client, credentials);
+    if (clientCheck) return clientCheck;
 
     const codes = getPendingCodes(store);
     const pending = codes.get(code);
@@ -417,14 +446,67 @@ function constantTimeEqual(a: string, b: string): boolean {
   return diff === 0;
 }
 
-function validateClientForTokenRequest(store: Store, clientId: string, clientSecret: string): Response | null {
-  if (!clientId)
-    return Response.json({ error: "invalid_client", error_description: "client_id is required." }, { status: 401 });
-  const client = getOAuthClients(store).get(clientId);
-  if (client?.client_secret && !constantTimeEqual(clientSecret, client.client_secret)) {
+interface ClientCredentials {
+  clientId: string;
+  clientSecret: string;
+  fromBasic: boolean;
+}
+
+function decodeFormComponent(value: string): string {
+  return decodeURIComponent(value.replace(/\+/g, " "));
+}
+
+function parseClientCredentials(authorization: string | undefined, form: Record<string, string>): ClientCredentials {
+  const basic = /^Basic\s+(.+)$/i.exec(authorization ?? "");
+  if (basic) {
+    try {
+      const decoded = Buffer.from(basic[1].trim(), "base64").toString("utf8");
+      const separator = decoded.indexOf(":");
+      if (separator >= 0) {
+        return {
+          clientId: decodeFormComponent(decoded.slice(0, separator)),
+          clientSecret: decodeFormComponent(decoded.slice(separator + 1)),
+          fromBasic: true,
+        };
+      }
+    } catch {
+      // A malformed header cannot satisfy client_secret_basic authentication.
+    }
+  }
+  return {
+    clientId: form.client_id ?? "",
+    clientSecret: form.client_secret ?? "",
+    fromBasic: false,
+  };
+}
+
+function validateRegisteredClientCredentials(
+  client: OAuthClientRecord,
+  credentials: ClientCredentials,
+): Response | null {
+  if (client.token_endpoint_auth_method === "client_secret_basic" && !credentials.fromBasic) {
+    return Response.json(
+      { error: "invalid_client", error_description: "This client must authenticate with HTTP Basic." },
+      { status: 401 },
+    );
+  }
+  if (client.token_endpoint_auth_method === "client_secret_post" && credentials.fromBasic) {
+    return Response.json(
+      { error: "invalid_client", error_description: "This client must send client_secret in the form body." },
+      { status: 401 },
+    );
+  }
+  if (client.client_secret && !constantTimeEqual(credentials.clientSecret, client.client_secret)) {
     return Response.json({ error: "invalid_client", error_description: "Bad client_secret." }, { status: 401 });
   }
   return null;
+}
+
+function validateClientForTokenRequest(store: Store, credentials: ClientCredentials): Response | null {
+  if (!credentials.clientId)
+    return Response.json({ error: "invalid_client", error_description: "client_id is required." }, { status: 401 });
+  const client = getOAuthClients(store).get(credentials.clientId);
+  return client ? validateRegisteredClientCredentials(client, credentials) : null;
 }
 
 interface IdentityAssertionPayload extends JWTPayload {

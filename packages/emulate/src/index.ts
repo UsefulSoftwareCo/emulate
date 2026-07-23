@@ -60,6 +60,8 @@ Global catalog:
   Available services include vercel, github, gitlab, google, slack, apple,
   microsoft, okta, aws, resend, stripe, mongoatlas, clerk, spotify, x, workos,
   autumn, posthog, and mcp.
+  MCP OAuth compliance scenarios are configured under mcp.oauth in seed data;
+  see the MCP manifest seed schema for issuer, resource, DCR, and token-auth knobs.
   Microsoft Graph includes OneDrive file content upload/download routes under
   /v1.0/me/drive and /v1.0/drives/:driveId.
   Service host:    <service>.emulators.dev (control plane only, no shared
