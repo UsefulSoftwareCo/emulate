@@ -1,14 +1,22 @@
 # Changelog
 
-## 0.13.7
+## 0.13.8
 
 <!-- release:start -->
 
 ### New Features
 
-- **MCP OAuth compliance scenario knobs** — the MCP emulator gains a seedable `oauth` config for exercising RFC 7591/8414/9728 client compliance: `issuerOverride` (advertise a lying issuer), `resourceOverride` (protected-resource metadata naming a foreign resource), `tokenEndpointAuthMethods` (advertise an exact list, or `"omit"` to drop the field so RFC 8414's client_secret_basic default applies), `dcrAuthMethodOverride` (the DCR response substitutes the requested token auth method), and `rejectClientNameContaining` (registration rejects branded client names with `invalid_client_metadata`). The token endpoint now supports HTTP Basic client authentication and enforces the registered method strictly: `client_secret_basic` clients must use Basic, `client_secret_post` clients must use the form body.
+- **WorkOS organization domains** — the WorkOS emulator now persists organization domains statefully: `POST /organization_domains` creates a pending domain with a DNS verification token, `GET /organization_domains/:id` returns its current state, `POST /organization_domains/:id/verify` performs the real SDK verification transition, and `DELETE /organization_domains/:id` removes it. Deleting an organization cascades to its domains, and a test-only `POST /_emulate/organization_domains/:id/verify` hook flips a pending domain to verified out of band. Domains are globally unique across organizations with WorkOS-shaped conflict errors.
+- **Stripe OpenAPI discovery in YAML** — the Stripe emulator serves `GET /openapi.yaml` alongside `GET /openapi.json`, derived from the same OpenAPI document. Form-encoded deep-object metadata (`metadata[foo]=bar`) is modeled in the spec's request encodings, and the customers API projects nested metadata in responses, matching Stripe's wire behavior. The request ledger records the parsed deep-object bodies.
 
 <!-- release:end -->
+
+## 0.13.7
+
+### New Features
+
+- **MCP OAuth compliance scenario knobs** — the MCP emulator gains a seedable `oauth` config for exercising RFC 7591/8414/9728 client compliance: `issuerOverride` (advertise a lying issuer), `resourceOverride` (protected-resource metadata naming a foreign resource), `tokenEndpointAuthMethods` (advertise an exact list, or `"omit"` to drop the field so RFC 8414's client_secret_basic default applies), `dcrAuthMethodOverride` (the DCR response substitutes the requested token auth method), and `rejectClientNameContaining` (registration rejects branded client names with `invalid_client_metadata`). The token endpoint now supports HTTP Basic client authentication and enforces the registered method strictly: `client_secret_basic` clients must use Basic, `client_secret_post` clients must use the form body.
+
 
 ## 0.13.6
 
