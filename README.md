@@ -28,7 +28,7 @@ All services start with sensible defaults. No config file needed:
 - **Clerk** on `http://localhost:4011`
 - **Spotify** on `http://localhost:4012`
 - **X** on `http://localhost:4013`
-- **WorkOS** on `http://localhost:4014`
+- **WorkOS** on `http://localhost:4014` (AuthKit, organizations, organization domains, Vault, and OAuth)
 - **Autumn** on `http://localhost:4015`
 - **PostHog** on `http://localhost:4016`
 - **MCP** on `http://localhost:4017`
@@ -59,6 +59,8 @@ Every running service also exposes a public control plane under `/_emulate`:
 | `POST /_emulate/seed`        | Add runtime seed data using the service seed schema                                                                                 |
 | `POST /_emulate/credentials` | Create bearer tokens, API keys, OAuth clients, or client-credentials apps where supported                                           |
 | `POST /_emulate/instances`   | Return URLs for a lazily created hosted instance with a server-generated, unguessable name                                          |
+
+Stripe exposes the same hand-authored OpenAPI subset at `GET /openapi.json` and `GET /openapi.yaml`.
 
 The manifest is the machine-readable single source of truth for a service. Each plugin package owns its manifest and serves it at `/_emulate/manifest`. It describes service identity, supported surfaces, auth capabilities, specs with per-operation coverage, scenarios, seed schema, state model, reset behavior, inspector tabs, request ledger capabilities, copyable connection snippets, and a docs link. OpenAPI, GraphQL, MCP, discovery documents, and OAuth metadata can inform those surfaces, but the emulator only advertises protocols that match the real service shape.
 

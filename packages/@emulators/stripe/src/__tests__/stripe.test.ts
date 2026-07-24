@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { Hono } from "@emulators/core";
+import { Hono, RequestLedger, createLedgerMiddleware } from "@emulators/core";
+import { parse as parseYaml } from "yaml";
 import {
   Store,
   WebhookDispatcher,
@@ -15,6 +16,7 @@ const base = "http://localhost:14000";
 function createTestApp() {
   const store = new Store();
   const webhooks = new WebhookDispatcher();
+  const ledger = new RequestLedger();
   const tokenMap: TokenMap = new Map();
   tokenMap.set("sk_test_abc123", {
     login: "test-account",
@@ -26,10 +28,11 @@ function createTestApp() {
   app.onError(createApiErrorHandler());
   app.use("*", createErrorHandler());
   app.use("*", authMiddleware(tokenMap));
+  app.use("*", createLedgerMiddleware(ledger, { webhooks }));
   stripePlugin.register(app as any, store, webhooks, base, tokenMap);
   stripePlugin.seed?.(store, base);
 
-  return { app, store, webhooks, tokenMap };
+  return { app, store, webhooks, ledger, tokenMap };
 }
 
 function auth(): Record<string, string> {
@@ -41,12 +44,41 @@ function auth(): Record<string, string> {
 
 describe("Stripe plugin", () => {
   let app: Hono;
-  let webhooks: WebhookDispatcher;
+  let ledger: RequestLedger;
 
   beforeEach(() => {
     const ctx = createTestApp();
     app = ctx.app;
-    webhooks = ctx.webhooks;
+    ledger = ctx.ledger;
+  });
+
+  describe("OpenAPI", () => {
+    it("serves an equivalent YAML document", async () => {
+      const jsonResponse = await app.request(`${base}/openapi.json`);
+      const yamlResponse = await app.request(`${base}/openapi.yaml`);
+
+      expect(yamlResponse.status).toBe(200);
+      expect(yamlResponse.headers.get("content-type")).toMatch(/^application\/yaml(?:;|$)/);
+      const specification = await jsonResponse.json();
+      expect(specification).toMatchObject({
+        paths: {
+          "/v1/customers": {
+            post: {
+              requestBody: {
+                content: {
+                  "application/x-www-form-urlencoded": {
+                    encoding: {
+                      metadata: { style: "deepObject", explode: true },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      });
+      expect(parseYaml(await yamlResponse.text())).toEqual(specification);
+    });
   });
 
   describe("customers", () => {
@@ -68,19 +100,33 @@ describe("Stripe plugin", () => {
       expect(fetched.id).toBe(customer.id);
     });
 
-    it("creates a customer from form-urlencoded body", async () => {
+    it("projects form-urlencoded metadata while retaining flattened ledger fields", async () => {
       const createRes = await app.request(`${base}/v1/customers`, {
         method: "POST",
         headers: {
           Authorization: "Bearer sk_test_abc123",
           "Content-Type": "application/x-www-form-urlencoded",
         },
-        body: "email=form%40test.com&name=Form+User",
+        body: "email=form%40test.com&name=Form+User&metadata%5Bfoo%5D=bar&metadata%5Border_id%5D=order_123",
       });
       expect(createRes.status).toBe(200);
-      const customer = (await createRes.json()) as { id: string; email: string; name: string };
+      const customer = (await createRes.json()) as {
+        id: string;
+        email: string;
+        name: string;
+        metadata: Record<string, string>;
+      };
       expect(customer.email).toBe("form@test.com");
       expect(customer.name).toBe("Form User");
+      expect(customer.metadata).toEqual({ foo: "bar", order_id: "order_123" });
+
+      const entry = ledger.list().find((item) => item.path === "/v1/customers");
+      expect(entry?.request.body).toEqual({
+        email: "form@test.com",
+        name: "Form User",
+        "metadata[foo]": "bar",
+        "metadata[order_id]": "order_123",
+      });
     });
 
     it("returns Stripe-format error for missing customer", async () => {

@@ -160,6 +160,48 @@ describe("workos emulator with the real @workos-inc/node SDK", () => {
     expect(roles.data.map((role) => role.slug).sort()).toEqual(["admin", "member"]);
   });
 
+  it("round-trips stateful organization domains through the SDK and control plane", async () => {
+    const organization = await workos.organizations.createOrganization({ name: "Executor E2E Org" });
+    const domain = await workos.organizationDomains.create({
+      organizationId: organization.id,
+      domain: "executor-e2e.example.test",
+    });
+    expect(domain.id).toMatch(/^org_domain_/);
+    expect(domain.organizationId).toBe(organization.id);
+    expect(domain.domain).toBe("executor-e2e.example.test");
+    expect(domain.state).toBe("pending");
+    expect(domain.verificationStrategy).toBe("dns");
+    expect(domain.verificationPrefix).toBe("workos-domain-verification");
+    expect(domain.verificationToken).toBeTruthy();
+
+    const fetched = await workos.organizationDomains.get(domain.id);
+    expect(fetched).toMatchObject({
+      id: domain.id,
+      organizationId: organization.id,
+      domain: "executor-e2e.example.test",
+      state: "pending",
+      verificationStrategy: "dns",
+      verificationPrefix: domain.verificationPrefix,
+      verificationToken: domain.verificationToken,
+    });
+    const organizationWithDomain = await workos.organizations.getOrganization(organization.id);
+    expect(organizationWithDomain.domains).toMatchObject([{ id: domain.id, state: "pending" }]);
+
+    const verification = await fetch(`${BASE}/_emulate/organization_domains/${domain.id}/verify`, { method: "POST" });
+    expect(verification.status).toBe(200);
+    expect((await verification.json()) as { state: string }).toMatchObject({ state: "verified" });
+
+    const verified = await workos.organizationDomains.verify(domain.id);
+    expect(verified.state).toBe("verified");
+    const organizationWithVerifiedDomain = await workos.organizations.getOrganization(organization.id);
+    expect(organizationWithVerifiedDomain.domains).toMatchObject([{ id: domain.id, state: "verified" }]);
+
+    await expect(workos.organizationDomains.delete(domain.id)).resolves.toBeUndefined();
+    await expect(workos.organizationDomains.get(domain.id)).rejects.toThrow();
+    const organizationWithoutDomain = await workos.organizations.getOrganization(organization.id);
+    expect(organizationWithoutDomain.domains).toEqual([]);
+  });
+
   it("deletes an organization and cascades its memberships", async () => {
     const code = await signInAndGetCode("dana@example.com");
     const auth = await workos.userManagement.authenticateWithCode({

@@ -9,6 +9,7 @@ import type {
   WorkosOAuthCode,
   WorkosOAuthSettings,
   WorkosOrganization,
+  WorkosOrganizationDomain,
   WorkosSession,
   WorkosUser,
   WorkosVaultObject,
@@ -17,6 +18,7 @@ import type {
 export interface WorkosStore {
   users: Collection<WorkosUser>;
   organizations: Collection<WorkosOrganization>;
+  organizationDomains: Collection<WorkosOrganizationDomain>;
   memberships: Collection<WorkosMembership>;
   invitations: Collection<WorkosInvitation>;
   apiKeys: Collection<WorkosApiKey>;
@@ -32,6 +34,11 @@ export function getWorkosStore(store: Store): WorkosStore {
   return {
     users: store.collection<WorkosUser>("workos.users", ["workos_id", "email"]),
     organizations: store.collection<WorkosOrganization>("workos.organizations", ["workos_id"]),
+    organizationDomains: store.collection<WorkosOrganizationDomain>("workos.organization_domains", [
+      "workos_id",
+      "organization_id",
+      "domain",
+    ]),
     memberships: store.collection<WorkosMembership>("workos.memberships", ["workos_id", "user_id", "organization_id"]),
     invitations: store.collection<WorkosInvitation>("workos.invitations", [
       "workos_id",

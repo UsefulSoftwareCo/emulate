@@ -1,0 +1,47 @@
+# WorkOS
+
+WorkOS emulation for AuthKit user management, organizations, organization domains, memberships, invitations, user API keys, Vault KV, and OAuth authorization-server flows.
+
+## Start
+
+```bash
+npx emulate --service workos
+```
+
+The local WorkOS emulator listens on `http://localhost:4014` when all services run together.
+
+## Organizations
+
+- `POST /organizations` — create an organization
+- `GET /organizations/:id` — retrieve an organization, including its organization domains
+- `PUT /organizations/:id` — update an organization
+- `DELETE /organizations/:id` — remove an organization and its memberships and organization domains
+
+## Organization domains
+
+- `POST /organization_domains` — create a pending domain with `{ "organization_id", "domain" }`
+- `GET /organization_domains/:id` — retrieve the domain, verification state, DNS prefix, and token
+- `POST /organization_domains/:id/verify` — verify the domain through the WorkOS SDK contract
+- `DELETE /organization_domains/:id` — remove the domain
+- `POST /_emulate/organization_domains/:id/verify` — mark a pending domain verified through the test control plane
+
+## SDK
+
+```ts
+import { WorkOS } from "@workos-inc/node";
+
+const workos = new WorkOS("sk_test_anything", {
+  clientId: "client_emulate",
+  apiHostname: "localhost",
+  port: 4014,
+  https: false,
+});
+
+const organization = await workos.organizations.createOrganization({ name: "Acme" });
+const domain = await workos.organizationDomains.create({
+  organizationId: organization.id,
+  domain: "acme.example.test",
+});
+```
+
+Use `GET /_emulate/ledger` to inspect calls with credentials and tokens redacted.

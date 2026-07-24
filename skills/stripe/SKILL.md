@@ -386,7 +386,7 @@ console.log(confirmed.status) // 'succeeded'
 
 ## Discovery
 
-When using a running emulator URL, inspect `GET /_emulate/manifest` first to confirm supported surfaces (REST, hosted checkout, webhooks), auth capabilities, and per-operation spec coverage. Use `GET /_emulate/connections` for copyable SDK, CLI, env, and curl snippets and `GET /_emulate/quickstart` for setup notes.
+When using a running emulator URL, inspect `GET /_emulate/manifest` first to confirm supported surfaces (REST, hosted checkout, webhooks), auth capabilities, and per-operation spec coverage. Use `GET /_emulate/connections` for copyable SDK, CLI, env, and curl snippets and `GET /_emulate/quickstart` for setup notes. The hand-authored OpenAPI subset is available as JSON at `GET /openapi.json` and as equivalent YAML at `GET /openapi.yaml`.
 
 Mint credentials with `POST /_emulate/credentials`, the canonical, uniform way to create a credential for any service (here a Stripe secret key):
 
