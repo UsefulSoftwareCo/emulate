@@ -1,0 +1,38 @@
+# WorkOS
+
+Stateful WorkOS emulation for AuthKit user management, organizations, organization domains, memberships, invitations, API keys, Vault KV, and OAuth authorization-server flows.
+
+## Official SDK
+
+Point `@workos-inc/node` at the emulator without changing application calls:
+
+```ts
+import { WorkOS } from "@workos-inc/node";
+
+const workos = new WorkOS("sk_test_anything", {
+  clientId: "client_emulate",
+  apiHostname: "localhost",
+  port: 4014,
+  https: false,
+});
+```
+
+## Organization Domains
+
+- `POST /organization_domains` creates a pending domain for an organization.
+- `GET /organization_domains/:id` returns its state, verification strategy, DNS token, and prefix.
+- `GET /organizations/:id` includes that organization's domains.
+- `DELETE /organization_domains/:id` removes a domain.
+- `POST /_emulate/organization_domains/:id/verify` is a test control that transitions a pending domain to verified.
+
+```bash
+curl -s -X POST http://localhost:4014/organization_domains \
+  -H "content-type: application/json" \
+  -d '{"organization_id":"org_123","domain":"example.com"}'
+```
+
+The verification control is intentionally under `/_emulate`; provider-facing routes retain WorkOS shapes.
+
+## Seed and Inspect
+
+Seed users and organizations through `POST /_emulate/seed`, inspect provider calls at `GET /_emulate/ledger`, and inspect persisted domains in `GET /_emulate/state` under `workos.organization_domains`.

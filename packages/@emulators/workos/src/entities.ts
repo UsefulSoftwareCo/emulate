@@ -16,6 +16,17 @@ export interface WorkosOrganization extends Entity {
   external_id: string | null;
 }
 
+/** Domain claimed by an organization for join-by-domain and SSO flows. */
+export interface WorkosOrganizationDomain extends Entity {
+  workos_id: string; // org_domain_...
+  organization_id: string; // org workos_id
+  domain: string;
+  state: "pending" | "verified" | "failed";
+  verification_strategy: "dns" | "manual";
+  verification_token: string | null;
+  verification_prefix: string | null;
+}
+
 export interface WorkosMembership extends Entity {
   workos_id: string; // om_...
   user_id: string; // user workos_id

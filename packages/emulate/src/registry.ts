@@ -951,7 +951,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   workos: {
     label: "WorkOS emulator",
     endpoints:
-      "AuthKit user management (hosted login, code/refresh grants, sealed-session JWKS), organizations, memberships, invitations, API keys, Vault KV, OAuth authorization server",
+      "AuthKit user management (hosted login, code/refresh grants, sealed-session JWKS), organizations, organization domains, memberships, invitations, API keys, Vault KV, OAuth authorization server",
     async load() {
       const mod = await import("@emulators/workos");
       return {

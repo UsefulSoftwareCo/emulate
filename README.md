@@ -28,7 +28,7 @@ All services start with sensible defaults. No config file needed:
 - **Clerk** on `http://localhost:4011`
 - **Spotify** on `http://localhost:4012`
 - **X** on `http://localhost:4013`
-- **WorkOS** on `http://localhost:4014`
+- **WorkOS** on `http://localhost:4014` (AuthKit, organizations, organization domains, memberships, invitations, API keys, Vault KV, and OAuth)
 - **Autumn** on `http://localhost:4015`
 - **PostHog** on `http://localhost:4016`
 - **MCP** on `http://localhost:4017`
@@ -36,29 +36,29 @@ All services start with sensible defaults. No config file needed:
 
 Every running service also exposes a public control plane under `/_emulate`:
 
-| Route                        | Purpose                                                                                                                             |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /_emulate`              | Human-readable landing page for the service instance                                                                                |
-| `GET /_emulate/manifest`     | Machine-readable service manifest, including supported surfaces, auth capabilities, spec coverage, and resolved connection snippets |
-| `GET /_emulate/quickstart`   | Plain-text instructions for humans and agents                                                                                       |
-| `GET /_emulate/specs`        | Advertised specs and protocol surfaces                                                                                              |
-| `GET /_emulate/coverage`     | Per-operation coverage report with a summary grouped by status (generated, hand-authored, partial, unsupported)                     |
-| `GET /_emulate/connections`  | Copyable SDK, CLI, env, and curl snippets resolved against this instance (optional `?token=`, `?client_id=`, `?client_secret=`)     |
-| `GET /_emulate/openapi`      | Redirect to the advertised OpenAPI document when one exists                                                                         |
-| `GET /_emulate/graphql`      | Return the GraphQL endpoint when the service exposes one                                                                            |
-| `GET /_emulate/mcp`          | Return the MCP endpoint when the service exposes one                                                                                |
-| `GET /_emulate/ledger`       | Recent API calls with sensitive fields redacted                                                                                     |
-| `DELETE /_emulate/ledger`    | Clear the request ledger                                                                                                            |
-| `POST /_emulate/faults`      | Arm a one-shot or counted fault against matching provider requests                                                                  |
-| `GET /_emulate/faults`       | List armed faults with remaining counts                                                                                             |
-| `DELETE /_emulate/faults`    | Clear all armed faults                                                                                                               |
-| `DELETE /_emulate/faults/:id` | Clear one armed fault                                                                                                                |
-| `GET /_emulate/logs`         | Webhook deliveries plus recent requests                                                                                             |
-| `GET /_emulate/state`        | Current emulator store snapshot                                                                                                     |
-| `POST /_emulate/reset`       | Reset state, webhooks, and request logs, then replay seed data                                                                      |
-| `POST /_emulate/seed`        | Add runtime seed data using the service seed schema                                                                                 |
-| `POST /_emulate/credentials` | Create bearer tokens, API keys, OAuth clients, or client-credentials apps where supported                                           |
-| `POST /_emulate/instances`   | Return URLs for a lazily created hosted instance with a server-generated, unguessable name                                          |
+| Route                         | Purpose                                                                                                                             |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /_emulate`               | Human-readable landing page for the service instance                                                                                |
+| `GET /_emulate/manifest`      | Machine-readable service manifest, including supported surfaces, auth capabilities, spec coverage, and resolved connection snippets |
+| `GET /_emulate/quickstart`    | Plain-text instructions for humans and agents                                                                                       |
+| `GET /_emulate/specs`         | Advertised specs and protocol surfaces                                                                                              |
+| `GET /_emulate/coverage`      | Per-operation coverage report with a summary grouped by status (generated, hand-authored, partial, unsupported)                     |
+| `GET /_emulate/connections`   | Copyable SDK, CLI, env, and curl snippets resolved against this instance (optional `?token=`, `?client_id=`, `?client_secret=`)     |
+| `GET /_emulate/openapi`       | Redirect to the advertised OpenAPI document when one exists                                                                         |
+| `GET /_emulate/graphql`       | Return the GraphQL endpoint when the service exposes one                                                                            |
+| `GET /_emulate/mcp`           | Return the MCP endpoint when the service exposes one                                                                                |
+| `GET /_emulate/ledger`        | Recent API calls with sensitive fields redacted                                                                                     |
+| `DELETE /_emulate/ledger`     | Clear the request ledger                                                                                                            |
+| `POST /_emulate/faults`       | Arm a one-shot or counted fault against matching provider requests                                                                  |
+| `GET /_emulate/faults`        | List armed faults with remaining counts                                                                                             |
+| `DELETE /_emulate/faults`     | Clear all armed faults                                                                                                              |
+| `DELETE /_emulate/faults/:id` | Clear one armed fault                                                                                                               |
+| `GET /_emulate/logs`          | Webhook deliveries plus recent requests                                                                                             |
+| `GET /_emulate/state`         | Current emulator store snapshot                                                                                                     |
+| `POST /_emulate/reset`        | Reset state, webhooks, and request logs, then replay seed data                                                                      |
+| `POST /_emulate/seed`         | Add runtime seed data using the service seed schema                                                                                 |
+| `POST /_emulate/credentials`  | Create bearer tokens, API keys, OAuth clients, or client-credentials apps where supported                                           |
+| `POST /_emulate/instances`    | Return URLs for a lazily created hosted instance with a server-generated, unguessable name                                          |
 
 The manifest is the machine-readable single source of truth for a service. Each plugin package owns its manifest and serves it at `/_emulate/manifest`. It describes service identity, supported surfaces, auth capabilities, specs with per-operation coverage, scenarios, seed schema, state model, reset behavior, inspector tabs, request ledger capabilities, copyable connection snippets, and a docs link. OpenAPI, GraphQL, MCP, discovery documents, and OAuth metadata can inform those surfaces, but the emulator only advertises protocols that match the real service shape.
 
@@ -269,14 +269,14 @@ afterAll(() => Promise.all([github.close(), vercel.close()]));
 
 ### Instance methods
 
-| Method            | Description                                  |
-| ----------------- | -------------------------------------------- |
-| `url`             | Base URL of the running server               |
-| `reset()`         | Wipe the store and replay seed data          |
-| `close()`         | Shut down the HTTP server, returns a Promise |
-| `faults.arm()`    | Arm a one-shot or counted fault              |
-| `faults.list()`   | List armed faults with remaining counts      |
-| `faults.clear()`  | Clear one fault by id, or all faults         |
+| Method           | Description                                  |
+| ---------------- | -------------------------------------------- |
+| `url`            | Base URL of the running server               |
+| `reset()`        | Wipe the store and replay seed data          |
+| `close()`        | Shut down the HTTP server, returns a Promise |
+| `faults.arm()`   | Arm a one-shot or counted fault              |
+| `faults.list()`  | List armed faults with remaining counts      |
+| `faults.clear()` | Clear one fault by id, or all faults         |
 
 ## Configuration
 

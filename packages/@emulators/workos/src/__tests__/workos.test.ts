@@ -160,6 +160,52 @@ describe("workos emulator with the real @workos-inc/node SDK", () => {
     expect(roles.data.map((role) => role.slug).sort()).toEqual(["admin", "member"]);
   });
 
+  it("creates, lists, verifies, and deletes organization domains through the SDK", async () => {
+    const org = await workos.organizations.createOrganization({ name: "Domain Org" });
+    const domain = await workos.organizationDomains.create({
+      organizationId: org.id,
+      domain: "Example.COM",
+    });
+    expect(domain).toMatchObject({
+      domain: "example.com",
+      organizationId: org.id,
+      state: "pending",
+      verificationPrefix: "workos-domain-verification",
+    });
+    expect(domain.verificationToken).toMatch(/^verification_/);
+
+    const loaded = await workos.organizationDomains.get(domain.id);
+    expect(loaded.id).toBe(domain.id);
+    const organization = await workos.organizations.getOrganization(org.id);
+    expect(organization.domains.map((candidate) => candidate.id)).toContain(domain.id);
+
+    const verifiedResponse = await fetch(`${BASE}/_emulate/organization_domains/${domain.id}/verify`, {
+      method: "POST",
+    });
+    expect(verifiedResponse.status).toBe(200);
+    const verified = await workos.organizationDomains.get(domain.id);
+    expect(verified.state).toBe("verified");
+    expect(verified.verificationToken).toBeUndefined();
+
+    await workos.organizationDomains.delete(domain.id);
+    await expect(workos.organizationDomains.get(domain.id)).rejects.toThrow();
+  });
+
+  it("rejects duplicate organization domains across organizations", async () => {
+    const first = await workos.organizations.createOrganization({ name: "First Domain Org" });
+    const second = await workos.organizations.createOrganization({ name: "Second Domain Org" });
+    await workos.organizationDomains.create({
+      organizationId: first.id,
+      domain: "claimed.example",
+    });
+    await expect(
+      workos.organizationDomains.create({
+        organizationId: second.id,
+        domain: "claimed.example",
+      }),
+    ).rejects.toThrow();
+  });
+
   it("deletes an organization and cascades its memberships", async () => {
     const code = await signInAndGetCode("dana@example.com");
     const auth = await workos.userManagement.authenticateWithCode({

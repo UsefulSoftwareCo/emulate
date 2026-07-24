@@ -1,12 +1,12 @@
 ---
 name: workos
-description: Emulated WorkOS APIs (AuthKit user management, organizations, memberships, invitations, API keys, Vault KV, OAuth authorization server) for local development and testing. Use when the user needs WorkOS auth flows or sealed sessions without calling real WorkOS.
+description: Emulated WorkOS APIs (AuthKit user management, organizations, organization domains, memberships, invitations, API keys, Vault KV, OAuth authorization server) for local development and testing. Use when the user needs WorkOS auth flows or sealed sessions without calling real WorkOS.
 allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 ---
 
 # WorkOS Emulator
 
-Stateful WorkOS emulation: AuthKit hosted login, authorization-code and refresh grants, sealed-session JWKS, organizations, memberships, invitations, user API keys, Vault KV, and an OAuth authorization server suitable for MCP clients.
+Stateful WorkOS emulation: AuthKit hosted login, authorization-code and refresh grants, sealed-session JWKS, organizations, organization domains, memberships, invitations, user API keys, Vault KV, and an OAuth authorization server suitable for MCP clients.
 
 ## Start
 
@@ -39,6 +39,7 @@ Sealed sessions are sealed and unsealed locally by the SDK with your cookie pass
 
 ## Other surfaces
 
+- Organization domains: `POST /organization_domains`, `GET /organization_domains/:id`, and `DELETE /organization_domains/:id`. New domains start pending with DNS verification token and prefix fields. For deterministic tests, `POST /_emulate/organization_domains/:id/verify` flips a domain to verified.
 - OAuth authorization server for MCP clients: `/.well-known/oauth-authorization-server`, `/oauth2/register`, `/oauth2/authorize`, `/oauth2/token`, `/oauth2/jwks`. Set `EMULATE_WORKOS_AUDIENCE` to control the `aud` claim resource servers verify. AuthKit-faithful scope handling: the token grant carries exactly the scopes the client requested at `/oauth2/authorize`, a refresh token is issued only when `offline_access` is among them, and refresh tokens are single use (rotated on every redemption). Register with the emulate-only DCR field `access_token_ttl_seconds` to compress access-token expiry for lifecycle tests, or seed `{ "oauth": { "default_access_token_ttl_seconds": 15 } }` to compress it for every plain-DCR client (real MCP clients that cannot carry the extension); seed `null` to restore the default 3600.
 - Vault KV: `POST /vault/v1/kv`, `GET /vault/v1/kv/name/:name`, `PUT /vault/v1/kv/:id`, `DELETE /vault/v1/kv/:id`.
 

@@ -4,7 +4,7 @@ export const manifest: ServiceManifest = {
   id: "workos",
   name: "WorkOS",
   description:
-    "Stateful WorkOS emulator: AuthKit user management (hosted login, code + refresh grants, sealed-session JWKS), organizations, memberships, invitations, API keys, Vault KV, and an OAuth authorization server for MCP clients.",
+    "Stateful WorkOS emulator: AuthKit user management (hosted login, code + refresh grants, sealed-session JWKS), organizations, organization domains, memberships, invitations, API keys, Vault KV, and an OAuth authorization server for MCP clients.",
   docsUrl: "https://docs.emulators.dev/workos",
   surfaces: [
     { id: "rest", kind: "rest", title: "WorkOS REST API", status: "partial", basePath: "/" },
@@ -104,6 +104,24 @@ export const manifest: ServiceManifest = {
         { operationId: "organizations.get", method: "GET", path: "/organizations/:id", status: "hand-authored" },
         { operationId: "organizations.update", method: "PUT", path: "/organizations/:id", status: "hand-authored" },
         {
+          operationId: "organizationDomains.create",
+          method: "POST",
+          path: "/organization_domains",
+          status: "hand-authored",
+        },
+        {
+          operationId: "organizationDomains.get",
+          method: "GET",
+          path: "/organization_domains/:id",
+          status: "hand-authored",
+        },
+        {
+          operationId: "organizationDomains.delete",
+          method: "DELETE",
+          path: "/organization_domains/:id",
+          status: "hand-authored",
+        },
+        {
           operationId: "organizations.roles",
           method: "GET",
           path: "/organizations/:id/roles",
@@ -153,6 +171,7 @@ export const manifest: ServiceManifest = {
     collections: [
       { name: "workos.users" },
       { name: "workos.organizations" },
+      { name: "workos.organization_domains" },
       { name: "workos.memberships" },
       { name: "workos.invitations" },
       { name: "workos.api_keys" },

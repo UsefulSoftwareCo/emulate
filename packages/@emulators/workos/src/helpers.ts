@@ -5,6 +5,7 @@ import type {
   WorkosInvitation,
   WorkosMembership,
   WorkosOrganization,
+  WorkosOrganizationDomain,
   WorkosUser,
   WorkosVaultObject,
 } from "./entities.js";
@@ -60,18 +61,37 @@ export function serializeUser(user: WorkosUser): Record<string, unknown> {
   };
 }
 
-export function serializeOrganization(org: WorkosOrganization): Record<string, unknown> {
+export function serializeOrganization(
+  org: WorkosOrganization,
+  domains: WorkosOrganizationDomain[] = [],
+): Record<string, unknown> {
   return {
     object: "organization",
     id: org.workos_id,
     name: org.name,
     allow_profiles_outside_organization: false,
-    domains: [],
+    domains: domains.map(serializeOrganizationDomain),
     stripe_customer_id: null,
     external_id: org.external_id,
     metadata: {},
     created_at: org.created_at,
     updated_at: org.updated_at,
+  };
+}
+
+/** Serialize an organization-domain entity to the WorkOS wire shape. */
+export function serializeOrganizationDomain(domain: WorkosOrganizationDomain): Record<string, unknown> {
+  return {
+    object: "organization_domain",
+    id: domain.workos_id,
+    organization_id: domain.organization_id,
+    domain: domain.domain,
+    state: domain.state,
+    verification_strategy: domain.verification_strategy,
+    ...(domain.verification_token === null ? {} : { verification_token: domain.verification_token }),
+    ...(domain.verification_prefix === null ? {} : { verification_prefix: domain.verification_prefix }),
+    created_at: domain.created_at,
+    updated_at: domain.updated_at,
   };
 }
 

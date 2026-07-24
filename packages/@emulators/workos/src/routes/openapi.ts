@@ -265,6 +265,35 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
           responses: { "200": ok("Role list."), "404": ok("Not found.") },
         },
       },
+      "/organization_domains": {
+        post: {
+          operationId: "organizationDomains.create",
+          tags: ["organization-domains"],
+          summary: "Create an organization domain",
+          requestBody: jsonBody(
+            { domain: { type: "string" }, organization_id: { type: "string" } },
+            ["domain", "organization_id"],
+            "The domain claim to create.",
+          ),
+          responses: { "201": ok("The created organization domain."), "409": ok("Domain conflict.") },
+        },
+      },
+      "/organization_domains/{id}": {
+        get: {
+          operationId: "organizationDomains.get",
+          tags: ["organization-domains"],
+          summary: "Retrieve an organization domain",
+          parameters: [id],
+          responses: { "200": ok("The organization domain."), "404": ok("Not found.") },
+        },
+        delete: {
+          operationId: "organizationDomains.delete",
+          tags: ["organization-domains"],
+          summary: "Delete an organization domain",
+          parameters: [id],
+          responses: { "204": noContent("Deleted."), "404": ok("Not found.") },
+        },
+      },
       "/sso/jwks/{clientId}": {
         get: {
           operationId: "sso.jwks",
