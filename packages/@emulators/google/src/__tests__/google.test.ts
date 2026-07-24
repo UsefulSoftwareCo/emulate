@@ -964,15 +964,23 @@ describe("Google plugin integration", () => {
     });
     const tokens = (await tokenRes.json()) as { access_token: string; refresh_token: string };
 
-    expect((await app.request(`${base}/oauth2/v2/userinfo`, {
-      headers: { Authorization: `Bearer ${tokens.access_token}` },
-    })).status).toBe(200);
+    expect(
+      (
+        await app.request(`${base}/oauth2/v2/userinfo`, {
+          headers: { Authorization: `Bearer ${tokens.access_token}` },
+        })
+      ).status,
+    ).toBe(200);
     const expired = await app.request(`${base}/_emulate/oauth/access-tokens/expire`, { method: "POST" });
     expect(expired.status).toBe(200);
     expect(await expired.json()).toMatchObject({ expired: expect.any(Number) });
-    expect((await app.request(`${base}/oauth2/v2/userinfo`, {
-      headers: { Authorization: `Bearer ${tokens.access_token}` },
-    })).status).toBe(401);
+    expect(
+      (
+        await app.request(`${base}/oauth2/v2/userinfo`, {
+          headers: { Authorization: `Bearer ${tokens.access_token}` },
+        })
+      ).status,
+    ).toBe(401);
 
     const revoked = await app.request(`${base}/_emulate/oauth/refresh-tokens/revoke`, { method: "POST" });
     expect(revoked.status).toBe(200);
