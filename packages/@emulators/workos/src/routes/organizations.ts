@@ -1,7 +1,14 @@
 import type { Context, RouteContext } from "@emulators/core";
 
 import { getWorkosStore } from "../store.js";
-import { listEnvelope, serializeOrganization, workosError, workosId } from "../helpers.js";
+import {
+  listEnvelope,
+  randomToken,
+  serializeOrganization,
+  serializeOrganizationDomain,
+  workosError,
+  workosId,
+} from "../helpers.js";
 
 export function organizationRoutes(ctx: RouteContext): void {
   const { app, store, baseUrl } = ctx;
@@ -16,13 +23,18 @@ export function organizationRoutes(ctx: RouteContext): void {
       name,
       external_id: typeof body.external_id === "string" ? body.external_id : null,
     });
-    return c.json(serializeOrganization(organization), 201);
+    return c.json(
+      serializeOrganization(organization, ws().organizationDomains.findBy("organization_id", organization.workos_id)),
+      201,
+    );
   });
 
   app.get("/organizations/:id", (c) => {
     const organization = ws().organizations.findOneBy("workos_id", c.req.param("id"));
     if (!organization) return workosError(c, 404, "entity_not_found", "Organization not found.");
-    return c.json(serializeOrganization(organization));
+    return c.json(
+      serializeOrganization(organization, ws().organizationDomains.findBy("organization_id", organization.workos_id)),
+    );
   });
 
   app.put("/organizations/:id", async (c) => {
@@ -32,7 +44,9 @@ export function organizationRoutes(ctx: RouteContext): void {
     const updated = ws().organizations.update(organization.id, {
       name: typeof body.name === "string" && body.name ? body.name : organization.name,
     })!;
-    return c.json(serializeOrganization(updated));
+    return c.json(
+      serializeOrganization(updated, ws().organizationDomains.findBy("organization_id", updated.workos_id)),
+    );
   });
 
   app.delete("/organizations/:id", (c) => {
@@ -42,6 +56,9 @@ export function organizationRoutes(ctx: RouteContext): void {
     // deleted org comes back empty and members lose access.
     for (const membership of ws().memberships.findBy("organization_id", organization.workos_id)) {
       ws().memberships.delete(membership.id);
+    }
+    for (const domain of ws().organizationDomains.findBy("organization_id", organization.workos_id)) {
+      ws().organizationDomains.delete(domain.id);
     }
     ws().organizations.delete(organization.id);
     return c.body(null, 204);
@@ -79,17 +96,48 @@ export function organizationRoutes(ctx: RouteContext): void {
     return c.json({ link: `${baseUrl}/_portal/${organization}?intent=${body.intent ?? ""}` });
   });
 
-  app.get("/organization_domains/:id", (c) =>
-    c.json({
-      object: "organization_domain",
-      id: c.req.param("id"),
-      organization_id: "org_unknown",
-      domain: "example.com",
-      state: "verified",
-      verification_strategy: "dns",
-      verification_token: "token",
-    }),
-  );
+  app.post("/organization_domains", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const organizationId = typeof body.organization_id === "string" ? body.organization_id : "";
+    const domainName = typeof body.domain === "string" ? body.domain.trim() : "";
+    if (!organizationId) return workosError(c, 422, "invalid_request", "organization_id is required");
+    if (!domainName) return workosError(c, 422, "invalid_request", "domain is required");
+    if (!ws().organizations.findOneBy("workos_id", organizationId)) {
+      return workosError(c, 404, "entity_not_found", "Organization not found.");
+    }
 
-  app.delete("/organization_domains/:id", (c) => c.body(null, 204));
+    const domain = ws().organizationDomains.insert({
+      workos_id: workosId("org_domain"),
+      organization_id: organizationId,
+      domain: domainName,
+      state: "pending",
+      verification_prefix: "workos-domain-verification",
+      verification_token: randomToken("verification"),
+      verification_strategy: "dns",
+    });
+    return c.json(serializeOrganizationDomain(domain), 201);
+  });
+
+  app.get("/organization_domains/:id", (c) => {
+    const domain = ws().organizationDomains.findOneBy("workos_id", c.req.param("id"));
+    if (!domain) return workosError(c, 404, "entity_not_found", "Organization domain not found.");
+    return c.json(serializeOrganizationDomain(domain));
+  });
+
+  app.delete("/organization_domains/:id", (c) => {
+    const domain = ws().organizationDomains.findOneBy("workos_id", c.req.param("id"));
+    if (!domain) return workosError(c, 404, "entity_not_found", "Organization domain not found.");
+    ws().organizationDomains.delete(domain.id);
+    return c.body(null, 204);
+  });
+
+  const verifyDomain = (c: Context) => {
+    const domain = ws().organizationDomains.findOneBy("workos_id", c.req.param("id"));
+    if (!domain) return workosError(c, 404, "entity_not_found", "Organization domain not found.");
+    const verified = ws().organizationDomains.update(domain.id, { state: "verified" });
+    if (!verified) throw new Error("Organization domain disappeared while verifying.");
+    return c.json(serializeOrganizationDomain(verified));
+  };
+  app.post("/organization_domains/:id/verify", verifyDomain);
+  app.post("/_emulate/organization_domains/:id/verify", verifyDomain);
 }

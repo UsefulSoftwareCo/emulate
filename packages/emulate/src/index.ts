@@ -35,6 +35,9 @@ Control plane (under /_emulate on each service):
   GET  /_emulate/coverage     per-operation coverage and summary
   GET  /_emulate/connections  copyable SDK, CLI, env, and curl snippets
   GET  /_emulate/openapi      OpenAPI document (when supported)
+  Stripe also serves its OpenAPI subset at /openapi.json and /openapi.yaml.
+  WorkOS domains support POST /organization_domains/:id/verify and the
+  test control route POST /_emulate/organization_domains/:id/verify.
   GET  /_emulate/graphql      GraphQL surface (when supported)
   GET  /_emulate/mcp          MCP surface (when supported)
   GET  /_emulate/state        current emulator state

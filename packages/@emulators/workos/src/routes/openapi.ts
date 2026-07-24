@@ -256,6 +256,48 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
           responses: { "200": ok("The updated organization."), "404": ok("Not found.") },
         },
       },
+      "/organization_domains": {
+        post: {
+          operationId: "organizationDomains.create",
+          tags: ["organization-domains"],
+          summary: "Create an organization domain",
+          requestBody: jsonBody(
+            { organization_id: { type: "string" }, domain: { type: "string" } },
+            ["organization_id", "domain"],
+            "The organization and domain to verify.",
+          ),
+          responses: {
+            "201": ok("The pending organization domain."),
+            "404": ok("Organization not found."),
+            "422": ok("Validation error."),
+          },
+        },
+      },
+      "/organization_domains/{id}": {
+        get: {
+          operationId: "organizationDomains.get",
+          tags: ["organization-domains"],
+          summary: "Retrieve an organization domain",
+          parameters: [id],
+          responses: { "200": ok("The organization domain."), "404": ok("Not found.") },
+        },
+        delete: {
+          operationId: "organizationDomains.delete",
+          tags: ["organization-domains"],
+          summary: "Delete an organization domain",
+          parameters: [id],
+          responses: { "204": noContent("Deleted."), "404": ok("Not found.") },
+        },
+      },
+      "/organization_domains/{id}/verify": {
+        post: {
+          operationId: "organizationDomains.verify",
+          tags: ["organization-domains"],
+          summary: "Verify an organization domain",
+          parameters: [id],
+          responses: { "200": ok("The verified organization domain."), "404": ok("Not found.") },
+        },
+      },
       "/organizations/{id}/roles": {
         get: {
           operationId: "organizations.roles",

@@ -1,4 +1,5 @@
 import type { RouteContext } from "@emulators/core";
+import { stringify as stringifyYaml } from "yaml";
 
 // OpenAPI 3.1 document for this Stripe emulator instance, pointed at itself,
 // with the bearer-token security scheme real Stripe uses for secret keys.
@@ -6,6 +7,9 @@ import type { RouteContext } from "@emulators/core";
 // are omitted so OpenAPI-aware clients only see what actually works.
 export function openapiRoutes({ app, baseUrl }: RouteContext): void {
   app.get("/openapi.json", (c) => c.json(buildSpec(baseUrl)));
+  app.get("/openapi.yaml", (c) =>
+    c.body(stringifyYaml(buildSpec(baseUrl)), 200, { "Content-Type": "application/yaml; charset=UTF-8" }),
+  );
 }
 
 const ok = (description: string) => ({
@@ -14,14 +18,24 @@ const ok = (description: string) => ({
 });
 const id = { name: "id", in: "path", required: true, schema: { type: "string" } };
 const metadata = { type: "object", additionalProperties: { type: "string" } };
+const isObjectSchema = (value: unknown): value is Readonly<Record<string, unknown>> => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  return (value as Readonly<Record<string, unknown>>)["type"] === "object";
+};
 // Stripe request bodies are form-encoded (the emulator also accepts JSON with
-// the same field names). The body is only required when a field is required.
+// the same field names). Object fields use bracket notation, which OpenAPI
+// expresses with deepObject encoding. The body is only required when a field is required.
 const formBody = (properties: Record<string, unknown>, required: readonly string[], description: string) => ({
   required: required.length > 0,
   description,
   content: {
     "application/x-www-form-urlencoded": {
       schema: { type: "object", properties, required: [...required] },
+      encoding: Object.fromEntries(
+        Object.entries(properties)
+          .filter(([, schema]) => isObjectSchema(schema))
+          .map(([name]) => [name, { style: "deepObject", explode: true }]),
+      ),
     },
   },
 });
