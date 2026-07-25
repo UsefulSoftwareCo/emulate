@@ -1,6 +1,7 @@
 {
   "name": "@emulators/posthog",
   "version": "0.13.8",
+  "private": true,
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -19,9 +20,6 @@
   },
   "bugs": {
     "url": "https://github.com/vercel-labs/emulate/issues"
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "files": [
     "dist"

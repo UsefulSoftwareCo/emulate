@@ -1,6 +1,7 @@
 {
   "name": "@emulators/cloudflare",
   "version": "0.13.8",
+  "private": true,
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -13,9 +14,6 @@
     "./worker": {
       "import": "./dist/worker.js"
     }
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "files": [
     "dist"

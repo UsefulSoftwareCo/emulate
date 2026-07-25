@@ -1,6 +1,7 @@
 {
   "name": "@emulators/spotify",
   "version": "0.13.8",
+  "private": true,
   "license": "Apache-2.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -10,9 +11,6 @@
       "import": "./dist/index.js",
       "types": "./dist/index.d.ts"
     }
-  },
-  "publishConfig": {
-    "access": "public"
   },
   "files": [
     "dist"

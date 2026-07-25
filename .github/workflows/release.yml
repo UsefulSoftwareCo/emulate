@@ -14,7 +14,6 @@ permissions:
   contents: read
 
 env:
-  EMULATOR_PACKAGES: adapter-next apple aws clerk core github google microsoft mongoatlas okta posthog resend slack stripe vercel
 
 jobs:
   check-release:
@@ -38,14 +37,6 @@ jobs:
           if [ "$LOCAL_VERSION" != "$REGISTRY_VERSION" ]; then
             SHOULD_RELEASE=true
           fi
-
-          for pkg in $EMULATOR_PACKAGES; do
-            REGISTRY_VERSION=$(npm view "@emulators/$pkg" version 2>/dev/null || echo "0.0.0")
-            echo "@emulators/$pkg — local: $LOCAL_VERSION, registry: $REGISTRY_VERSION"
-            if [ "$LOCAL_VERSION" != "$REGISTRY_VERSION" ]; then
-              SHOULD_RELEASE=true
-            fi
-          done
 
           echo "should_release=$SHOULD_RELEASE" >> "$GITHUB_OUTPUT"
           echo "version=$LOCAL_VERSION" >> "$GITHUB_OUTPUT"
@@ -99,11 +90,9 @@ jobs:
             fi
           }
 
+          # The @emulators npm scope belongs to a third party; those workspace
+          # packages are private and bundled into @executor-js/emulate by tsup.
           publish_pkg packages/emulate @executor-js/emulate
-
-          for pkg in $EMULATOR_PACKAGES; do
-            publish_pkg "packages/@emulators/$pkg" "@emulators/$pkg"
-          done
 
           if [ -n "$FAILED" ]; then
             echo "Failed to publish:$FAILED"
