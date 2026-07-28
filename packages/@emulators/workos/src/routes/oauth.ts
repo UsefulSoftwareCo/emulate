@@ -70,6 +70,9 @@ export function oauthRoutes(ctx: RouteContext): void {
     const state = c.req.query("state") ?? "";
     const codeChallenge = c.req.query("code_challenge") ?? "";
     const scope = c.req.query("scope") ?? "";
+    // RFC 8707: the resource the client wants the token bound to. Carried
+    // through the code so the token endpoint can set it as the audience.
+    const resource = c.req.query("resource") ?? "";
     const loginHint = c.req.query("login_hint");
     if (!redirectUri) return workosError(c, 422, "invalid_request", "redirect_uri is required");
 
@@ -87,6 +90,7 @@ export function oauthRoutes(ctx: RouteContext): void {
         redirect_uri: redirectUri,
         code_challenge: codeChallenge || null,
         scope: scope || null,
+        resource: resource || null,
         used: false,
       });
       const target = new URL(redirectUri);
@@ -113,6 +117,7 @@ export function oauthRoutes(ctx: RouteContext): void {
             state,
             code_challenge: codeChallenge,
             scope,
+            resource,
           },
         }),
       )
@@ -124,6 +129,7 @@ export function oauthRoutes(ctx: RouteContext): void {
         <input type="hidden" name="state" value="${escapeHtml(state)}" />
         <input type="hidden" name="code_challenge" value="${escapeHtml(codeChallenge)}" />
         <input type="hidden" name="scope" value="${escapeHtml(scope)}" />
+        <input type="hidden" name="resource" value="${escapeHtml(resource)}" />
         <input type="email" name="email" class="checkout-input" placeholder="new-user@example.com" required />
         <button type="submit" class="checkout-pay-btn">Continue as new user</button>
       </form>`;
@@ -153,6 +159,7 @@ export function oauthRoutes(ctx: RouteContext): void {
       redirect_uri: redirectUri,
       code_challenge: String(form.code_challenge ?? "") || null,
       scope: String(form.scope ?? "") || null,
+      resource: String(form.resource ?? "") || null,
       used: false,
     });
     const target = new URL(redirectUri);
@@ -244,8 +251,12 @@ export function oauthRoutes(ctx: RouteContext): void {
         client_id: session.client_id,
         revoked: false,
         scope: session.scope,
+        resource: session.resource ?? null,
       });
-      const audience = process.env.EMULATE_WORKOS_AUDIENCE ?? session.client_id;
+      // A refresh renews the binding the session was established with, so a
+      // token that reached a resource server before still reaches it after.
+      const audience =
+        session.resource ?? process.env.EMULATE_WORKOS_AUDIENCE ?? session.client_id;
       const expiresIn = ttlFor(session.client_id);
       const accessToken = await signAccessToken(
         {
@@ -274,10 +285,14 @@ export function oauthRoutes(ctx: RouteContext): void {
       return workosError(c, 400, "invalid_grant", "The code is invalid or has been used.");
     }
     ws().oauthCodes.update(oauthCode.id, { used: true });
-    // Resource servers verify audience against THEIR WorkOS client id, not the
-    // DCR client's — mirror AuthKit: EMULATE_WORKOS_AUDIENCE (the app's client
-    // id) when set, else the requesting client.
-    const audience = process.env.EMULATE_WORKOS_AUDIENCE ?? oauthCode.client_id;
+    // RFC 8707 first: a client that named a resource gets a token bound to it,
+    // which is what lets any dynamically registered client reach a resource
+    // server without that server knowing the client's id. Otherwise the
+    // resource server verifies against THEIR WorkOS client id, not the DCR
+    // client's — mirror AuthKit: EMULATE_WORKOS_AUDIENCE (the app's client id)
+    // when set, else the requesting client.
+    const audience =
+      oauthCode.resource ?? process.env.EMULATE_WORKOS_AUDIENCE ?? oauthCode.client_id;
     // AuthKit grants exactly the scopes the client requested (no defaulting)
     // and issues a refresh token ONLY when offline_access is among them. A
     // client that requests no scopes gets granted_scopes: [] and a session it
@@ -293,6 +308,7 @@ export function oauthRoutes(ctx: RouteContext): void {
           client_id: oauthCode.client_id,
           revoked: false,
           scope: oauthCode.scope,
+          resource: oauthCode.resource,
         })
       : null;
     const expiresIn = ttlFor(oauthCode.client_id);

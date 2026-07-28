@@ -74,6 +74,11 @@ export interface WorkosSession extends Entity {
   revoked: boolean;
   /** Space-delimited granted scopes (null for user-management sessions). */
   scope: string | null;
+  /**
+   * RFC 8707 resource this session's access tokens are bound to, so a refresh
+   * renews a token the same resource server still accepts.
+   */
+  resource?: string | null;
 }
 
 /** Vault KV object. */
@@ -111,5 +116,7 @@ export interface WorkosOAuthCode extends Entity {
   code_challenge: string | null;
   /** Space-delimited scopes the client requested at /oauth2/authorize. */
   scope: string | null;
+  /** RFC 8707 resource indicator the client asked the token to be bound to. */
+  resource: string | null;
   used: boolean;
 }
