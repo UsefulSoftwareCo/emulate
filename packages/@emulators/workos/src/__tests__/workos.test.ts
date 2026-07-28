@@ -545,4 +545,82 @@ describe("workos emulator with the real @workos-inc/node SDK", () => {
     });
     expect(auth.user.firstName).toBe("Seeded");
   });
+
+  it("binds an access token to the RFC 8707 resource a client asked for", async () => {
+    const redirectUri = "http://127.0.0.1:9/callback";
+    const resource = "https://resource.example";
+    const registered = (await (
+      await fetch(`${BASE}/oauth2/register`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ client_name: "resource-test", redirect_uris: [redirectUri] }),
+      })
+    ).json()) as { client_id: string };
+
+    const mint = async (
+      withResource: boolean,
+    ): Promise<{ access_token?: string; refresh_token?: string }> => {
+      const authorize = new URL(`${BASE}/oauth2/authorize`);
+      authorize.searchParams.set("client_id", registered.client_id);
+      authorize.searchParams.set("redirect_uri", redirectUri);
+      authorize.searchParams.set("login_hint", "resource@example.com");
+      authorize.searchParams.set("scope", "openid offline_access");
+      if (withResource) authorize.searchParams.set("resource", resource);
+      const redirect = await fetch(authorize, { redirect: "manual" });
+      const code = new URL(redirect.headers.get("location") ?? "").searchParams.get("code") ?? "";
+      return (await (
+        await fetch(`${BASE}/oauth2/token`, {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: new URLSearchParams({
+            grant_type: "authorization_code",
+            code,
+            redirect_uri: redirectUri,
+            client_id: registered.client_id,
+          }),
+        })
+      ).json()) as { access_token?: string; refresh_token?: string };
+    };
+
+    const jwks = createRemoteJWKSet(new URL(`${BASE}/oauth2/jwks`));
+
+    // The point of RFC 8707: the audience is the resource, NOT the id this
+    // client was assigned at registration, so a resource server admits a
+    // dynamically registered client without knowing anything about it.
+    const bound = await mint(true);
+    const verified = await jwtVerify(bound.access_token ?? "", jwks, {
+      issuer: BASE,
+      audience: resource,
+    });
+    expect(verified.payload.aud).toBe(resource);
+
+    // A refresh keeps the binding, or a renewed token stops being accepted by
+    // the resource server that accepted the first one.
+    const refreshed = (await (
+      await fetch(`${BASE}/oauth2/token`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          refresh_token: bound.refresh_token ?? "",
+          client_id: registered.client_id,
+        }),
+      })
+    ).json()) as { access_token?: string };
+    const reverified = await jwtVerify(refreshed.access_token ?? "", jwks, {
+      issuer: BASE,
+      audience: resource,
+    });
+    expect(reverified.payload.aud).toBe(resource);
+
+    // Without a resource indicator the prior behaviour stands: the audience is
+    // the requesting client, which is what unmodified callers still rely on.
+    const unbound = await mint(false);
+    const unboundPayload = await jwtVerify(unbound.access_token ?? "", jwks, {
+      issuer: BASE,
+      audience: registered.client_id,
+    });
+    expect(unboundPayload.payload.aud).toBe(registered.client_id);
+  });
+
 });
