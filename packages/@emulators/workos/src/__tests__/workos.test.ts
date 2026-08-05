@@ -383,9 +383,7 @@ describe("workos emulator with the real @workos-inc/node SDK", () => {
     expect(afterDelete.data).toEqual([]);
 
     // An unknown org 404s rather than answering an empty list.
-    await expect(
-      workos.organizations.listOrganizationApiKeys({ organizationId: "org_missing" }),
-    ).rejects.toThrow();
+    await expect(workos.organizations.listOrganizationApiKeys({ organizationId: "org_missing" })).rejects.toThrow();
   });
 
   it("serves JWKS on both surfaces and OAuth AS metadata", async () => {
