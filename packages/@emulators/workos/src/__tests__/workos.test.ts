@@ -333,6 +333,61 @@ describe("workos emulator with the real @workos-inc/node SDK", () => {
     expect(miss?.apiKey ?? null).toBeNull();
   });
 
+  it("mints, lists, validates, and deletes ORGANIZATION-owned API keys via the real SDK", async () => {
+    const org = await workos.organizations.createOrganization({ name: "Org Keys Org" });
+
+    // Mint through the SDK's own org-key surface — the exact call executor's
+    // cloud host makes (`workos.organizations.createOrganizationApiKey`).
+    const created = (await workos.organizations.createOrganizationApiKey({
+      organizationId: org.id,
+      name: "owner backend reader",
+    })) as { id: string; value?: string; owner?: { type?: string; id?: string } };
+    expect(created.value).toMatch(/^sk_emulate/);
+    // The owner IS the org: type "organization", id = the org, no member field.
+    expect(created.owner?.type).toBe("organization");
+    expect(created.owner?.id).toBe(org.id);
+    expect(created.owner).not.toHaveProperty("organization_id");
+
+    // The org listing reports it — and ONLY org-owned keys: a member's
+    // personal key in the same org must not share the listing.
+    const member = await signInAndGetCode("orgkeys-member@example.com").then((code) =>
+      workos.userManagement.authenticateWithCode({
+        code,
+        clientId: CLIENT_ID,
+        session: { sealSession: true, cookiePassword: COOKIE_PASSWORD },
+      }),
+    );
+    const raw = workos as unknown as {
+      post: (path: string, body: unknown) => Promise<{ data: { id?: string } }>;
+    };
+    await raw.post(`/user_management/users/${member.user.id}/api_keys`, {
+      name: "personal key",
+      organization_id: org.id,
+    });
+    const listed = await workos.organizations.listOrganizationApiKeys({ organizationId: org.id });
+    expect(listed.data.map((key) => key.id)).toEqual([created.id]);
+
+    // Validation resolves the org-owner shape (executor's PlatformAuth branch
+    // decodes exactly this).
+    const validation = (await workos.apiKeys.validateApiKey({
+      value: created.value as string,
+    })) as { apiKey?: { owner?: { type?: string; id?: string } } } | null;
+    expect(validation?.apiKey?.owner?.type).toBe("organization");
+    expect(validation?.apiKey?.owner?.id).toBe(org.id);
+
+    // Deletion goes through the shared endpoint, same as user keys.
+    await workos.apiKeys.deleteApiKey(created.id);
+    const afterDelete = await workos.organizations.listOrganizationApiKeys({
+      organizationId: org.id,
+    });
+    expect(afterDelete.data).toEqual([]);
+
+    // An unknown org 404s rather than answering an empty list.
+    await expect(
+      workos.organizations.listOrganizationApiKeys({ organizationId: "org_missing" }),
+    ).rejects.toThrow();
+  });
+
   it("serves JWKS on both surfaces and OAuth AS metadata", async () => {
     const sso = (await (await fetch(`${BASE}/sso/jwks/${CLIENT_ID}`)).json()) as {
       keys: Array<{ kid: string }>;

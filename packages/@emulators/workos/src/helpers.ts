@@ -131,7 +131,13 @@ export function serializeApiKey(key: WorkosApiKey, options: { includeValue?: boo
     id: key.workos_id,
     name: key.name,
     obfuscated_value: `${key.value.slice(0, 7)}…${key.value.slice(-4)}`,
-    owner: { type: "user", id: key.user_id, organization_id: key.organization_id },
+    // Real WorkOS reports two owner shapes: a member key carries the user in
+    // `id` and the org beside it; an ORGANIZATION-owned key (user_id null) IS
+    // the org — `id` is the organization and no member field exists.
+    owner:
+      key.user_id === null
+        ? { type: "organization", id: key.organization_id }
+        : { type: "user", id: key.user_id, organization_id: key.organization_id },
     last_used_at: key.last_used_at,
     created_at: key.created_at,
     updated_at: key.updated_at,

@@ -208,6 +208,26 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
           },
         },
       },
+      "/organizations/{id}/api_keys": {
+        get: {
+          operationId: "orgApiKeys.list",
+          tags: ["api-keys"],
+          summary: "List an organization's own API keys",
+          parameters: [id],
+          responses: { "200": ok("API key list (organization-owned only)."), "404": ok("Organization not found.") },
+        },
+        post: {
+          operationId: "orgApiKeys.create",
+          tags: ["api-keys"],
+          summary: "Create an organization-owned API key",
+          parameters: [id],
+          requestBody: jsonBody({ name: { type: "string" } }, [], "The API key to create."),
+          responses: {
+            "201": ok("The created key (value shown once)."),
+            "404": ok("Organization not found."),
+          },
+        },
+      },
       "/api_keys/validations": {
         post: {
           operationId: "apiKeys.validate",

@@ -98,6 +98,18 @@ export const manifest: ServiceManifest = {
           path: "/user_management/users/:id/api_keys",
           status: "hand-authored",
         },
+        {
+          operationId: "orgApiKeys.list",
+          method: "GET",
+          path: "/organizations/:id/api_keys",
+          status: "hand-authored",
+        },
+        {
+          operationId: "orgApiKeys.create",
+          method: "POST",
+          path: "/organizations/:id/api_keys",
+          status: "hand-authored",
+        },
         { operationId: "apiKeys.validate", method: "POST", path: "/api_keys/validations", status: "hand-authored" },
         { operationId: "apiKeys.delete", method: "DELETE", path: "/api_keys/:id", status: "hand-authored" },
         { operationId: "organizations.create", method: "POST", path: "/organizations", status: "hand-authored" },

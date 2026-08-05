@@ -46,7 +46,12 @@ export function getWorkosStore(store: Store): WorkosStore {
       "organization_id",
       "token",
     ]),
-    apiKeys: store.collection<WorkosApiKey>("workos.api_keys", ["workos_id", "value", "user_id"]),
+    apiKeys: store.collection<WorkosApiKey>("workos.api_keys", [
+      "workos_id",
+      "value",
+      "user_id",
+      "organization_id",
+    ]),
     authCodes: store.collection<WorkosAuthCode>("workos.auth_codes", ["code"]),
     sessions: store.collection<WorkosSession>("workos.sessions", ["refresh_token", "workos_id"]),
     vaultObjects: store.collection<WorkosVaultObject>("workos.vault_objects", ["workos_id", "name"]),

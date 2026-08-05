@@ -49,7 +49,10 @@ export interface WorkosApiKey extends Entity {
   workos_id: string; // key_...
   name: string;
   value: string; // sk_...
-  user_id: string;
+  /** The owning member — `null` for an ORGANIZATION-owned key, which belongs
+   *  to the org itself and has no user behind it (real WorkOS reports it with
+   *  `owner: { type: "organization" }`). */
+  user_id: string | null;
   organization_id: string;
   last_used_at: string | null;
 }
