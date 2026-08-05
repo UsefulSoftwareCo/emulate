@@ -1,8 +1,16 @@
 # Changelog
 
-## 0.13.8
+## 0.13.9
 
 <!-- release:start -->
+
+### New Features
+
+- **WorkOS organization-owned API keys** — the WorkOS emulator now serves the SDK's organization API key surface: `GET /organizations/:id/api_keys` lists an organization's own keys (organization-owned only — members' personal keys never share the listing) and `POST /organizations/:id/api_keys` mints one. An organization-owned key carries the real wire owner shape (`owner: { type: "organization", id }`, no member field), round-trips through `POST /api_keys/validations` with that shape, and deletes through the shared `DELETE /api_keys/:id`. Unknown organizations 404.
+
+<!-- release:end -->
+
+## 0.13.8
 
 ### New Features
 
