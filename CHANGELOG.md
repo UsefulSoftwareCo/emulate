@@ -1,15 +1,21 @@
 # Changelog
 
-## 0.13.8
+## 0.13.9
 
 <!-- release:start -->
 
 ### New Features
 
-- **WorkOS organization domains** — the WorkOS emulator now persists organization domains statefully: `POST /organization_domains` creates a pending domain with a DNS verification token, `GET /organization_domains/:id` returns its current state, `POST /organization_domains/:id/verify` performs the real SDK verification transition, and `DELETE /organization_domains/:id` removes it. Deleting an organization cascades to its domains, and a test-only `POST /_emulate/organization_domains/:id/verify` hook flips a pending domain to verified out of band. Domains are globally unique across organizations with WorkOS-shaped conflict errors.
-- **Stripe OpenAPI discovery in YAML** — the Stripe emulator serves `GET /openapi.yaml` alongside `GET /openapi.json`, derived from the same OpenAPI document. Form-encoded deep-object metadata (`metadata[foo]=bar`) is modeled in the spec's request encodings, and the customers API projects nested metadata in responses, matching Stripe's wire behavior. The request ledger records the parsed deep-object bodies.
+- **WorkOS organization-owned API keys** — the WorkOS emulator now serves the SDK's organization API key surface: `GET /organizations/:id/api_keys` lists an organization's own keys (organization-owned only — members' personal keys never share the listing) and `POST /organizations/:id/api_keys` mints one. An organization-owned key carries the real wire owner shape (`owner: { type: "organization", id }`, no member field), round-trips through `POST /api_keys/validations` with that shape, and deletes through the shared `DELETE /api_keys/:id`. Unknown organizations 404.
 
 <!-- release:end -->
+
+## 0.13.8
+
+### New Features
+
+- **WorkOS organization domains** — the WorkOS emulator now persists organization domains statefully: `POST /organization_domains` creates a pending domain with a DNS verification token, `GET /organization_domains/:id` returns its current state, `POST /organization_domains/:id/verify` performs the real SDK verification transition, and `DELETE /organization_domains/:id` removes it. Deleting an organization cascades to its domains, and a test-only `POST /_emulate/organization_domains/:id/verify` hook flips a pending domain to verified out of band. Domains are globally unique across organizations with WorkOS-shaped conflict errors.
+- **Stripe OpenAPI discovery in YAML** — the Stripe emulator serves `GET /openapi.yaml` alongside `GET /openapi.json`, derived from the same OpenAPI document. Form-encoded deep-object metadata (`metadata[foo]=bar`) is modeled in the spec's request encodings, and the customers API projects nested metadata in responses, matching Stripe's wire behavior. The request ledger records the parsed deep-object bodies.
 
 ## 0.13.7
 
