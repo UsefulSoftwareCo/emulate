@@ -33,6 +33,12 @@ export const manifest: ServiceManifest = {
           status: "hand-authored",
         },
         {
+          operationId: "userManagement.listUsers",
+          method: "GET",
+          path: "/user_management/users",
+          status: "hand-authored",
+        },
+        {
           operationId: "userManagement.getUser",
           method: "GET",
           path: "/user_management/users/:id",

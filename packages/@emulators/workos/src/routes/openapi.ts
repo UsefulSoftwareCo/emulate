@@ -77,6 +77,18 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
           },
         },
       },
+      "/user_management/users": {
+        get: {
+          operationId: "userManagement.listUsers",
+          tags: ["user-management"],
+          summary: "List users",
+          parameters: [
+            query("email", "Filter by email address."),
+            query("organization_id", "Filter by organization membership."),
+          ],
+          responses: { "200": ok("User list.") },
+        },
+      },
       "/user_management/users/{id}": {
         get: {
           operationId: "userManagement.getUser",

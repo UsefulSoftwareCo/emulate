@@ -39,6 +39,7 @@ Sealed sessions are sealed and unsealed locally by the SDK with your cookie pass
 
 ## Other surfaces
 
+- User directory: `GET /user_management/users` lists users and supports combined `email` and `organization_id` filters; `GET /user_management/users/:id` retrieves one user.
 - OAuth authorization server for MCP clients: `/.well-known/oauth-authorization-server`, `/oauth2/register`, `/oauth2/authorize`, `/oauth2/token`, `/oauth2/jwks`. Set `EMULATE_WORKOS_AUDIENCE` to control the `aud` claim resource servers verify. AuthKit-faithful scope handling: the token grant carries exactly the scopes the client requested at `/oauth2/authorize`, a refresh token is issued only when `offline_access` is among them, and refresh tokens are single use (rotated on every redemption). Register with the emulate-only DCR field `access_token_ttl_seconds` to compress access-token expiry for lifecycle tests, or seed `{ "oauth": { "default_access_token_ttl_seconds": 15 } }` to compress it for every plain-DCR client (real MCP clients that cannot carry the extension); seed `null` to restore the default 3600.
 - Organization domains: `POST /organization_domains`, `GET /organization_domains/:id`, `POST /organization_domains/:id/verify`, `DELETE /organization_domains/:id`. Domains begin pending with DNS verification fields. The provider verification route and `POST /_emulate/organization_domains/:id/verify` both mark one verified in a test.
 - Vault KV: `POST /vault/v1/kv`, `GET /vault/v1/kv/name/:name`, `PUT /vault/v1/kv/:id`, `DELETE /vault/v1/kv/:id`.

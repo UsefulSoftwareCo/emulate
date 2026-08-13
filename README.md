@@ -28,7 +28,7 @@ All services start with sensible defaults. No config file needed:
 - **Clerk** on `http://localhost:4011`
 - **Spotify** on `http://localhost:4012`
 - **X** on `http://localhost:4013`
-- **WorkOS** on `http://localhost:4014` (AuthKit, organizations, organization domains, Vault, and OAuth)
+- **WorkOS** on `http://localhost:4014` (AuthKit, user directory, organizations, organization domains, Vault, and OAuth)
 - **Autumn** on `http://localhost:4015`
 - **PostHog** on `http://localhost:4016`
 - **MCP** on `http://localhost:4017`
