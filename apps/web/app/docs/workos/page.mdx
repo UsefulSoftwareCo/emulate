@@ -10,6 +10,11 @@ npx emulate --service workos
 
 The local WorkOS emulator listens on `http://localhost:4014` when all services run together.
 
+## Users
+
+- `GET /user_management/users` — list users, optionally filtering by `email` and `organization_id`
+- `GET /user_management/users/:id` — retrieve a user
+
 ## Organizations
 
 - `POST /organizations` — create an organization

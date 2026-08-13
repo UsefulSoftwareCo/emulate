@@ -126,6 +126,33 @@ describe("workos emulator with the real @workos-inc/node SDK", () => {
     }
   });
 
+  it("lists users by email and organization through the SDK", async () => {
+    const code = await signInAndGetCode("Indexed.User@example.com");
+    const auth = await workos.userManagement.authenticateWithCode({
+      code,
+      clientId: CLIENT_ID,
+      session: { sealSession: true, cookiePassword: COOKIE_PASSWORD },
+    });
+    const memberOrg = await workos.organizations.createOrganization({ name: "Indexed User Org" });
+    const otherOrg = await workos.organizations.createOrganization({ name: "Other Indexed User Org" });
+    await workos.userManagement.createOrganizationMembership({
+      organizationId: memberOrg.id,
+      userId: auth.user.id,
+    });
+
+    const matching = await workos.userManagement.listUsers({
+      email: "indexed.user@example.com",
+      organizationId: memberOrg.id,
+    });
+    expect(matching.data.map((user) => user.id)).toEqual([auth.user.id]);
+
+    const wrongOrganization = await workos.userManagement.listUsers({
+      email: "indexed.user@example.com",
+      organizationId: otherOrg.id,
+    });
+    expect(wrongOrganization.data).toEqual([]);
+  });
+
   it("ends the session via the SDK's logout URL and rejects later refreshes", async () => {
     const code = await signInAndGetCode("carol@example.com");
     const auth = await workos.userManagement.authenticateWithCode({

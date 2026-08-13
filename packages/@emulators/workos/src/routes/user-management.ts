@@ -224,6 +224,25 @@ export function userManagementRoutes(ctx: RouteContext): void {
   });
 
   // --- Users ----------------------------------------------------------------
+  app.get("/user_management/users", (c) => {
+    const email = c.req.query("email");
+    const organizationId = c.req.query("organization_id");
+    let users = ws().users.all();
+    if (email) {
+      const normalizedEmail = email.toLowerCase();
+      users = users.filter((user) => user.email.toLowerCase() === normalizedEmail);
+    }
+    if (organizationId) {
+      const memberIds = new Set(
+        ws()
+          .memberships.findBy("organization_id", organizationId)
+          .map((membership) => membership.user_id),
+      );
+      users = users.filter((user) => memberIds.has(user.workos_id));
+    }
+    return c.json(listEnvelope(users.map(serializeUser)));
+  });
+
   app.get("/user_management/users/:id", (c) => {
     const user = ws().users.findOneBy("workos_id", c.req.param("id"));
     if (!user) return workosError(c, 404, "entity_not_found", "User not found.");
