@@ -160,10 +160,7 @@ export function appResponse(baseUrl: string, app: OktaApp): Record<string, unkno
   };
 }
 
-export function tokenExchangePolicyResponse(
-  baseUrl: string,
-  policy: OktaTokenExchangePolicy,
-): Record<string, unknown> {
+export function tokenExchangePolicyResponse(baseUrl: string, policy: OktaTokenExchangePolicy): Record<string, unknown> {
   return {
     id: policy.policy_id,
     name: policy.name,

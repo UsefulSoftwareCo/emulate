@@ -285,8 +285,7 @@ export const manifest: ServiceManifest = {
     },
   ],
   seedSchema: {
-    description:
-      "Seed users, groups, apps, OAuth clients, authorization servers, and token exchange policies.",
+    description: "Seed users, groups, apps, OAuth clients, authorization servers, and token exchange policies.",
     fields: [
       {
         key: "users",

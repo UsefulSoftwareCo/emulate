@@ -376,9 +376,10 @@ type SubjectResolution = { ok: true; userOktaId: string } | { ok: false; message
  * Draft section 4.3.3: the Identity Assertion must verify against this IdP, and
  * its audience must be the client authenticating the token exchange request.
  */
-async function subjectFromIdToken(token: string, options: { issuer: string; clientId: string }): Promise<
-  SubjectResolution
-> {
+async function subjectFromIdToken(
+  token: string,
+  options: { issuer: string; clientId: string },
+): Promise<SubjectResolution> {
   let payload;
   try {
     payload = await verifyIdToken(token, { issuer: options.issuer });
