@@ -706,7 +706,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   okta: {
     label: "Okta OAuth 2.0 / OpenID Connect + management API emulator",
     endpoints:
-      "OIDC discovery, JWKS, OAuth authorize/token/userinfo/introspect/revoke/logout, users, groups, apps, authorization servers",
+      "OIDC discovery, JWKS, OAuth authorize/token/userinfo/introspect/revoke/logout, ID-JAG token exchange, users, groups, apps, authorization servers, token exchange policies",
     async load() {
       const mod = await import("@emulators/okta");
       return { plugin: mod.oktaPlugin, manifest: mod.manifest, seedFromConfig: mod.seedFromConfig };

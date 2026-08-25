@@ -10,11 +10,40 @@ Default org server and custom authorization server paths (`/oauth2/:authServerId
 - `GET /oauth2/:authServerId/.well-known/openid-configuration` — per-server discovery
 - `GET /oauth2/v1/keys` — JSON Web Key Set (JWKS)
 - `GET /oauth2/v1/authorize` — authorization endpoint
-- `POST /oauth2/v1/token` — token endpoint
+- `POST /oauth2/v1/token` — token endpoint (authorization code, refresh token, client credentials, RFC 8693 token exchange)
 - `GET /oauth2/v1/userinfo` — user info
 - `POST /oauth2/v1/revoke` — token revocation
 - `POST /oauth2/v1/introspect` — token introspection
 - `GET /oauth2/v1/logout` — end session
+
+## Enterprise-Managed Authorization (ID-JAG)
+
+Okta plays the enterprise IdP in the MCP Enterprise-Managed Authorization profile. The token endpoint accepts `grant_type=urn:ietf:params:oauth:grant-type:token-exchange` with `requested_token_type=urn:ietf:params:oauth:token-type:id-jag` and exchanges an ID token or a refresh token for an Identity Assertion JWT Authorization Grant.
+
+```bash
+curl -s -X POST http://localhost:4006/oauth2/default/v1/token \
+  -d grant_type=urn:ietf:params:oauth:grant-type:token-exchange \
+  -d requested_token_type=urn:ietf:params:oauth:token-type:id-jag \
+  -d audience=http://localhost:4009 \
+  -d resource=http://localhost:4009/mcp \
+  -d scope="repo read:user" \
+  -d subject_token="$ID_TOKEN" \
+  -d subject_token_type=urn:ietf:params:oauth:token-type:id_token \
+  -d client_id=okta-test-client \
+  -d client_secret=okta-test-secret
+```
+
+The grant is signed with the same key as ID tokens, uses the JWT header `typ: oauth-id-jag+jwt`, and is issued by whichever authorization server minted it. Present it to the MCP server's authorization server with `grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer` to obtain an MCP access token.
+
+Administrator policy decides which client may act for which user, at which audience and resource, and with which scopes. Seed it under `token_exchange_policies` or manage it through the management API:
+
+- `GET /api/v1/tokenExchangePolicies` — list
+- `POST /api/v1/tokenExchangePolicies` — create
+- `GET /api/v1/tokenExchangePolicies/:policyId` — get
+- `PUT /api/v1/tokenExchangePolicies/:policyId` — update
+- `DELETE /api/v1/tokenExchangePolicies/:policyId` — delete
+
+Omit a condition to match anything. An empty table allows every exchange; once any policy exists the table is an allowlist and unmatched requests are denied with `invalid_target`. `DENY` beats `ALLOW`, and a non-empty `scopes` list narrows the scope carried by the grant.
 
 ## Users
 
