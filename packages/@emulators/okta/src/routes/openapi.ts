@@ -18,6 +18,7 @@ const userId = { name: "userId", in: "path", required: true, schema: { type: "st
 const groupId = { name: "groupId", in: "path", required: true, schema: { type: "string" } };
 const appId = { name: "appId", in: "path", required: true, schema: { type: "string" } };
 const authServerId = { name: "authServerId", in: "path", required: true, schema: { type: "string" } };
+const policyId = { name: "policyId", in: "path", required: true, schema: { type: "string" } };
 const q = { name: "q", in: "query", required: false, schema: { type: "string" } };
 const jsonBody = (properties: Record<string, unknown>, required: readonly string[], description: string) => ({
   required: true,
@@ -84,6 +85,22 @@ const authServerBody = (description: string, required: readonly string[]) =>
       description: { type: "string" },
       audiences: { type: "array", items: { type: "string" } },
       status: { type: "string", enum: ["ACTIVE", "INACTIVE"] },
+    },
+    required,
+    description,
+  );
+
+const tokenExchangePolicyBody = (description: string, required: readonly string[]) =>
+  jsonBody(
+    {
+      id: { type: "string" },
+      name: { type: "string" },
+      user_okta_id: { type: ["string", "null"] },
+      client_id: { type: ["string", "null"] },
+      audience: { type: ["string", "null"] },
+      resource: { type: ["string", "null"] },
+      scopes: { type: "array", items: { type: "string" } },
+      effect: { type: "string", enum: ["ALLOW", "DENY"] },
     },
     required,
     description,
@@ -434,6 +451,45 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
           summary: "Deactivate an authorization server",
           parameters: [authServerId],
           responses: { "200": ok("The deactivated authorization server."), "404": ok("Not found.") },
+        },
+      },
+      "/api/v1/tokenExchangePolicies": {
+        get: {
+          operationId: "tokenExchangePolicies/list",
+          tags: ["tokenExchangePolicies"],
+          summary: "List token exchange policies",
+          responses: { "200": ok("Token exchange policy list.") },
+        },
+        post: {
+          operationId: "tokenExchangePolicies/create",
+          tags: ["tokenExchangePolicies"],
+          summary: "Create a token exchange policy",
+          requestBody: tokenExchangePolicyBody("The policy to create. Omit a condition to match anything.", []),
+          responses: { "201": ok("The created policy."), "400": ok("Validation error.") },
+        },
+      },
+      "/api/v1/tokenExchangePolicies/{policyId}": {
+        get: {
+          operationId: "tokenExchangePolicies/get",
+          tags: ["tokenExchangePolicies"],
+          summary: "Retrieve a token exchange policy",
+          parameters: [policyId],
+          responses: { "200": ok("The policy."), "404": ok("Not found.") },
+        },
+        put: {
+          operationId: "tokenExchangePolicies/update",
+          tags: ["tokenExchangePolicies"],
+          summary: "Update a token exchange policy",
+          parameters: [policyId],
+          requestBody: tokenExchangePolicyBody("The policy fields to replace.", []),
+          responses: { "200": ok("The updated policy."), "404": ok("Not found.") },
+        },
+        delete: {
+          operationId: "tokenExchangePolicies/delete",
+          tags: ["tokenExchangePolicies"],
+          summary: "Delete a token exchange policy",
+          parameters: [policyId],
+          responses: { "204": noContent("Deleted."), "404": ok("Not found.") },
         },
       },
     },

@@ -8,7 +8,8 @@ import type { ServiceManifest } from "@emulators/core";
 export const manifest: ServiceManifest = {
   id: "okta",
   name: "Okta",
-  description: "Stateful Okta OAuth, OpenID Connect, users, groups, apps, and authorization server emulator.",
+  description:
+    "Stateful Okta OAuth, OpenID Connect, users, groups, apps, authorization server, and enterprise-managed ID-JAG token exchange emulator.",
   docsUrl: "https://docs.emulators.dev/okta",
   surfaces: [
     { id: "rest", kind: "rest", title: "Management API", status: "partial", basePath: "/api/v1" },
@@ -24,6 +25,14 @@ export const manifest: ServiceManifest = {
       status: "supported",
     },
     { id: "oidc", title: "OIDC identity tokens", type: "oidc", status: "supported" },
+    {
+      id: "token-exchange",
+      title: "RFC 8693 token exchange for ID-JAG",
+      type: "provider-specific",
+      status: "supported",
+      notes:
+        "MCP Enterprise-Managed Authorization: exchange an ID token or refresh token for an Identity Assertion JWT Authorization Grant, subject to the seeded token_exchange_policies table.",
+    },
     { id: "api-token", title: "SSWS API token", type: "api-key", status: "supported" },
   ],
   specs: [
@@ -83,6 +92,14 @@ export const manifest: ServiceManifest = {
           status: "hand-authored",
         },
         { operationId: "oauth/token", method: "POST", path: "/oauth2/v1/token", status: "hand-authored" },
+        {
+          operationId: "oauth/tokenExchange",
+          method: "POST",
+          path: "/oauth2/v1/token",
+          status: "hand-authored",
+          summary:
+            "grant_type=urn:ietf:params:oauth:grant-type:token-exchange with requested_token_type=urn:ietf:params:oauth:token-type:id-jag mints an ID-JAG. Also served per authorization server at /oauth2/:authServerId/v1/token.",
+        },
         { operationId: "oauth/userinfo", method: "GET", path: "/oauth2/v1/userinfo", status: "hand-authored" },
         { operationId: "oauth/introspect", method: "POST", path: "/oauth2/v1/introspect", status: "hand-authored" },
         { operationId: "oauth/revoke", method: "POST", path: "/oauth2/v1/revoke", status: "hand-authored" },
@@ -233,11 +250,43 @@ export const manifest: ServiceManifest = {
           path: "/api/v1/authorizationServers/:authServerId/lifecycle/deactivate",
           status: "hand-authored",
         },
+        {
+          operationId: "tokenExchangePolicies/list",
+          method: "GET",
+          path: "/api/v1/tokenExchangePolicies",
+          status: "hand-authored",
+          summary: "Emulator extension: administrator policy for ID-JAG token exchange.",
+        },
+        {
+          operationId: "tokenExchangePolicies/create",
+          method: "POST",
+          path: "/api/v1/tokenExchangePolicies",
+          status: "hand-authored",
+        },
+        {
+          operationId: "tokenExchangePolicies/get",
+          method: "GET",
+          path: "/api/v1/tokenExchangePolicies/:policyId",
+          status: "hand-authored",
+        },
+        {
+          operationId: "tokenExchangePolicies/update",
+          method: "PUT",
+          path: "/api/v1/tokenExchangePolicies/:policyId",
+          status: "hand-authored",
+        },
+        {
+          operationId: "tokenExchangePolicies/delete",
+          method: "DELETE",
+          path: "/api/v1/tokenExchangePolicies/:policyId",
+          status: "hand-authored",
+        },
       ],
     },
   ],
   seedSchema: {
-    description: "Seed users, groups, apps, OAuth clients, and authorization servers.",
+    description:
+      "Seed users, groups, apps, OAuth clients, authorization servers, and token exchange policies.",
     fields: [
       {
         key: "users",
@@ -291,6 +340,23 @@ export const manifest: ServiceManifest = {
         description: "Links between users and applications by Okta id.",
         example: [{ app_okta_id: "0oa_example", user_okta_id: "00u_example" }],
       },
+      {
+        key: "token_exchange_policies",
+        title: "Token exchange policies",
+        description:
+          "Administrator policy for ID-JAG token exchange (MCP Enterprise-Managed Authorization). Omit a condition, or set it to null, to match anything. An empty table allows every exchange; once any policy exists the table is an allowlist and an unmatched request is denied. DENY beats ALLOW, and a non-empty scopes list narrows the granted scope.",
+        example: [
+          {
+            id: "00p_mcp_read",
+            name: "Engineering can read the MCP server",
+            client_id: "okta-test-client",
+            audience: "http://localhost:4009",
+            resource: "http://localhost:4009/mcp",
+            scopes: ["read:user"],
+            effect: "ALLOW",
+          },
+        ],
+      },
     ],
     example: {
       users: [{ login: "testuser@okta.local", email: "testuser@okta.local", first_name: "Test", last_name: "User" }],
@@ -317,6 +383,7 @@ export const manifest: ServiceManifest = {
       { name: "auth_servers" },
       { name: "group_memberships" },
       { name: "app_assignments" },
+      { name: "token_exchange_policies" },
     ],
   },
   connections: [
