@@ -38,6 +38,7 @@
     "jose": "^6.2.3"
   },
   "devDependencies": {
+    "@emulators/okta": "workspace:*",
     "@emulators/workos": "workspace:*",
     "tsup": "^8",
     "typescript": "^5.7",
