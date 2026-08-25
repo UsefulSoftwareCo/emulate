@@ -1,6 +1,12 @@
 import type { Hono } from "@emulators/core";
 import type { AppEnv, RouteContext, ServicePlugin, Store, TokenMap, WebhookDispatcher } from "@emulators/core";
-import type { OktaAuthorizationServerStatus, OktaGroupType, OktaUserStatus } from "./entities.js";
+import type {
+  OktaAuthorizationServerStatus,
+  OktaGroupType,
+  OktaPolicyEffect,
+  OktaTokenExchangePolicy,
+  OktaUserStatus,
+} from "./entities.js";
 import {
   createDefaultApp,
   createDefaultAuthorizationServer,
@@ -19,12 +25,20 @@ import { authorizationServerRoutes } from "./routes/auth-servers.js";
 import { groupRoutes } from "./routes/groups.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { openapiRoutes } from "./routes/openapi.js";
+import { tokenExchangePolicyRoutes } from "./routes/token-exchange-policies.js";
 import { userRoutes } from "./routes/users.js";
 import { getOktaStore } from "./store.js";
+import { normalizePolicyEffect } from "./token-exchange-policy.js";
 
 export { getOktaStore, type OktaStore } from "./store.js";
 export * from "./entities.js";
 export { manifest } from "./manifest.js";
+export {
+  evaluateTokenExchangePolicy,
+  policyMatches,
+  type TokenExchangeDecision,
+  type TokenExchangeRequest,
+} from "./token-exchange-policy.js";
 
 export interface OktaSeedConfig {
   users?: Array<{
@@ -77,6 +91,21 @@ export interface OktaSeedConfig {
   app_assignments?: Array<{
     app_okta_id: string;
     user_okta_id: string;
+  }>;
+  /**
+   * Administrator policy for RFC 8693 token exchange (MCP Enterprise-Managed
+   * Authorization). Omit every condition to match anything. An empty table
+   * allows every exchange; once any policy exists the table is an allowlist.
+   */
+  token_exchange_policies?: Array<{
+    id?: string;
+    name?: string;
+    user_okta_id?: string | null;
+    client_id?: string | null;
+    audience?: string | null;
+    resource?: string | null;
+    scopes?: string[];
+    effect?: OktaPolicyEffect;
   }>;
 }
 
@@ -260,6 +289,46 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: OktaSeedC
       ensureAppAssignment(okta, app.okta_id, user.okta_id);
     }
   }
+
+  if (config.token_exchange_policies) {
+    for (const policy of config.token_exchange_policies) {
+      const effect = normalizePolicyEffect(policy.effect, "ALLOW");
+      const conditions = {
+        user_okta_id: policy.user_okta_id ?? null,
+        client_id: policy.client_id ?? null,
+        audience: policy.audience ?? null,
+        resource: policy.resource ?? null,
+      };
+      if (policy.id && okta.tokenExchangePolicies.findOneBy("policy_id", policy.id)) continue;
+      // Without an explicit id, the conditions plus the effect are the natural
+      // key, so re-seeding the same policy stays idempotent.
+      const duplicate = okta.tokenExchangePolicies
+        .all()
+        .find((entry) => entry.effect === effect && sameConditions(entry, conditions));
+      if (duplicate) continue;
+
+      const policyId = policy.id ?? generateOktaId("00p");
+      okta.tokenExchangePolicies.insert({
+        policy_id: policyId,
+        name: policy.name ?? policyId,
+        ...conditions,
+        scopes: policy.scopes ?? [],
+        effect,
+      });
+    }
+  }
+}
+
+function sameConditions(
+  policy: OktaTokenExchangePolicy,
+  conditions: Pick<OktaTokenExchangePolicy, "user_okta_id" | "client_id" | "audience" | "resource">,
+): boolean {
+  return (
+    policy.user_okta_id === conditions.user_okta_id &&
+    policy.client_id === conditions.client_id &&
+    policy.audience === conditions.audience &&
+    policy.resource === conditions.resource
+  );
 }
 
 export const oktaPlugin: ServicePlugin = {
@@ -271,6 +340,7 @@ export const oktaPlugin: ServicePlugin = {
     groupRoutes(ctx);
     appRoutes(ctx);
     authorizationServerRoutes(ctx);
+    tokenExchangePolicyRoutes(ctx);
     openapiRoutes(ctx);
   },
   seed(store: Store, baseUrl: string): void {

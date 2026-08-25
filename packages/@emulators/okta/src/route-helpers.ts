@@ -1,7 +1,7 @@
 import type { Context } from "@emulators/core";
 import type { ContentfulStatusCode } from "@emulators/core";
 import type { AuthUser, TokenMap, AppEnv } from "@emulators/core";
-import type { OktaApp, OktaAuthorizationServer, OktaGroup, OktaUser } from "./entities.js";
+import type { OktaApp, OktaAuthorizationServer, OktaGroup, OktaTokenExchangePolicy, OktaUser } from "./entities.js";
 import type { OktaStore } from "./store.js";
 import { resolveOktaIssuer, userDisplayName } from "./helpers.js";
 
@@ -89,6 +89,11 @@ export function findAuthorizationServerByRef(os: OktaStore, serverRef: string): 
   return os.authorizationServers.findOneBy("server_id", decoded);
 }
 
+export function findTokenExchangePolicyByRef(os: OktaStore, policyRef: string): OktaTokenExchangePolicy | undefined {
+  const decoded = decodeURIComponent(policyRef);
+  return os.tokenExchangePolicies.findOneBy("policy_id", decoded);
+}
+
 export function userResponse(baseUrl: string, user: OktaUser): Record<string, unknown> {
   return {
     id: user.okta_id,
@@ -150,6 +155,32 @@ export function appResponse(baseUrl: string, app: OktaApp): Record<string, unkno
     _links: {
       self: {
         href: `${baseUrl}/api/v1/apps/${encodeURIComponent(app.okta_id)}`,
+      },
+    },
+  };
+}
+
+export function tokenExchangePolicyResponse(
+  baseUrl: string,
+  policy: OktaTokenExchangePolicy,
+): Record<string, unknown> {
+  return {
+    id: policy.policy_id,
+    name: policy.name,
+    type: "TOKEN_EXCHANGE",
+    effect: policy.effect,
+    created: policy.created_at,
+    lastUpdated: policy.updated_at,
+    conditions: {
+      userId: policy.user_okta_id,
+      clientId: policy.client_id,
+      audience: policy.audience,
+      resource: policy.resource,
+    },
+    scopes: policy.scopes,
+    _links: {
+      self: {
+        href: `${baseUrl}/api/v1/tokenExchangePolicies/${encodeURIComponent(policy.policy_id)}`,
       },
     },
   };

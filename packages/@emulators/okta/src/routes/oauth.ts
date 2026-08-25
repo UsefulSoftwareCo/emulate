@@ -1,5 +1,4 @@
 import { createHash, randomBytes } from "node:crypto";
-import { SignJWT, exportJWK, generateKeyPair } from "jose";
 import type { Context } from "@emulators/core";
 import type { AppEnv, RouteContext, Store } from "@emulators/core";
 import {
@@ -23,13 +22,21 @@ import {
   resolveOktaIssuer,
   userDisplayName,
 } from "../helpers.js";
+import { jwksResponse, signIdToken, signIdentityAssertion, verifyIdToken } from "../keys.js";
 import { findUserByRef, oktaError } from "../route-helpers.js";
 import { getOktaStore } from "../store.js";
-
-const keyPairPromise = generateKeyPair("RS256");
-const KID = "emulate-okta-1";
+import { evaluateTokenExchangePolicy } from "../token-exchange-policy.js";
 
 const CODE_TTL_MS = 10 * 60 * 1000;
+
+// MCP Enterprise-Managed Authorization: RFC 8693 token exchange that mints an
+// Identity Assertion JWT Authorization Grant
+// (draft-ietf-oauth-identity-assertion-authz-grant-04).
+const TOKEN_EXCHANGE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:token-exchange";
+const ID_JAG_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:id-jag";
+const ID_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:id_token";
+const REFRESH_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:refresh_token";
+const ID_JAG_TTL_SECONDS = 300;
 
 type PendingCode = {
   userRef: string;
@@ -146,7 +153,8 @@ function buildOidcConfiguration(baseUrl: string, server: ResolvedServer): Record
     registration_endpoint: `${oauthUrlBase}/clients`,
     response_types_supported: ["code"],
     response_modes_supported: ["query", "fragment", "form_post"],
-    grant_types_supported: ["authorization_code", "refresh_token", "client_credentials"],
+    grant_types_supported: ["authorization_code", "refresh_token", "client_credentials", TOKEN_EXCHANGE_GRANT_TYPE],
+    identity_chaining_requested_token_types_supported: [ID_JAG_TOKEN_TYPE],
     subject_types_supported: ["public"],
     id_token_signing_alg_values_supported: ["RS256"],
     scopes_supported: ["openid", "profile", "email", "offline_access", "groups"],
@@ -333,7 +341,6 @@ async function createIdToken(
   issuer: string,
   scope: string,
 ): Promise<string> {
-  const { privateKey } = await keyPairPromise;
   const now = Math.floor(Date.now() / 1000);
   const scopes = parseScope(scope);
 
@@ -353,13 +360,61 @@ async function createIdToken(
     claims.groups = collectUserGroups(oktaStore, user);
   }
 
-  return new SignJWT(claims)
-    .setProtectedHeader({ alg: "RS256", kid: KID, typ: "JWT" })
-    .setIssuer(issuer)
-    .setAudience(clientId)
-    .setIssuedAt(now)
-    .setExpirationTime("1h")
-    .sign(privateKey);
+  return signIdToken(claims, { issuer, audience: clientId, issuedAt: now });
+}
+
+/** RFC 6749 section 5.2 token error response. */
+function tokenError(c: Context<AppEnv>, status: 400 | 401, error: string, errorDescription: string): Response {
+  c.header("Cache-Control", "no-store");
+  c.header("Pragma", "no-cache");
+  return c.json({ error, error_description: errorDescription }, status);
+}
+
+type SubjectResolution = { ok: true; userOktaId: string } | { ok: false; message: string };
+
+/**
+ * Draft section 4.3.3: the Identity Assertion must verify against this IdP, and
+ * its audience must be the client authenticating the token exchange request.
+ */
+async function subjectFromIdToken(token: string, options: { issuer: string; clientId: string }): Promise<
+  SubjectResolution
+> {
+  let payload;
+  try {
+    payload = await verifyIdToken(token, { issuer: options.issuer });
+  } catch {
+    return { ok: false, message: "Subject token is not a valid ID token for this issuer." };
+  }
+  const audiences = Array.isArray(payload.aud) ? payload.aud : payload.aud ? [payload.aud] : [];
+  if (!audiences.includes(options.clientId)) {
+    return { ok: false, message: "Subject token was not issued to the authenticated client." };
+  }
+  if (typeof payload.sub !== "string" || payload.sub.length === 0) {
+    return { ok: false, message: "Subject token has no subject." };
+  }
+  return { ok: true, userOktaId: payload.sub };
+}
+
+/**
+ * Draft section 4.3.3: a refresh token subject is validated the way the plain
+ * refresh_token grant would, except that it is not consumed. The requested
+ * scopes belong to the target resource server, not to this IdP, so they are not
+ * constrained by the refresh token's own scope.
+ */
+function subjectFromRefreshToken(
+  store: Store,
+  token: string,
+  options: { authServerId: string; clientId: string },
+): SubjectResolution {
+  const existing = getRefreshTokens(store).get(token);
+  if (!existing) return { ok: false, message: "Subject token is not a known refresh token." };
+  if (existing.authServerId !== options.authServerId) {
+    return { ok: false, message: "Refresh token was issued by a different authorization server." };
+  }
+  if (existing.clientId !== options.clientId) {
+    return { ok: false, message: "Refresh token was not issued to the authenticated client." };
+  }
+  return { ok: true, userOktaId: existing.userOktaId };
 }
 
 function unauthorizedOAuthError(): Response {
@@ -497,24 +552,14 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
   app.post("/oauth2/v1/clients", (c) => handleClientRegistration(c, ORG_AUTH_SERVER_ID));
   app.post("/oauth2/:authServerId/v1/clients", (c) => handleClientRegistration(c, c.req.param("authServerId")));
 
-  app.get("/oauth2/v1/keys", async (c) => {
-    const { publicKey } = await keyPairPromise;
-    const jwk = await exportJWK(publicKey);
-    return c.json({
-      keys: [{ ...jwk, kid: KID, use: "sig", alg: "RS256" }],
-    });
-  });
+  app.get("/oauth2/v1/keys", async (c) => c.json(await jwksResponse()));
 
   app.get("/oauth2/:authServerId/v1/keys", async (c) => {
     const authServerId = c.req.param("authServerId");
     const server = resolveServer(authServerId, baseUrl, oktaStore);
     if (!server) return oktaError(c, 404, "E0000007", `Not found: authorization server '${authServerId}'`);
 
-    const { publicKey } = await keyPairPromise;
-    const jwk = await exportJWK(publicKey);
-    return c.json({
-      keys: [{ ...jwk, kid: KID, use: "sig", alg: "RS256" }],
-    });
+    return c.json(await jwksResponse());
   });
 
   const renderAuthorizePage = (c: Context<AppEnv>, authServerId: string): Response => {
@@ -708,6 +753,78 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       return c.json(validation.error.body, validation.error.status as 401);
     }
     const validatedClient = validation.client;
+
+    if (grantType === TOKEN_EXCHANGE_GRANT_TYPE) {
+      c.set("operationId", "okta.oauth.tokenExchange");
+
+      if ((body.requested_token_type ?? "") !== ID_JAG_TOKEN_TYPE) {
+        return tokenError(c, 400, "invalid_request", `requested_token_type must be ${ID_JAG_TOKEN_TYPE}.`);
+      }
+      const audience = (body.audience ?? "").trim();
+      if (!audience) return tokenError(c, 400, "invalid_request", "audience is required.");
+
+      const subjectToken = body.subject_token ?? "";
+      if (!subjectToken) return tokenError(c, 400, "invalid_request", "subject_token is required.");
+      const subjectTokenType = body.subject_token_type ?? "";
+      if (subjectTokenType !== ID_TOKEN_TYPE && subjectTokenType !== REFRESH_TOKEN_TYPE) {
+        return tokenError(c, 400, "invalid_request", "Unsupported subject_token_type.");
+      }
+
+      // Client authentication was already enforced above against the client's
+      // token_endpoint_auth_method, so a client that must authenticate for SSO
+      // must authenticate here too. The ID-JAG client_id claim is required, so
+      // an unidentified caller cannot exchange.
+      const clientId = validatedClient?.client_id ?? creds.clientId;
+      if (!clientId) return tokenError(c, 401, "invalid_client", "client_id is required for token exchange.");
+
+      const subject =
+        subjectTokenType === REFRESH_TOKEN_TYPE
+          ? subjectFromRefreshToken(store, subjectToken, { authServerId, clientId })
+          : await subjectFromIdToken(subjectToken, { issuer: server.issuer, clientId });
+      if (!subject.ok) return tokenError(c, 400, "invalid_grant", subject.message);
+
+      const user = oktaStore.users.findOneBy("okta_id", subject.userOktaId);
+      if (!user) return tokenError(c, 400, "invalid_grant", "Unknown user for subject token.");
+
+      const resource = (body.resource ?? "").trim();
+      const decision = evaluateTokenExchangePolicy(oktaStore.tokenExchangePolicies.all(), {
+        userOktaId: user.okta_id,
+        clientId,
+        audience,
+        resource: resource || null,
+        requestedScopes: parseScope(requestedScope),
+      });
+      if (!decision.allowed) {
+        // RFC 8693 section 2.2.2: invalid_target when the authorization server
+        // is unwilling to issue a token for the requested audience or resource,
+        // invalid_scope when nothing the client asked for survives policy.
+        return decision.reason === "no_permitted_scope"
+          ? tokenError(c, 400, "invalid_scope", "No requested scope is permitted by administrator policy.")
+          : tokenError(c, 400, "invalid_target", "Administrator policy denies this token exchange.");
+      }
+
+      const grantedScope = decision.scopes.join(" ");
+      const idJag = await signIdentityAssertion(
+        {
+          sub: user.okta_id,
+          ...(user.email ? { email: user.email } : {}),
+          client_id: clientId,
+          ...(resource ? { resource } : {}),
+          ...(grantedScope ? { scope: grantedScope } : {}),
+        },
+        { issuer: server.issuer, audience, expiresIn: `${ID_JAG_TTL_SECONDS}s` },
+      );
+
+      c.header("Cache-Control", "no-store");
+      c.header("Pragma", "no-cache");
+      return c.json({
+        issued_token_type: ID_JAG_TOKEN_TYPE,
+        access_token: idJag,
+        token_type: "N_A",
+        expires_in: ID_JAG_TTL_SECONDS,
+        ...(grantedScope ? { scope: grantedScope } : {}),
+      });
+    }
 
     if (grantType === "authorization_code") {
       const pending = getPendingCodes(store).get(code);
