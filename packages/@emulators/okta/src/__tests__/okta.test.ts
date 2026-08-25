@@ -1,12 +1,18 @@
 import { createHash } from "node:crypto";
-import { decodeJwt } from "jose";
+import { SignJWT, createLocalJWKSet, decodeJwt, decodeProtectedHeader, generateKeyPair, jwtVerify } from "jose";
 import { Hono } from "@emulators/core";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Store, WebhookDispatcher, authMiddleware, createServer, type TokenMap } from "@emulators/core";
 import { getOktaStore, oktaPlugin, seedFromConfig } from "../index.js";
 import { manifest } from "../manifest.js";
 
 const base = "http://localhost:4000";
+const TOKEN_EXCHANGE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:token-exchange";
+const ID_JAG_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:id-jag";
+const ID_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:id_token";
+const REFRESH_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:refresh_token";
+const MCP_AUDIENCE = "http://localhost:4009";
+const MCP_RESOURCE = "http://localhost:4009/mcp";
 
 function createTestApp() {
   const store = new Store();
@@ -238,6 +244,64 @@ async function completePkceCodeFlow(
   });
   expect(tokenRes.status).toBe(200);
   return (await tokenRes.json()) as Record<string, unknown>;
+}
+
+async function signInForTokenExchange(
+  app: Hono,
+  store: Store,
+  options: {
+    authServerId?: string;
+    clientId?: string;
+    clientSecret?: string;
+    redirectUri?: string;
+    userRef?: string;
+  } = {},
+): Promise<{ idToken: string; refreshToken: string; sub: string }> {
+  const authServerId = options.authServerId ?? "default";
+  const clientId = options.clientId ?? "okta-test-client";
+  const redirectUri = options.redirectUri ?? "http://localhost:3000/callback";
+  const { code } = await getAuthCode(app, store, { authServerId, clientId, redirectUri, userRef: options.userRef });
+  const res = await exchangeCode(app, code, {
+    authServerId,
+    clientId,
+    clientSecret: options.clientSecret,
+    redirectUri,
+  });
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as Record<string, string>;
+  return {
+    idToken: body.id_token,
+    refreshToken: body.refresh_token,
+    sub: decodeJwt(body.id_token).sub as string,
+  };
+}
+
+function requestTokenExchange(
+  app: Hono,
+  params: Record<string, string>,
+  options: { authServerId?: string } = {},
+): Promise<Response> {
+  const authServerId = options.authServerId ?? "default";
+  const tokenPath = authServerId === "org" ? "/oauth2/v1/token" : `/oauth2/${authServerId}/v1/token`;
+  return app.request(`${base}${tokenPath}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ grant_type: TOKEN_EXCHANGE_GRANT_TYPE, ...params }).toString(),
+  });
+}
+
+function idJagParams(subjectToken: string, extra: Record<string, string> = {}): Record<string, string> {
+  return {
+    requested_token_type: ID_JAG_TOKEN_TYPE,
+    audience: MCP_AUDIENCE,
+    resource: MCP_RESOURCE,
+    scope: "repo read:user",
+    subject_token: subjectToken,
+    subject_token_type: ID_TOKEN_TYPE,
+    client_id: "okta-test-client",
+    client_secret: "okta-test-secret",
+    ...extra,
+  };
 }
 
 describe("Okta plugin integration", () => {
@@ -1304,6 +1368,358 @@ describe("Okta plugin integration", () => {
     });
   });
 
+  describe("ID-JAG token exchange", () => {
+    it("advertises the token exchange grant and issuable chaining token types", async () => {
+      for (const path of ["/.well-known/openid-configuration", "/oauth2/default/.well-known/openid-configuration"]) {
+        const res = await app.request(`${base}${path}`);
+        const body = (await res.json()) as Record<string, unknown>;
+        expect(body.grant_types_supported).toContain(TOKEN_EXCHANGE_GRANT_TYPE);
+        expect(body.identity_chaining_requested_token_types_supported).toEqual([ID_JAG_TOKEN_TYPE]);
+      }
+    });
+
+    it("exchanges an ID token for a signed ID-JAG", async () => {
+      const { idToken, sub } = await signInForTokenExchange(app, store);
+      const res = await requestTokenExchange(app, idJagParams(idToken));
+      expect(res.status).toBe(200);
+      expect(res.headers.get("cache-control")).toBe("no-store");
+      expect(res.headers.get("pragma")).toBe("no-cache");
+
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.issued_token_type).toBe(ID_JAG_TOKEN_TYPE);
+      expect(body.token_type).toBe("N_A");
+      expect(body.expires_in).toBe(300);
+      expect(body.scope).toBe("repo read:user");
+
+      const idJag = body.access_token as string;
+      expect(decodeProtectedHeader(idJag).typ).toBe("oauth-id-jag+jwt");
+
+      const jwksRes = await app.request(`${base}/oauth2/default/v1/keys`);
+      const jwks = createLocalJWKSet((await jwksRes.json()) as Parameters<typeof createLocalJWKSet>[0]);
+      const verified = await jwtVerify(idJag, jwks, {
+        issuer: `${base}/oauth2/default`,
+        audience: MCP_AUDIENCE,
+      });
+      expect(verified.payload).toMatchObject({
+        sub,
+        aud: MCP_AUDIENCE,
+        resource: MCP_RESOURCE,
+        client_id: "okta-test-client",
+        scope: "repo read:user",
+        email: "testuser@okta.local",
+      });
+      expect(verified.payload.jti).toBeTruthy();
+      expect(verified.payload.iat).toBeTruthy();
+      expect((verified.payload.exp ?? 0) - (verified.payload.iat ?? 0)).toBe(300);
+    });
+
+    it("mints unique jti values", async () => {
+      const { idToken } = await signInForTokenExchange(app, store);
+      const first = (await (await requestTokenExchange(app, idJagParams(idToken))).json()) as { access_token: string };
+      const second = (await (await requestTokenExchange(app, idJagParams(idToken))).json()) as { access_token: string };
+      expect(decodeJwt(first.access_token).jti).not.toBe(decodeJwt(second.access_token).jti);
+    });
+
+    it("issues the org authorization server issuer for the org token endpoint", async () => {
+      const { idToken } = await signInForTokenExchange(app, store, {
+        authServerId: "org",
+        clientId: "org-client",
+        clientSecret: "org-secret",
+        redirectUri: "http://localhost:3000/org-callback",
+      });
+      const res = await requestTokenExchange(
+        app,
+        idJagParams(idToken, { client_id: "org-client", client_secret: "org-secret" }),
+        { authServerId: "org" },
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { access_token: string };
+      expect(decodeJwt(body.access_token).iss).toBe(base);
+    });
+
+    it("accepts a refresh token as the subject token", async () => {
+      const { refreshToken, sub } = await signInForTokenExchange(app, store);
+      const res = await requestTokenExchange(
+        app,
+        idJagParams(refreshToken, { subject_token_type: REFRESH_TOKEN_TYPE }),
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { access_token: string };
+      expect(decodeJwt(body.access_token).sub).toBe(sub);
+    });
+
+    it("omits the scope claim when no scope is requested", async () => {
+      const { idToken } = await signInForTokenExchange(app, store);
+      const res = await requestTokenExchange(app, idJagParams(idToken, { scope: "" }));
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.scope).toBeUndefined();
+      expect(decodeJwt(body.access_token as string).scope).toBeUndefined();
+    });
+
+    it("omits the resource claim when no resource is requested", async () => {
+      const { idToken } = await signInForTokenExchange(app, store);
+      const params = idJagParams(idToken);
+      delete params.resource;
+      const res = await requestTokenExchange(app, params);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { access_token: string };
+      expect(decodeJwt(body.access_token).resource).toBeUndefined();
+    });
+
+    it("rejects a requested_token_type other than id-jag", async () => {
+      const { idToken } = await signInForTokenExchange(app, store);
+      const res = await requestTokenExchange(
+        app,
+        idJagParams(idToken, { requested_token_type: "urn:ietf:params:oauth:token-type:access_token" }),
+      );
+      expect(res.status).toBe(400);
+      expect((await res.json()) as Record<string, unknown>).toMatchObject({ error: "invalid_request" });
+    });
+
+    it("requires audience, subject_token and a supported subject_token_type", async () => {
+      const { idToken } = await signInForTokenExchange(app, store);
+      const cases: Record<string, string>[] = [
+        { audience: "" },
+        { subject_token: "" },
+        { subject_token_type: "urn:example:unsupported" },
+      ];
+      for (const override of cases) {
+        const res = await requestTokenExchange(app, idJagParams(idToken, override));
+        expect(res.status).toBe(400);
+        expect((await res.json()) as Record<string, unknown>).toMatchObject({ error: "invalid_request" });
+      }
+    });
+
+    it("rejects an ID token whose audience is not the authenticating client", async () => {
+      const { idToken } = await signInForTokenExchange(app, store);
+      const params = idJagParams(idToken, { client_id: "okta-test-app" });
+      delete params.client_secret;
+      const res = await requestTokenExchange(app, params);
+      expect(res.status).toBe(400);
+      expect((await res.json()) as Record<string, unknown>).toMatchObject({
+        error: "invalid_grant",
+        error_description: "Subject token was not issued to the authenticated client.",
+      });
+    });
+
+    it("rejects an ID token issued by a different authorization server", async () => {
+      const { idToken } = await signInForTokenExchange(app, store);
+      const res = await requestTokenExchange(
+        app,
+        idJagParams(idToken, { client_id: "custom-client", client_secret: "custom-secret" }),
+        { authServerId: "custom-as" },
+      );
+      expect(res.status).toBe(400);
+      expect((await res.json()) as Record<string, unknown>).toMatchObject({ error: "invalid_grant" });
+    });
+
+    it("refuses to accept an ID-JAG as a subject token", async () => {
+      const { idToken } = await signInForTokenExchange(app, store);
+      const first = (await (await requestTokenExchange(app, idJagParams(idToken))).json()) as { access_token: string };
+
+      const res = await requestTokenExchange(app, idJagParams(first.access_token));
+      expect(res.status).toBe(400);
+      expect((await res.json()) as Record<string, unknown>).toMatchObject({ error: "invalid_grant" });
+    });
+
+    it("rejects a subject token this issuer did not sign", async () => {
+      const { privateKey } = await generateKeyPair("RS256");
+      const foreign = await new SignJWT({ email: "testuser@okta.local" })
+        .setProtectedHeader({ alg: "RS256", typ: "JWT" })
+        .setIssuer(`${base}/oauth2/default`)
+        .setAudience("okta-test-client")
+        .setSubject("00u_forged")
+        .setIssuedAt()
+        .setExpirationTime("1h")
+        .sign(privateKey);
+
+      const res = await requestTokenExchange(app, idJagParams(foreign));
+      expect(res.status).toBe(400);
+      expect((await res.json()) as Record<string, unknown>).toMatchObject({ error: "invalid_grant" });
+    });
+
+    it("rejects an expired ID token", async () => {
+      const { idToken } = await signInForTokenExchange(app, store);
+      try {
+        vi.useFakeTimers();
+        vi.setSystemTime(Date.now() + 2 * 60 * 60 * 1000);
+        const res = await requestTokenExchange(app, idJagParams(idToken));
+        expect(res.status).toBe(400);
+        expect((await res.json()) as Record<string, unknown>).toMatchObject({ error: "invalid_grant" });
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("rejects a refresh token issued to a different client", async () => {
+      const { refreshToken } = await signInForTokenExchange(app, store);
+      const params = idJagParams(refreshToken, {
+        subject_token_type: REFRESH_TOKEN_TYPE,
+        client_id: "okta-test-app",
+      });
+      delete params.client_secret;
+      const res = await requestTokenExchange(app, params);
+      expect(res.status).toBe(400);
+      expect((await res.json()) as Record<string, unknown>).toMatchObject({
+        error: "invalid_grant",
+        error_description: "Refresh token was not issued to the authenticated client.",
+      });
+    });
+
+    it("enforces the client's token endpoint auth method", async () => {
+      const { idToken } = await signInForTokenExchange(app, store);
+      const res = await requestTokenExchange(app, idJagParams(idToken, { client_secret: "wrong-secret" }));
+      expect(res.status).toBe(401);
+      expect((await res.json()) as Record<string, unknown>).toMatchObject({ error: "invalid_client" });
+    });
+
+    it("narrows the granted scope to what an allow policy permits", async () => {
+      seedFromConfig(store, base, {
+        token_exchange_policies: [
+          {
+            id: "00p_read_only",
+            name: "Read only",
+            client_id: "okta-test-client",
+            audience: MCP_AUDIENCE,
+            scopes: ["read:user"],
+            effect: "ALLOW",
+          },
+        ],
+      });
+
+      const { idToken } = await signInForTokenExchange(app, store);
+      const res = await requestTokenExchange(app, idJagParams(idToken));
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.scope).toBe("read:user");
+      expect(decodeJwt(body.access_token as string).scope).toBe("read:user");
+    });
+
+    it("denies an exchange that matches a deny policy", async () => {
+      seedFromConfig(store, base, {
+        token_exchange_policies: [
+          { id: "00p_allow_all", effect: "ALLOW" },
+          { id: "00p_block_client", name: "Block client", client_id: "okta-test-client", effect: "DENY" },
+        ],
+      });
+
+      const { idToken } = await signInForTokenExchange(app, store);
+      const res = await requestTokenExchange(app, idJagParams(idToken));
+      expect(res.status).toBe(400);
+      expect((await res.json()) as Record<string, unknown>).toMatchObject({ error: "invalid_target" });
+    });
+
+    it("denies an exchange that matches no policy once the table is populated", async () => {
+      seedFromConfig(store, base, {
+        token_exchange_policies: [{ id: "00p_other_audience", audience: "https://other.example", effect: "ALLOW" }],
+      });
+
+      const { idToken } = await signInForTokenExchange(app, store);
+      const res = await requestTokenExchange(app, idJagParams(idToken));
+      expect(res.status).toBe(400);
+      expect((await res.json()) as Record<string, unknown>).toMatchObject({ error: "invalid_target" });
+    });
+
+    it("rejects a request when policy permits none of the requested scopes", async () => {
+      seedFromConfig(store, base, {
+        token_exchange_policies: [{ id: "00p_admin_only", scopes: ["admin"], effect: "ALLOW" }],
+      });
+
+      const { idToken } = await signInForTokenExchange(app, store);
+      const res = await requestTokenExchange(app, idJagParams(idToken));
+      expect(res.status).toBe(400);
+      expect((await res.json()) as Record<string, unknown>).toMatchObject({ error: "invalid_scope" });
+    });
+
+    it("scopes a policy to a single user", async () => {
+      const okta = getOktaStore(store);
+      const alice = okta.users.findOneBy("login", "alice@example.com");
+      seedFromConfig(store, base, {
+        token_exchange_policies: [{ id: "00p_alice_only", user_okta_id: alice?.okta_id, effect: "ALLOW" }],
+      });
+
+      const other = okta.users.findOneBy("login", "testuser@okta.local");
+      const denied = await signInForTokenExchange(app, store, { userRef: other?.okta_id });
+      expect((await requestTokenExchange(app, idJagParams(denied.idToken))).status).toBe(400);
+
+      const allowed = await signInForTokenExchange(app, store, { userRef: alice?.okta_id });
+      expect((await requestTokenExchange(app, idJagParams(allowed.idToken))).status).toBe(200);
+    });
+  });
+
+  describe("token exchange policy management API", () => {
+    it("creates, reads, updates, lists and deletes policies", async () => {
+      const created = await app.request(`${base}/api/v1/tokenExchangePolicies`, {
+        method: "POST",
+        headers: managementHeaders(),
+        body: JSON.stringify({
+          name: "MCP read",
+          client_id: "okta-test-client",
+          audience: MCP_AUDIENCE,
+          resource: MCP_RESOURCE,
+          scopes: ["read:user"],
+          effect: "ALLOW",
+        }),
+      });
+      expect(created.status).toBe(201);
+      const policy = (await created.json()) as Record<string, unknown>;
+      expect(policy.type).toBe("TOKEN_EXCHANGE");
+      expect(policy.effect).toBe("ALLOW");
+      expect(policy.conditions).toMatchObject({ clientId: "okta-test-client", audience: MCP_AUDIENCE });
+      const policyId = policy.id as string;
+
+      const list = await app.request(`${base}/api/v1/tokenExchangePolicies`, { headers: managementHeaders() });
+      expect(list.status).toBe(200);
+      expect((await list.json()) as unknown[]).toHaveLength(1);
+
+      const updated = await app.request(`${base}/api/v1/tokenExchangePolicies/${policyId}`, {
+        method: "PUT",
+        headers: managementHeaders(),
+        body: JSON.stringify({ effect: "DENY", scopes: [] }),
+      });
+      expect(updated.status).toBe(200);
+      expect((await updated.json()) as Record<string, unknown>).toMatchObject({ effect: "DENY", scopes: [] });
+
+      const { idToken } = await signInForTokenExchange(app, store);
+      const denied = await requestTokenExchange(app, idJagParams(idToken));
+      expect(denied.status).toBe(400);
+      expect((await denied.json()) as Record<string, unknown>).toMatchObject({ error: "invalid_target" });
+
+      const removed = await app.request(`${base}/api/v1/tokenExchangePolicies/${policyId}`, {
+        method: "DELETE",
+        headers: managementHeaders(),
+      });
+      expect(removed.status).toBe(204);
+
+      const missing = await app.request(`${base}/api/v1/tokenExchangePolicies/${policyId}`, {
+        headers: managementHeaders(),
+      });
+      expect(missing.status).toBe(404);
+    });
+
+    it("requires management auth", async () => {
+      const res = await app.request(`${base}/api/v1/tokenExchangePolicies`);
+      expect(res.status).toBe(401);
+    });
+
+    it("rejects a duplicate policy id", async () => {
+      const body = JSON.stringify({ id: "00p_dupe", effect: "ALLOW" });
+      const first = await app.request(`${base}/api/v1/tokenExchangePolicies`, {
+        method: "POST",
+        headers: managementHeaders(),
+        body,
+      });
+      expect(first.status).toBe(201);
+      const second = await app.request(`${base}/api/v1/tokenExchangePolicies`, {
+        method: "POST",
+        headers: managementHeaders(),
+        body,
+      });
+      expect(second.status).toBe(400);
+    });
+  });
+
   describe("seed from config", () => {
     it("seeds users, groups, apps, oauth clients, auth servers and deduplicates", () => {
       const seedStore = new Store();
@@ -1331,9 +1747,17 @@ describe("Okta plugin integration", () => {
           },
         ],
         authorization_servers: [{ id: "config-as", name: "Config AS", audiences: ["api://config"] }],
+        token_exchange_policies: [
+          { id: "00p_config", client_id: "config-client", effect: "ALLOW" },
+          { client_id: "config-client", audience: "https://config.example", scopes: ["read"] },
+        ],
       });
       seedFromConfig(seedStore, base, {
         users: [{ login: "config-user@example.com", first_name: "Config", last_name: "User" }],
+        token_exchange_policies: [
+          { id: "00p_config", client_id: "config-client", effect: "ALLOW" },
+          { client_id: "config-client", audience: "https://config.example", scopes: ["read"] },
+        ],
       });
 
       const okta = getOktaStore(seedStore);
@@ -1343,6 +1767,8 @@ describe("Okta plugin integration", () => {
       expect(okta.oauthClients.findBy("client_id", "config-client")).toHaveLength(1);
       expect(okta.authorizationServers.findBy("server_id", "config-as")).toHaveLength(1);
       expect(okta.groups.findBy("okta_id", "00g_everyone")).toHaveLength(1);
+      expect(okta.tokenExchangePolicies.all()).toHaveLength(2);
+      expect(okta.tokenExchangePolicies.findOneBy("policy_id", "00p_config")?.effect).toBe("ALLOW");
     });
   });
 });
