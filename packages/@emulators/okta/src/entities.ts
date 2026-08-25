@@ -61,6 +61,25 @@ export interface OktaAuthorizationServer extends Entity {
   status: OktaAuthorizationServerStatus;
 }
 
+export type OktaPolicyEffect = "ALLOW" | "DENY";
+
+/**
+ * Administrator policy for RFC 8693 token exchange, the enterprise control
+ * point of the MCP Enterprise-Managed Authorization profile. A `null` condition
+ * matches anything, so a policy can be scoped to a user, a client, a target
+ * audience, a resource, or any combination.
+ */
+export interface OktaTokenExchangePolicy extends Entity {
+  policy_id: string;
+  name: string;
+  user_okta_id: string | null;
+  client_id: string | null;
+  audience: string | null;
+  resource: string | null;
+  scopes: string[];
+  effect: OktaPolicyEffect;
+}
+
 export interface OktaGroupMembership extends Entity {
   group_okta_id: string;
   user_okta_id: string;

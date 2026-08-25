@@ -7,6 +7,7 @@ import type {
   OktaAuthorizationServer,
   OktaGroupMembership,
   OktaAppAssignment,
+  OktaTokenExchangePolicy,
 } from "./entities.js";
 
 export interface OktaStore {
@@ -17,6 +18,7 @@ export interface OktaStore {
   authorizationServers: Collection<OktaAuthorizationServer>;
   groupMemberships: Collection<OktaGroupMembership>;
   appAssignments: Collection<OktaAppAssignment>;
+  tokenExchangePolicies: Collection<OktaTokenExchangePolicy>;
 }
 
 export function getOktaStore(store: Store): OktaStore {
@@ -31,5 +33,8 @@ export function getOktaStore(store: Store): OktaStore {
       "user_okta_id",
     ]),
     appAssignments: store.collection<OktaAppAssignment>("okta.app_assignments", ["app_okta_id", "user_okta_id"]),
+    // Only policy_id is indexed: every other column is nullable ("matches
+    // anything"), and null values are skipped by the index.
+    tokenExchangePolicies: store.collection<OktaTokenExchangePolicy>("okta.token_exchange_policies", ["policy_id"]),
   };
 }
