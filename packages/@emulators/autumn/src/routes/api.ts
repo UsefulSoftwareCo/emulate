@@ -100,6 +100,61 @@ export function autumnApiRoutes(ctx: RouteContext): void {
     });
   });
 
+  // Set a customer's balance for one feature, shaped after autumn-js's
+  // balances.update (UpdateBalanceParams in, `{ success }` out). Exactly one
+  // of `usage`, `remaining`, or `add_to_balance` must be provided. Usage is
+  // event-sourced (see serialize.ts usageFor), so the update lands as an
+  // adjustment event rather than mutating a stored counter: events.list shows
+  // the reconciliation and balances.check can never disagree with it.
+  // Entity-scoped balances, reset intervals, balance ids, and grant updates
+  // (included_grant) are unsupported. Unknown customers 404 with Autumn's
+  // real customer_not_found code; unlike track/check, update is a
+  // non-creating endpoint upstream, so the emulator mirrors that.
+  app.post("/v1/balances.update", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const customerId = String(body.customer_id ?? body.customerId ?? "");
+    const featureId = String(body.feature_id ?? body.featureId ?? "");
+    if (!customerId || !featureId) {
+      return c.json({ message: "customer_id and feature_id are required", code: "invalid_request" }, 400);
+    }
+    const store = as();
+    const customer = store.customers.findOneBy("customer_id", customerId);
+    if (!customer) {
+      return c.json({ message: `Customer ${customerId} not found`, code: "customer_not_found" }, 404);
+    }
+    const balance = balanceForFeature(store, customer, featureId);
+    if (!balance) {
+      return c.json(
+        { message: `Customer ${customerId} has no balance for feature ${featureId}`, code: "not_found" },
+        404,
+      );
+    }
+    const usage = typeof body.usage === "number" ? body.usage : undefined;
+    const remaining = typeof body.remaining === "number" ? body.remaining : undefined;
+    const addToBalance = typeof body.add_to_balance === "number" ? body.add_to_balance : undefined;
+    const provided = [usage, remaining, addToBalance].filter((v) => v !== undefined);
+    if (provided.length !== 1) {
+      return c.json(
+        { message: "exactly one of usage, remaining, or add_to_balance is required", code: "invalid_request" },
+        400,
+      );
+    }
+    if (remaining !== undefined && balance.unlimited) {
+      return c.json({ message: "remaining cannot be set on an unlimited balance", code: "invalid_request" }, 400);
+    }
+    const targetUsage =
+      usage !== undefined
+        ? usage
+        : remaining !== undefined
+          ? balance.granted - remaining
+          : balance.usage - (addToBalance ?? 0);
+    const delta = targetUsage - balance.usage;
+    if (delta !== 0) {
+      store.events.insert({ customer_id: customerId, feature_id: featureId, value: delta });
+    }
+    return c.json({ success: true });
+  });
+
   // The plan catalog, scoped to the calling customer. The backend handler
   // injects `customer_id` into every request, so eligibility is per-customer:
   // a card-required trial reads as "Start free trial" until it is attached.

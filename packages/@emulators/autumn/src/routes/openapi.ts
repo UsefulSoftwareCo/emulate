@@ -124,6 +124,29 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
           responses: { "200": ok("Access decision with the feature balance."), "400": ok("Validation error.") },
         },
       },
+      "/v1/balances.update": {
+        post: {
+          operationId: "balances.update",
+          tags: ["balances"],
+          summary: "Set a customer's balance for a feature",
+          requestBody: jsonBody(
+            {
+              customer_id: { type: "string" },
+              feature_id: { type: "string" },
+              usage: { type: "number" },
+              remaining: { type: "number" },
+              add_to_balance: { type: "number" },
+            },
+            ["customer_id", "feature_id"],
+            "The balance to set. Exactly one of `usage`, `remaining`, or `add_to_balance` is required.",
+          ),
+          responses: {
+            "200": ok("Update confirmation."),
+            "400": ok("Validation error."),
+            "404": ok("Unknown customer, or no balance for the feature."),
+          },
+        },
+      },
       "/v1/plans.list": {
         post: {
           operationId: "plans.list",

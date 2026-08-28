@@ -6,7 +6,7 @@ allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 
 # Autumn Emulator
 
-Stateful Autumn billing emulation: customers (get_or_create), seedable subscriptions, a seedable plan catalog with per-customer eligibility (`plans.list`), usage tracking (`balances.track`), feature access checks (`balances.check`), `billing.attach` / `billing.open_customer_portal`, and a hosted checkout flow for paid plans and card-required free trials.
+Stateful Autumn billing emulation: customers (get_or_create), seedable subscriptions, a seedable plan catalog with per-customer eligibility (`plans.list`), usage tracking (`balances.track`), balance reconciliation (`balances.update`), feature access checks (`balances.check`), `billing.attach` / `billing.open_customer_portal`, and a hosted checkout flow for paid plans and card-required free trials.
 
 ## Start
 
@@ -46,6 +46,14 @@ curl -X POST "$AUTUMN_EMULATOR_URL/_emulate/seed" -H "Content-Type: application/
 
 ```ts
 const { allowed } = await autumn.check({ customerId: "org_123", featureId: "executions" });
+```
+
+## Set a balance directly
+
+`balances.update` sets a customer's balance for one feature. Exactly one of `usage`, `remaining`, or `add_to_balance` is required. Use it for continuous-use features (seats, storage) where the app reconciles an absolute count rather than tracking deltas. The update is recorded as an adjustment event, so `events.list` shows the reconciliation and `balances.check` stays consistent. Unknown customers 404 with `customer_not_found`; a feature the customer's plan does not carry 404s with `not_found`.
+
+```ts
+await autumn.balances.update({ customerId: "org_123", featureId: "members", usage: 12 });
 ```
 
 ## Checkout flow

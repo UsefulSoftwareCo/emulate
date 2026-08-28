@@ -24,10 +24,19 @@ beforeAll(() => {
     plans: [
       { id: "pro", name: "Pro", items: [{ feature_id: "executions", included: 1000 }] },
       { id: "starter", name: "Starter", items: [{ feature_id: "executions", included: 2 }] },
+      {
+        id: "scale",
+        name: "Scale",
+        items: [
+          { feature_id: "executions", included: 1000 },
+          { feature_id: "members", unlimited: true },
+        ],
+      },
     ],
     customers: [
       { id: "org_paid", subscriptions: [{ plan_id: "pro", status: "active" }] },
       { id: "org_capped", subscriptions: [{ plan_id: "starter", status: "active" }] },
+      { id: "org_seats", subscriptions: [{ plan_id: "scale", status: "active" }] },
     ],
   });
   httpServer = serve({ fetch: app.fetch, port: PORT });
@@ -137,5 +146,93 @@ describe("autumn emulator with the real autumn-js SDK", () => {
     // balance/flag entry has a `.feature`.
     const customerStates = [...Object.values(customer.balances ?? {}), ...Object.values(customer.flags ?? {})];
     expect(customerStates[0]?.feature, "customerToFeatures would throw on this response").toBeTruthy();
+  });
+});
+
+// balances.update: reconciliation for continuous-use features (seats,
+// storage). The update lands as an adjustment event, so every read path
+// (get_or_create, check, events.list) reflects it from the same state.
+describe("balances.update", () => {
+  const rawUpdate = (body: Record<string, unknown>) =>
+    fetch(`${BASE}/v1/balances.update`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer am_test_emulate" },
+      body: JSON.stringify(body),
+    });
+
+  it("sets absolute usage for a metered feature", async () => {
+    const res = await autumn.balances.update({ customerId: "org_paid", featureId: "executions", usage: 400 });
+    expect(res.success).toBe(true);
+    const customer = await autumn.customers.getOrCreate({ customerId: "org_paid" });
+    expect(customer.balances?.executions?.usage).toBe(400);
+    expect(customer.balances?.executions?.remaining).toBe(600);
+  });
+
+  it("reconciles usage downward as well as upward", async () => {
+    await autumn.balances.update({ customerId: "org_paid", featureId: "executions", usage: 100 });
+    const customer = await autumn.customers.getOrCreate({ customerId: "org_paid" });
+    expect(customer.balances?.executions?.usage).toBe(100);
+    expect(customer.balances?.executions?.remaining).toBe(900);
+  });
+
+  it("sets usage on an unlimited balance for visibility", async () => {
+    const res = await autumn.balances.update({ customerId: "org_seats", featureId: "members", usage: 12 });
+    expect(res.success).toBe(true);
+    const customer = await autumn.customers.getOrCreate({ customerId: "org_seats" });
+    expect(customer.balances?.members?.usage).toBe(12);
+    expect(customer.balances?.members?.unlimited).toBe(true);
+  });
+
+  it("records the reconciliation as an adjustment event", async () => {
+    const events = (await (
+      await fetch(`${BASE}/v1/events.list`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: "Bearer am_test_emulate" },
+        body: JSON.stringify({}),
+      })
+    ).json()) as { list: Array<{ customer_id: string; feature_id: string; value: number }> };
+    const seatEvents = events.list.filter((e) => e.customer_id === "org_seats" && e.feature_id === "members");
+    expect(seatEvents.map((e) => e.value)).toEqual([12]);
+  });
+
+  it("add_to_balance credits balance back", async () => {
+    // org_capped burned its 2 included executions earlier in this suite.
+    await autumn.balances.update({ customerId: "org_capped", featureId: "executions", addToBalance: 1 });
+    const check = await autumn.check({ customerId: "org_capped", featureId: "executions" });
+    expect(check.allowed).toBe(true);
+    expect(check.balance?.usage).toBe(1);
+    expect(check.balance?.remaining).toBe(1);
+  });
+
+  it("remaining sets usage relative to the grant", async () => {
+    await autumn.balances.update({ customerId: "org_capped", featureId: "executions", remaining: 2 });
+    const customer = await autumn.customers.getOrCreate({ customerId: "org_capped" });
+    expect(customer.balances?.executions?.usage).toBe(0);
+    expect(customer.balances?.executions?.remaining).toBe(2);
+  });
+
+  it("rejects remaining on an unlimited balance", async () => {
+    const res = await rawUpdate({ customer_id: "org_seats", feature_id: "members", remaining: 5 });
+    expect(res.status).toBe(400);
+    expect(((await res.json()) as { code: string }).code).toBe("invalid_request");
+  });
+
+  it("requires exactly one of usage, remaining, add_to_balance", async () => {
+    const none = await rawUpdate({ customer_id: "org_paid", feature_id: "executions" });
+    expect(none.status).toBe(400);
+    const two = await rawUpdate({ customer_id: "org_paid", feature_id: "executions", usage: 1, remaining: 1 });
+    expect(two.status).toBe(400);
+  });
+
+  it("404s with customer_not_found for an unknown customer", async () => {
+    const res = await rawUpdate({ customer_id: "org_never_seen", feature_id: "executions", usage: 1 });
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { code: string }).code).toBe("customer_not_found");
+  });
+
+  it("404s when the customer's plan has no balance for the feature", async () => {
+    const res = await rawUpdate({ customer_id: "org_paid", feature_id: "members", usage: 1 });
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { code: string }).code).toBe("not_found");
   });
 });
