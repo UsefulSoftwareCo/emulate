@@ -7,7 +7,10 @@ import { manifest } from "../manifest.js";
 
 // The real autumn-js SDK (zod-validated responses) against the emulator.
 
-const PORT = 41874;
+// Not 41874: workos.test.ts's TTL scenario binds PORT + 1 = 41874, and the
+// package suites run concurrently under turbo, so sharing it is a latent
+// EADDRINUSE flake.
+const PORT = 41880;
 const BASE = `http://localhost:${PORT}`;
 
 let httpServer: ReturnType<typeof serve>;
