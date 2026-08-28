@@ -1,22 +1,26 @@
 # Changelog
 
-## 0.14.0
+## 0.14.1
 
 <!-- release:start -->
 
 ### New Features
 
-- **Okta enterprise-managed authorization (ID-JAG token exchange)** — the Okta emulator's token endpoint now handles RFC 8693 token exchange minting Identity Assertion JWT Authorization Grants (`requested_token_type=urn:ietf:params:oauth:token-type:id-jag`, per draft-ietf-oauth-identity-assertion-authz-grant-04) on both the org issuer and per-authorization-server issuers, accepting ID-token and refresh-token subject tokens with the draft's validation rules (issuer-pinned signature, subject-token audience must be the authenticating client). A seedable administrator policy table (`token_exchange_policies`: user × client × audience × resource × scopes, ALLOW/DENY with DENY-wins and scope narrowing) governs issuance — unconfigured means every exchange is allowed, any seeded policy flips the table to an allowlist — and is manageable at `/api/v1/tokenExchangePolicies` behind management auth (an emulator extension; real Okta has no public API for this). Denials return RFC 8693 `invalid_target`/`invalid_scope`. Minted ID-JAGs redeem against the MCP emulator's existing jwt-bearer endpoint unchanged, proven by a new Okta → MCP enterprise-managed-authorization end-to-end suite.
+- **Autumn `balances.update`** — the Autumn emulator now supports the SDK's balance update call (`POST /v1/balances.update`) for reconciling continuous-use features such as seats. Exactly one of `usage`, `remaining`, or `add_to_balance` is required; the update is recorded as an adjustment event, so `events.list` shows the reconciliation and `balances.check` and `customers.get_or_create` reflect it from the same state. `remaining` is rejected on unlimited balances, unknown customers 404 with Autumn's real `customer_not_found` code (update is a non-creating endpoint upstream, unlike track and check), and a feature the customer's plan does not carry 404s.
 
 <!-- release:end -->
+
+## 0.14.0
+
+### New Features
+
+- **Okta enterprise-managed authorization (ID-JAG token exchange)** — the Okta emulator's token endpoint now handles RFC 8693 token exchange minting Identity Assertion JWT Authorization Grants (`requested_token_type=urn:ietf:params:oauth:token-type:id-jag`, per draft-ietf-oauth-identity-assertion-authz-grant-04) on both the org issuer and per-authorization-server issuers, accepting ID-token and refresh-token subject tokens with the draft's validation rules (issuer-pinned signature, subject-token audience must be the authenticating client). A seedable administrator policy table (`token_exchange_policies`: user × client × audience × resource × scopes, ALLOW/DENY with DENY-wins and scope narrowing) governs issuance — unconfigured means every exchange is allowed, any seeded policy flips the table to an allowlist — and is manageable at `/api/v1/tokenExchangePolicies` behind management auth (an emulator extension; real Okta has no public API for this). Denials return RFC 8693 `invalid_target`/`invalid_scope`. Minted ID-JAGs redeem against the MCP emulator's existing jwt-bearer endpoint unchanged, proven by a new Okta → MCP enterprise-managed-authorization end-to-end suite.
 
 ## 0.13.9
 
 ### New Features
 
 - **WorkOS organization-owned API keys** — the WorkOS emulator now serves the SDK's organization API key surface: `GET /organizations/:id/api_keys` lists an organization's own keys (organization-owned only — members' personal keys never share the listing) and `POST /organizations/:id/api_keys` mints one. An organization-owned key carries the real wire owner shape (`owner: { type: "organization", id }`, no member field), round-trips through `POST /api_keys/validations` with that shape, and deletes through the shared `DELETE /api_keys/:id`. Unknown organizations 404.
-
-<!-- release:end -->
 
 ## 0.13.8
 
