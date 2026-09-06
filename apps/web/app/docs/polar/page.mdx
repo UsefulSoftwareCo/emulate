@@ -1,0 +1,78 @@
+# Polar
+
+Polar merchant-of-record billing emulation for subscription and usage-based billing integrations. The emulator supports the real request paths and response shapes used by `@polar-sh/sdk` 0.49.0.
+
+## Start
+
+```bash
+npx emulate --service polar
+```
+
+When all services run together, Polar uses `http://localhost:4019`. Pass any non-empty bearer token.
+
+```ts
+import { Polar } from "@polar-sh/sdk";
+
+const polar = new Polar({
+  accessToken: "polar_oat_test",
+  serverURL: "http://localhost:4019",
+});
+```
+
+## Supported billing flow
+
+The API includes customers, meters, usage events, meter-credit and custom benefits, recurring products, subscriptions, checkouts, customer sessions, and an organization stub. Customer state calculates active subscriptions, granted benefits, and meter balances from the same stored entities.
+
+Programmatic subscription creation accepts free products. Use `POST /v1/checkouts/` and the hosted `/checkout/:clientSecret` page for paid products and trials.
+
+## Delayed checkout settlement
+
+Confirming a hosted checkout redirects to the configured success URL but leaves the new subscription or upgrade pending. By default it settles after 2500 milliseconds when state is next read. Seed `checkout.settle_delay_ms` to change the delay, set it to `null` to disable automatic settlement, or call `POST /checkout/:clientSecret/settle` explicitly.
+
+```yaml
+polar:
+  checkout:
+    settle_delay_ms: null
+```
+
+## Seed data
+
+Meters, benefits, and products are upserted by name or description. Customers are upserted by external ID. Product and benefit references may use an ID or their seed name.
+
+```yaml
+polar:
+  meters:
+    - name: API calls
+      filter:
+        conjunction: and
+        clauses:
+          - property: name
+            operator: eq
+            value: api.call
+      aggregation:
+        func: sum
+        property: count
+  benefits:
+    - type: meter_credit
+      description: 100 API calls
+      meter: API calls
+      units: 100
+  products:
+    - name: Free
+      recurring_interval: month
+      prices:
+        - amount_type: fixed
+          price_amount: 0
+          price_currency: usd
+      benefits:
+        - 100 API calls
+  customers:
+    - external_id: customer_123
+      email: customer@example.com
+      subscriptions:
+        - product: Free
+```
+
+## Inspect and fault
+
+`GET /openapi.json` serves the hand-authored API description. Use `GET /_emulate/ledger` to inspect authenticated requests and side effects. Faults can target Polar operation IDs such as `customers:get_state_external` through `POST /_emulate/faults`.

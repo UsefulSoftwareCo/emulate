@@ -719,6 +719,25 @@ importers:
         specifier: ^4.1.0
         version: 4.1.3(@opentelemetry/api@1.9.0)(@types/node@22.19.17)(vite@8.0.1(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)(@types/node@22.19.17)(esbuild@0.27.4)(jiti@2.6.1)(terser@5.16.9)(yaml@2.9.0))
 
+  packages/@emulators/polar:
+    dependencies:
+      '@emulators/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@polar-sh/sdk':
+        specifier: 0.49.0
+        version: 0.49.0
+      tsup:
+        specifier: ^8
+        version: 8.5.1(jiti@2.6.1)(postcss@8.5.8)(typescript@5.9.3)(yaml@2.9.0)
+      typescript:
+        specifier: ^5.7
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.3(@opentelemetry/api@1.9.0)(@types/node@22.19.17)(vite@8.0.1(@emnapi/core@1.9.1)(@emnapi/runtime@1.9.1)(@types/node@22.19.17)(esbuild@0.27.4)(jiti@2.6.1)(terser@5.16.9)(yaml@2.9.0))
+
   packages/@emulators/posthog:
     dependencies:
       '@emulators/core':
@@ -964,6 +983,9 @@ importers:
       '@emulators/posthog':
         specifier: workspace:*
         version: link:../@emulators/posthog
+      '@emulators/polar':
+        specifier: workspace:*
+        version: link:../@emulators/polar
       '@emulators/resend':
         specifier: workspace:*
         version: link:../@emulators/resend
@@ -2563,6 +2585,9 @@ packages:
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
     engines: {node: '>=14'}
+
+  '@polar-sh/sdk@0.49.0':
+    resolution: {integrity: sha512-9UYb70iKjJCtWYlu0OF5HLYBLmkxHwqr2RlXwuxXQgRGqq56IQWlVG+NO7e1YJ7I5GW0CBHhGIjRbQ9hYM6ycQ==}
 
   '@poppinss/colors@4.1.6':
     resolution: {integrity: sha512-H9xkIdFswbS8n1d6vmRd8+c10t2Qe+rZITbbDHHkQixH5+2x1FDGmi/0K+WgWiqQFKPSlIYB7jlH6Kpfn6Fleg==}
@@ -10184,6 +10209,11 @@ snapshots:
 
   '@pkgjs/parseargs@0.11.0':
     optional: true
+
+  '@polar-sh/sdk@0.49.0':
+    dependencies:
+      standardwebhooks: 1.0.0
+      zod: 4.3.6
 
   '@poppinss/colors@4.1.6':
     dependencies:

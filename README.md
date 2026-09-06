@@ -33,6 +33,7 @@ All services start with sensible defaults. No config file needed:
 - **PostHog** on `http://localhost:4016`
 - **MCP** on `http://localhost:4017`
 - **GitLab** on `http://localhost:4018` (full real GraphQL schema)
+- **Polar** on `http://localhost:4019` (subscriptions, usage metering, checkout, and customer portal)
 
 Every running service also exposes a public control plane under `/_emulate`:
 
@@ -174,7 +175,7 @@ github:
 
 ## Deployed Instances
 
-All services are available on host-based routing when deployed: `github`, `gitlab`, `mcp`, `vercel`, `google`, `okta`, `microsoft`, `spotify`, `slack`, `apple`, `aws`, `resend`, `stripe`, `mongoatlas`, `clerk`, `x`, `workos`, `autumn`, and `posthog`. Each one supports three addressing forms:
+All services are available on host-based routing when deployed: `github`, `gitlab`, `mcp`, `vercel`, `google`, `okta`, `microsoft`, `spotify`, `slack`, `apple`, `aws`, `resend`, `stripe`, `mongoatlas`, `clerk`, `x`, `workos`, `autumn`, `posthog`, and `polar`. Each one supports three addressing forms:
 
 ```text
 https://github.emulators.dev                     # service host (control plane only)
@@ -264,7 +265,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]));
 
 | Option    | Default      | Description                                                                                                                                                                                                                                                                                       |
 | --------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `service` | _(required)_ | Service name: `'vercel'`, `'github'`, `'gitlab'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'spotify'`, `'x'`, `'workos'`, `'autumn'`, or `'posthog'`                                                               |
+| `service` | _(required)_ | Service name: `'vercel'`, `'github'`, `'gitlab'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'spotify'`, `'x'`, `'workos'`, `'autumn'`, `'posthog'`, `'mcp'`, or `'polar'`                                           |
 | `port`    | `4000`       | Port for the HTTP server                                                                                                                                                                                                                                                                          |
 | `seed`    | none         | Inline seed data (same shape as YAML config)                                                                                                                                                                                                                                                      |
 | `baseUrl` | none         | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -816,6 +817,31 @@ curl -s -X POST http://localhost:4018/api/graphql \
 ```
 
 Because the full schema is real, this surface is well suited to testing GraphQL clients and generators against a large, production-shaped type system without calling gitlab.com. Use `/_emulate/manifest` for the declared coverage and `/_emulate/ledger` to inspect calls.
+
+## Polar Billing API
+
+Polar emulates the subscription and usage-based billing paths used by applications built with `@polar-sh/sdk`. It includes customers, meters, events, benefits, products, subscriptions, hosted checkout, and customer portal sessions.
+
+```bash
+npx emulate --service polar
+```
+
+When all services run together, Polar uses `http://localhost:4019`. Any non-empty bearer token is accepted.
+
+```ts
+import { Polar } from "@polar-sh/sdk";
+
+const polar = new Polar({
+  accessToken: "polar_oat_test",
+  serverURL: "http://localhost:4019",
+});
+
+const state = await polar.customers.getStateExternal({ externalId: "customer_123" });
+```
+
+Checkout confirmation deliberately leaves the new or upgraded subscription pending for a short interval. Set `checkout.settle_delay_ms` in seed data to control that interval, use `null` to disable automatic settlement, or call `POST /checkout/:clientSecret/settle` to make the subscription visible immediately.
+
+The package serves its hand-authored API description at `GET /openapi.json`. Use `GET /_emulate/manifest` for declared coverage, `GET /_emulate/ledger` to inspect calls, and `POST /_emulate/faults` to inject failures by Polar operation ID.
 
 ## Google OAuth + Gmail, Calendar, and Drive APIs
 

@@ -1,14 +1,22 @@
 # Changelog
 
-## 0.14.1
+## 0.15.0
 
 <!-- release:start -->
 
 ### New Features
 
-- **Autumn `balances.update`** — the Autumn emulator now supports the SDK's balance update call (`POST /v1/balances.update`) for reconciling continuous-use features such as seats. Exactly one of `usage`, `remaining`, or `add_to_balance` is required; the update is recorded as an adjustment event, so `events.list` shows the reconciliation and `balances.check` and `customers.get_or_create` reflect it from the same state. `remaining` is rejected on unlimited balances, unknown customers 404 with Autumn's real `customer_not_found` code (update is a non-creating endpoint upstream, unlike track and check), and a feature the customer's plan does not carry 404s.
+- **Polar billing emulator** (`@emulators/polar`, `npx emulate --service polar`) — a stateful emulator for the subscription and usage-based billing surface applications use through `@polar-sh/sdk`: customers with external ids (unique, deliverable-looking emails, Polar's exact 422 messages), meters with filters and aggregations, event ingestion (unknown external customers accepted and attributed once the customer exists), meter credit and custom benefits, recurring products with fixed or metered prices and trials, subscriptions (server-side creation for free products only, product changes with `next_period` pending updates, cancel at period end, revoke), customer state with active subscriptions, granted benefits, and meter balances, customer meters, hosted checkout (a free subscription upgraded in place via `subscription_id`, confirmation deferred until settled by `POST /checkout/:secret/settle` or an auto-settle delay), and customer portal sessions. Faults and the request ledger key on Polar's real operation ids (for example `customers:get_state_external`, `events:ingest`).
 
 <!-- release:end -->
+
+## 0.14.1
+
+
+### New Features
+
+- **Autumn `balances.update`** — the Autumn emulator now supports the SDK's balance update call (`POST /v1/balances.update`) for reconciling continuous-use features such as seats. Exactly one of `usage`, `remaining`, or `add_to_balance` is required; the update is recorded as an adjustment event, so `events.list` shows the reconciliation and `balances.check` and `customers.get_or_create` reflect it from the same state. `remaining` is rejected on unlimited balances, unknown customers 404 with Autumn's real `customer_not_found` code (update is a non-creating endpoint upstream, unlike track and check), and a feature the customer's plan does not carry 404s.
+
 
 ## 0.14.0
 

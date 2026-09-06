@@ -63,7 +63,7 @@ Global catalog:
   Hosted services:
   Available services include vercel, github, gitlab, google, slack, apple,
   microsoft, okta, aws, resend, stripe, mongoatlas, clerk, spotify, x, workos,
-  autumn, posthog, and mcp.
+  autumn, posthog, mcp, and polar.
   MCP OAuth compliance scenarios are configured under mcp.oauth in seed data;
   see the MCP manifest seed schema for issuer, resource, DCR, and token-auth knobs.
   Microsoft Graph includes OneDrive file content upload/download routes under

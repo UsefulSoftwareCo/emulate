@@ -19,6 +19,7 @@ export const PAGE_TITLES: Record<string, string> = {
   workos: "WorkOS",
   spotify: "Spotify",
   posthog: "PostHog",
+  polar: "Polar",
   authentication: "Authentication",
   manifest: "Service Manifest",
   ledger: "Request Ledger",

@@ -1,6 +1,6 @@
 {
   "name": "@executor-js/emulate",
-  "version": "0.14.1",
+  "version": "0.15.0",
   "description": "Local drop-in replacement services for CI and no-network sandboxes",
   "license": "Apache-2.0",
   "type": "module",
@@ -92,6 +92,7 @@
     "@emulators/stripe": "workspace:*",
     "@emulators/clerk": "workspace:*",
     "@emulators/posthog": "workspace:*",
+    "@emulators/polar": "workspace:*",
     "@emulators/spotify": "workspace:*",
     "@emulators/x": "workspace:*",
     "tsup": "^8",

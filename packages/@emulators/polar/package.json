@@ -1,5 +1,5 @@
 {
-  "name": "@emulators/slack",
+  "name": "@emulators/polar",
   "version": "0.15.0",
   "private": true,
   "license": "Apache-2.0",
@@ -16,7 +16,7 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/vercel-labs/emulate.git",
-    "directory": "packages/@emulators/slack"
+    "directory": "packages/@emulators/polar"
   },
   "bugs": {
     "url": "https://github.com/vercel-labs/emulate/issues"
@@ -36,7 +36,7 @@
     "@emulators/core": "workspace:*"
   },
   "devDependencies": {
-    "@slack/web-api": "^7.16.0",
+    "@polar-sh/sdk": "0.49.0",
     "tsup": "^8",
     "typescript": "^5.7",
     "vitest": "^4.1.0"

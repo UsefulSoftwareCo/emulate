@@ -56,9 +56,10 @@ const SERVICE_NAME_LIST = [
   "autumn",
   "posthog",
   "mcp",
-  // gitlab is appended last so adding it leaves every other service's default
-  // multi-service port (basePort + index) unchanged.
+  // New services are appended so existing default multi-service ports remain
+  // unchanged.
   "gitlab",
+  "polar",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -118,6 +119,7 @@ function defaultToken(service: ServiceName, type: string): string {
   // GitLab personal access tokens are prefixed glpat- so the issued credential
   // reads like a real one, even though the emulator does not validate it.
   if (service === "gitlab") return `glpat-${randomId().slice(0, 20)}`;
+  if (service === "polar") return `polar_oat_${randomId()}`;
   const prefix = type === "api-key" ? apiKeyPrefix(service) : `emu_${service}`;
   return `${prefix}_${randomId()}`;
 }
@@ -991,6 +993,33 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
     initConfig: {
       autumn: {
         customers: [{ id: "org_paid_example", subscriptions: [{ plan_id: "pro", status: "active" }] }],
+      },
+    },
+  },
+  polar: {
+    label: "Polar billing emulator",
+    endpoints: "customers, meters, events, benefits, products, subscriptions, hosted checkout, and customer portal",
+    async load() {
+      const mod = await import("@emulators/polar");
+      return {
+        plugin: mod.polarPlugin,
+        manifest: mod.manifest,
+        seedFromConfig: mod.seedFromConfig,
+      };
+    },
+    defaultFallback() {
+      return { login: "polar_oat_emulate", id: 1, scopes: [] };
+    },
+    initConfig: {
+      polar: {
+        products: [
+          {
+            name: "Free",
+            recurring_interval: "month",
+            prices: [{ amount_type: "fixed", price_amount: 0, price_currency: "usd" }],
+          },
+        ],
+        customers: [{ external_id: "customer_123", email: "customer@example.com" }],
       },
     },
   },
