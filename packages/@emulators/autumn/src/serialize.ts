@@ -1,8 +1,10 @@
 // Shared state transitions and SDK-shaped serialization for the Autumn
 // emulator. Field names are the snake_case keys the real Autumn v1 API returns;
 // the autumn-js SDK remaps them to camelCase on the way in.
+import type { Store } from "@emulators/core";
+
 import type { AutumnStore } from "./store.js";
-import type { AutumnCustomer, AutumnPlan, AutumnSubscription } from "./entities.js";
+import type { AutumnCustomer, AutumnPaymentMethod, AutumnPlan, AutumnSubscription } from "./entities.js";
 
 const DAY_MS = 86_400_000;
 
@@ -155,7 +157,35 @@ export function balanceForFeature(
   return balancesFor(as, customer)[featureId];
 }
 
-export function serializeCustomer(as: AutumnStore, customer: AutumnCustomer): Record<string, unknown> {
+/** Mint the next Stripe-style PaymentMethod id for this instance. Stripe ids
+ *  are unique per object, so the counter lives on the store rather than on any
+ *  one customer (a customer can replace its card any number of times). */
+export function nextPaymentMethodId(store: Store): string {
+  const next = (store.getData<number>("autumn.payment_method_seq") ?? 0) + 1;
+  store.setData("autumn.payment_method_seq", next);
+  return `pm_emulate_${next}`;
+}
+
+/** The card a paid checkout leaves on file when the customer had none. */
+export function defaultCard(id: string): AutumnPaymentMethod {
+  return { id, type: "card", card: { brand: "visa", last4: "4242", exp_month: 12, exp_year: 2030 } };
+}
+
+export interface SerializeCustomerOptions {
+  /** Autumn's `expand` request param. `payment_method` adds the customer's
+   *  default card (or null); without it the field is omitted entirely, which
+   *  is exactly what real Autumn does. */
+  expand?: string[];
+}
+
+export function serializeCustomer(
+  as: AutumnStore,
+  customer: AutumnCustomer,
+  options: SerializeCustomerOptions = {},
+): Record<string, unknown> {
+  const expanded: Record<string, unknown> = options.expand?.includes("payment_method")
+    ? { payment_method: customer.payment_method ?? null }
+    : {};
   return {
     id: customer.customer_id,
     created_at: Date.parse(customer.created_at) || Date.now(),
@@ -174,6 +204,7 @@ export function serializeCustomer(as: AutumnStore, customer: AutumnCustomer): Re
     invoices: [],
     products: [],
     features: {},
+    ...expanded,
   };
 }
 

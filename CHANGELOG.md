@@ -1,14 +1,20 @@
 # Changelog
 
-## 0.14.1
+## 0.14.2
 
 <!-- release:start -->
 
 ### New Features
 
-- **Autumn `balances.update`** — the Autumn emulator now supports the SDK's balance update call (`POST /v1/balances.update`) for reconciling continuous-use features such as seats. Exactly one of `usage`, `remaining`, or `add_to_balance` is required; the update is recorded as an adjustment event, so `events.list` shows the reconciliation and `balances.check` and `customers.get_or_create` reflect it from the same state. `remaining` is rejected on unlimited balances, unknown customers 404 with Autumn's real `customer_not_found` code (update is a non-creating endpoint upstream, unlike track and check), and a feature the customer's plan does not carry 404s.
+- **Autumn payment method setup** — the Autumn emulator now supports changing the card on file end to end. `POST /v1/billing.setup_payment` (autumn-js `billing.setupPayment`) opens a Stripe setup-mode checkout and returns `{ customer_id, entity_id?, url }`; the hosted page at `GET /checkout/setup/:sessionId` captures a card (`card_number`, `exp`, both editable so a test can pick the brand) and redirects to `success_url`. As with the existing checkout flow, the customer's default payment method is deliberately not replaced until the `checkout.session.completed` webhook lands, modelled by `POST /checkout/setup/:sessionId/settle` (or the customer-wide `POST /checkout/settle`, which now settles setup sessions too). `customers.get_or_create` honours `expand: ["payment_method"]`, returning the Stripe PaymentMethod (`id`, `type`, `card.brand`, `card.last4`, `card.exp_month`, `card.exp_year`) or null, and omitting the field entirely when `expand` does not ask for it. Settling a paid checkout also leaves a visa 4242 on file when the customer had no card, and customers can be seeded with a `payment_method`.
 
 <!-- release:end -->
+
+## 0.14.1
+
+### New Features
+
+- **Autumn `balances.update`** — the Autumn emulator now supports the SDK's balance update call (`POST /v1/balances.update`) for reconciling continuous-use features such as seats. Exactly one of `usage`, `remaining`, or `add_to_balance` is required; the update is recorded as an adjustment event, so `events.list` shows the reconciliation and `balances.check` and `customers.get_or_create` reflect it from the same state. `remaining` is rejected on unlimited balances, unknown customers 404 with Autumn's real `customer_not_found` code (update is a non-creating endpoint upstream, unlike track and check), and a feature the customer's plan does not carry 404s.
 
 ## 0.14.0
 
@@ -35,13 +41,11 @@
 
 - **MCP OAuth compliance scenario knobs** — the MCP emulator gains a seedable `oauth` config for exercising RFC 7591/8414/9728 client compliance: `issuerOverride` (advertise a lying issuer), `resourceOverride` (protected-resource metadata naming a foreign resource), `tokenEndpointAuthMethods` (advertise an exact list, or `"omit"` to drop the field so RFC 8414's client_secret_basic default applies), `dcrAuthMethodOverride` (the DCR response substitutes the requested token auth method), and `rejectClientNameContaining` (registration rejects branded client names with `invalid_client_metadata`). The token endpoint now supports HTTP Basic client authentication and enforces the registered method strictly: `client_secret_basic` clients must use Basic, `client_secret_post` clients must use the form body.
 
-
 ## 0.13.6
 
 ### New Features
 
 - **WorkOS session logout** — the WorkOS emulator now serves AuthKit's session-end endpoint (`GET /user_management/sessions/logout?session_id=...&return_to=...`), the URL the Node SDK's `getLogoutUrl` builds. It revokes the session (its refresh token stops minting tokens, matching real WorkOS) and redirects to `return_to`, or renders a signed-out page when none is given. Apps can now exercise their full sign-out flow, including the hop through WorkOS, against the emulator.
-
 
 ## 0.13.5
 

@@ -23,6 +23,9 @@ export interface AutumnCustomer extends Entity {
   /** Plan ids whose free trial this customer has already consumed. Once used,
    *  the plan's `trial_available` flips to false (Autumn offers a trial once). */
   trials_used?: string[];
+  /** The customer's default payment method, as Stripe holds it. Only returned
+   *  by `customers.get_or_create` when `expand` asks for `payment_method`. */
+  payment_method?: AutumnPaymentMethod | null;
 }
 
 export interface AutumnTrackEvent extends Entity {
@@ -63,4 +66,30 @@ export interface AutumnCheckout extends Entity {
   /** `pending` (checkout open) to `completed` (browser paid, webhook in flight)
    *  to `settled` (webhook processed, subscription active). */
   status: "pending" | "completed" | "settled";
+}
+
+/** A Stripe PaymentMethod as Autumn surfaces it on an expanded customer. Only
+ *  the card fields an application realistically renders are modelled. */
+export interface AutumnPaymentMethod {
+  id: string;
+  type: "card";
+  card: { brand: string; last4: string; exp_month: number; exp_year: number };
+}
+
+/** A Stripe Checkout session in `mode: "setup"`, opened by
+ *  `billing.setup_payment` so a customer can replace the card on file. The
+ *  hosted page captures a card and redirects to `success_url`, but the
+ *  customer's default payment method only changes once the asynchronous
+ *  `checkout.session.completed` webhook is processed, modelled here by
+ *  `settle` (the same race as the checkout flow above). */
+export interface AutumnSetupSession extends Entity {
+  session_id: string;
+  customer_id: string;
+  success_url: string;
+  /** `pending` (setup open) to `completed` (card captured, webhook in flight)
+   *  to `settled` (webhook processed, default payment method replaced). */
+  status: "pending" | "completed" | "settled";
+  /** The card captured when the hosted page was submitted, applied to the
+   *  customer at settle. */
+  payment_method?: AutumnPaymentMethod;
 }

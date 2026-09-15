@@ -4,7 +4,7 @@ import { getAutumnStore, type AutumnStore } from "./store.js";
 import { autumnApiRoutes } from "./routes/api.js";
 import { checkoutRoutes } from "./routes/checkout.js";
 import { openapiRoutes } from "./routes/openapi.js";
-import type { AutumnSubscription, AutumnPlan, AutumnPlanItem } from "./entities.js";
+import type { AutumnSubscription, AutumnPaymentMethod, AutumnPlan, AutumnPlanItem } from "./entities.js";
 
 export { getAutumnStore, type AutumnStore } from "./store.js";
 export * from "./entities.js";
@@ -26,6 +26,9 @@ export interface AutumnSeedConfig {
     name?: string;
     email?: string;
     subscriptions?: AutumnSubscription[];
+    /** The card already on file for this customer. `id` is optional; the
+     *  emulator mints a Stripe-style one when it is omitted. */
+    payment_method?: Omit<AutumnPaymentMethod, "id"> & { id?: string };
   }>;
   /** Plan catalog the emulator advertises via `plans.list` and attaches via
    *  `billing.attach`. In production these are synced from `autumn.config.ts`;
@@ -54,26 +57,37 @@ function seedPlans(as: AutumnStore, plans: AutumnSeedPlan[]): void {
   });
 }
 
+function seedPaymentMethod(
+  seed: (Omit<AutumnPaymentMethod, "id"> & { id?: string }) | undefined,
+  index: number,
+): AutumnPaymentMethod | undefined {
+  if (!seed) return undefined;
+  return { id: seed.id ?? `pm_emulate_seed_${index}`, type: "card", card: seed.card };
+}
+
 export function seedFromConfig(store: Store, _baseUrl: string, config: AutumnSeedConfig): void {
   const as = getAutumnStore(store);
   if (config.plans) seedPlans(as, config.plans);
-  for (const customer of config.customers ?? []) {
+  (config.customers ?? []).forEach((customer, index) => {
+    const paymentMethod = seedPaymentMethod(customer.payment_method, index + 1);
     const existing = as.customers.findOneBy("customer_id", customer.id);
     if (existing) {
       as.customers.update(existing.id, {
         name: customer.name ?? existing.name,
         email: customer.email ?? existing.email,
         subscriptions: customer.subscriptions ?? existing.subscriptions,
+        payment_method: paymentMethod ?? existing.payment_method,
       });
-      continue;
+      return;
     }
     as.customers.insert({
       customer_id: customer.id,
       name: customer.name ?? null,
       email: customer.email ?? null,
       subscriptions: customer.subscriptions ?? [],
+      payment_method: paymentMethod,
     });
-  }
+  });
 }
 
 export const autumnPlugin: ServicePlugin = {
