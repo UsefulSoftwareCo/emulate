@@ -2,8 +2,8 @@ import type { RouteContext, CheckoutLineItem, Store } from "@emulators/core";
 import { renderCheckoutPage, renderCardPage } from "@emulators/core";
 
 import { getAutumnStore, type AutumnStore } from "../store.js";
-import type { AutumnCheckout, AutumnPaymentMethod, AutumnSetupSession } from "../entities.js";
-import { activateSubscription, defaultCard, nextPaymentMethodId } from "../serialize.js";
+import type { AutumnCheckout, AutumnSetupSession } from "../entities.js";
+import { activateSubscription, cardFromForm, defaultCard, nextPaymentMethodId } from "../serialize.js";
 
 const SERVICE_LABEL = "Autumn";
 
@@ -21,39 +21,22 @@ function settle(store: Store, as: AutumnStore, session: AutumnCheckout): void {
   as.checkouts.update(session.id, { status: "settled" });
 }
 
-/** Read the card the hosted setup page submitted. The brand follows the real
- *  issuer ranges Stripe's test cards use (4 Visa, 5 Mastercard, 3 Amex). */
-function cardFromForm(cardNumber: string, exp: string, id: string): AutumnPaymentMethod {
-  const digits = cardNumber.replace(/\D/g, "");
-  const brand = digits.startsWith("4")
-    ? "visa"
-    : digits.startsWith("5")
-      ? "mastercard"
-      : digits.startsWith("3")
-        ? "amex"
-        : "card";
-  const [rawMonth = "", rawYear = ""] = exp.split("/");
-  const month = Number(rawMonth.trim());
-  const year = Number(rawYear.trim());
-  const expYear = Number.isFinite(year) && year > 0 ? (year < 100 ? 2000 + year : year) : 2030;
-  return {
-    id,
-    type: "card",
-    card: {
-      brand,
-      last4: digits.slice(-4) || "4242",
-      exp_month: Number.isFinite(month) && month > 0 ? month : 12,
-      exp_year: expYear,
-    },
-  };
-}
-
 /** Process a completed setup session the way Autumn processes Stripe's
- *  `checkout.session.completed` webhook for a standalone setup checkout: the
- *  captured card becomes the customer's default payment method. */
+ *  `checkout.session.completed` webhook for a standalone setup checkout.
+ *
+ *  Surprising, but this is the real behaviour: a setup session never REPLACES
+ *  a card that is already on file. Autumn's `handleStandaloneSetupCheckout`
+ *  calls `updateDefaultPaymentMethod`, which asks `getCusPaymentMethod` for
+ *  the customer's existing `invoice_settings.default_payment_method` first and,
+ *  when one exists, simply re-sets that same card. Verified against the live
+ *  sandbox: a visa 4242 stayed the default after a second setup session saved
+ *  a mastercard 4444. The session still settles; only the customer is
+ *  untouched. An application that must CHANGE the card has to send the
+ *  customer to the billing portal (see routes/portal.ts), where Stripe itself
+ *  swaps the default. */
 function settleSetup(as: AutumnStore, session: AutumnSetupSession): void {
   const customer = as.customers.findOneBy("customer_id", session.customer_id);
-  if (customer && session.payment_method) {
+  if (customer && session.payment_method && !customer.payment_method) {
     as.customers.update(customer.id, { payment_method: session.payment_method });
   }
   as.setups.update(session.id, { status: "settled" });
@@ -62,7 +45,7 @@ function settleSetup(as: AutumnStore, session: AutumnSetupSession): void {
 function setupPage(session: AutumnSetupSession): string {
   return renderCardPage(
     "Update payment method",
-    "Save a new card for future payments.",
+    "Save a card for future payments.",
     `<form method="post" action="/checkout/setup/${session.session_id}/complete">
   <div class="checkout-form-section">
     <label class="checkout-form-label">Card information</label>
@@ -130,8 +113,9 @@ export function checkoutRoutes(ctx: RouteContext): void {
 
   // The browser submits the hosted setup page here. The card is captured and
   // the browser is redirected back, but the customer's default payment method
-  // is deliberately NOT replaced yet: like real Stripe, that happens out of
-  // band when the webhook is processed (see /checkout/setup/:id/settle).
+  // is deliberately NOT set yet: like real Stripe, that happens out of band
+  // when the webhook is processed (see /checkout/setup/:id/settle, which only
+  // sets the default when the customer has no card).
   app.post("/checkout/setup/:sessionId/complete", async (c) => {
     const store = as();
     const session = store.setups.findOneBy("session_id", c.req.param("sessionId"));

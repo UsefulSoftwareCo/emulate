@@ -6,7 +6,7 @@ allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 
 # Autumn Emulator
 
-Stateful Autumn billing emulation: customers (get_or_create), seedable subscriptions, a seedable plan catalog with per-customer eligibility (`plans.list`), usage tracking (`balances.track`), balance reconciliation (`balances.update`), feature access checks (`balances.check`), `billing.attach` / `billing.setup_payment` / `billing.open_customer_portal`, a hosted checkout flow for paid plans and card-required free trials, and a hosted setup flow for changing the card on file.
+Stateful Autumn billing emulation: customers (get_or_create), seedable subscriptions, a seedable plan catalog with per-customer eligibility (`plans.list`), usage tracking (`balances.track`), balance reconciliation (`balances.update`), feature access checks (`balances.check`), `billing.attach` / `billing.setup_payment` / `billing.open_customer_portal`, a hosted checkout flow for paid plans and card-required free trials, a hosted setup flow for putting a card on file, and a hosted billing portal for changing it.
 
 ## Start
 
@@ -69,9 +69,15 @@ curl -X POST "$AUTUMN_EMULATOR_URL/checkout/settle" -H "Content-Type: applicatio
 
 This deferral lets a test reproduce the real "page is stale until reload" race: the redirect back lands before the subscription is active.
 
-## Changing the card on file
+## Putting a card on file
 
-`billing.setupPayment({ customerId, successUrl })` returns `{ customer_id, url }`, where `url` is a hosted setup page (`GET /checkout/setup/:sessionId`). Submitting it (`POST /checkout/setup/:sessionId/complete` with `card_number` and `exp`) redirects to `success_url` but does NOT replace the default card yet: that lands with the webhook, so settle the session (`POST /checkout/setup/:sessionId/settle`, or the customer-wide `POST /checkout/settle`).
+`billing.setupPayment({ customerId, successUrl })` returns `{ customer_id, url }`, where `url` is a hosted setup page (`GET /checkout/setup/:sessionId`). Submitting it (`POST /checkout/setup/:sessionId/complete` with `card_number` and `exp`) redirects to `success_url` but does NOT set the default card yet: that lands with the webhook, so settle the session (`POST /checkout/setup/:sessionId/settle`, or the customer-wide `POST /checkout/settle`).
+
+A setup session never REPLACES an existing default card. This mirrors real Autumn, whose setup-checkout webhook handler reads the customer's current default payment method first and re-sets that same card when one exists. So the second setup session for a customer settles normally and leaves the old card in place. Use the billing portal to change a card.
+
+## Changing the card on file (billing portal)
+
+`billing.openCustomerPortal({ customerId, returnUrl })` returns `{ customer_id, url }` pointing at `GET /checkout/portal/:customerId`. The page shows the current plan, the card on file (or "No payment method"), a form to update the card, and a link back to `return_url` when one was given. Submitting the form (`POST /checkout/portal/:customerId/payment-method` with `card_number` and `exp`) changes the customer's card IMMEDIATELY, with no settle step: real Stripe owns the portal and swaps the default inside Stripe, and Autumn reads the card live on every expand. An unknown customer 404s.
 
 Read the card back with `expand`:
 

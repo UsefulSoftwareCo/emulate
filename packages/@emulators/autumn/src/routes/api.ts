@@ -230,7 +230,10 @@ export function autumnApiRoutes(ctx: RouteContext): void {
   app.post("/v1/billing.setup_payment", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const customerId = String(body.customer_id ?? body.customerId ?? "");
-    if (!customerId) return c.json({ message: "customer_id is required", code: "invalid_request" }, 400);
+    if (!customerId) {
+      // Real Autumn's validation error for a missing/invalid field.
+      return c.json({ message: "customer_id: must be a string (received undefined)", code: "invalid_inputs" }, 400);
+    }
     const entityId = typeof body.entity_id === "string" ? body.entity_id : undefined;
     const successUrl = String(body.success_url ?? body.successUrl ?? "");
     const store = as();
@@ -250,11 +253,18 @@ export function autumnApiRoutes(ctx: RouteContext): void {
     });
   });
 
+  // Open a Stripe billing portal session. The returned `url` is the hosted
+  // portal page, where the customer can change the card on file. The session
+  // is recorded so that page can link back to the application's `return_url`,
+  // as Stripe's portal does.
   app.post("/v1/billing.open_customer_portal", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const customerId = String(body.customer_id ?? body.customerId ?? "");
     if (!customerId) return c.json({ message: "customer_id is required", code: "invalid_request" }, 400);
-    ensureCustomer(as(), customerId, body);
+    const store = as();
+    ensureCustomer(store, customerId, body);
+    const returnUrl = String(body.return_url ?? body.returnUrl ?? "");
+    store.portals.insert({ customer_id: customerId, return_url: returnUrl });
     return c.json({ customer_id: customerId, url: `${baseUrl}/checkout/portal/${customerId}` });
   });
 

@@ -77,19 +77,31 @@ export interface AutumnPaymentMethod {
 }
 
 /** A Stripe Checkout session in `mode: "setup"`, opened by
- *  `billing.setup_payment` so a customer can replace the card on file. The
- *  hosted page captures a card and redirects to `success_url`, but the
- *  customer's default payment method only changes once the asynchronous
+ *  `billing.setup_payment` so a customer can put a card on file. The hosted
+ *  page captures a card and redirects to `success_url`, but the customer's
+ *  default payment method only changes once the asynchronous
  *  `checkout.session.completed` webhook is processed, modelled here by
- *  `settle` (the same race as the checkout flow above). */
+ *  `settle` (the same race as the checkout flow above). Settling only sets the
+ *  default when the customer has no card yet; see `settleSetup` in
+ *  routes/checkout.ts for why replacing a card needs the billing portal. */
 export interface AutumnSetupSession extends Entity {
   session_id: string;
   customer_id: string;
   success_url: string;
   /** `pending` (setup open) to `completed` (card captured, webhook in flight)
-   *  to `settled` (webhook processed, default payment method replaced). */
+   *  to `settled` (webhook processed). */
   status: "pending" | "completed" | "settled";
-  /** The card captured when the hosted page was submitted, applied to the
-   *  customer at settle. */
+  /** The card captured when the hosted page was submitted. It becomes the
+   *  customer's default at settle only when the customer had no card. */
   payment_method?: AutumnPaymentMethod;
+}
+
+/** A Stripe billing portal session, opened by `billing.open_customer_portal`.
+ *  Only the `return_url` matters to an application under test: the hosted
+ *  portal page renders a link back to it. Stripe portal sessions are
+ *  single-use and short-lived; the emulator keeps them so the page can find
+ *  the most recent one for a customer. */
+export interface AutumnPortalSession extends Entity {
+  customer_id: string;
+  return_url: string;
 }

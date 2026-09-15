@@ -1,6 +1,13 @@
 import { Store, type Collection } from "@emulators/core";
 
-import type { AutumnCustomer, AutumnTrackEvent, AutumnPlan, AutumnCheckout, AutumnSetupSession } from "./entities.js";
+import type {
+  AutumnCustomer,
+  AutumnTrackEvent,
+  AutumnPlan,
+  AutumnCheckout,
+  AutumnSetupSession,
+  AutumnPortalSession,
+} from "./entities.js";
 
 export interface AutumnStore {
   customers: Collection<AutumnCustomer>;
@@ -8,6 +15,7 @@ export interface AutumnStore {
   plans: Collection<AutumnPlan>;
   checkouts: Collection<AutumnCheckout>;
   setups: Collection<AutumnSetupSession>;
+  portals: Collection<AutumnPortalSession>;
 }
 
 export function getAutumnStore(store: Store): AutumnStore {
@@ -17,5 +25,6 @@ export function getAutumnStore(store: Store): AutumnStore {
     plans: store.collection<AutumnPlan>("autumn.plans", ["plan_id"]),
     checkouts: store.collection<AutumnCheckout>("autumn.checkouts", ["session_id", "customer_id"]),
     setups: store.collection<AutumnSetupSession>("autumn.setups", ["session_id", "customer_id"]),
+    portals: store.collection<AutumnPortalSession>("autumn.portals", ["customer_id"]),
   };
 }

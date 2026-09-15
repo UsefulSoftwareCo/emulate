@@ -3,6 +3,7 @@ import type { Hono, Store, WebhookDispatcher, TokenMap, AppEnv, RouteContext, Se
 import { getAutumnStore, type AutumnStore } from "./store.js";
 import { autumnApiRoutes } from "./routes/api.js";
 import { checkoutRoutes } from "./routes/checkout.js";
+import { portalRoutes } from "./routes/portal.js";
 import { openapiRoutes } from "./routes/openapi.js";
 import type { AutumnSubscription, AutumnPaymentMethod, AutumnPlan, AutumnPlanItem } from "./entities.js";
 
@@ -96,6 +97,7 @@ export const autumnPlugin: ServicePlugin = {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     autumnApiRoutes(ctx);
     checkoutRoutes(ctx);
+    portalRoutes(ctx);
     openapiRoutes(ctx);
   },
   seed(_store: Store, _baseUrl: string): void {

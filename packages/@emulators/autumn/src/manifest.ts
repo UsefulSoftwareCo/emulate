@@ -4,12 +4,13 @@ export const manifest: ServiceManifest = {
   id: "autumn",
   name: "Autumn",
   description:
-    "Stateful Autumn billing emulator: customers (with seedable subscriptions and a plan catalog), usage tracking, feature access checks, plan eligibility, and a hosted checkout flow for paid plans and card-required free trials.",
+    "Stateful Autumn billing emulator: customers (with seedable subscriptions and a plan catalog), usage tracking, feature access checks, plan eligibility, a hosted checkout flow for paid plans and card-required free trials, a hosted setup flow for putting a card on file, and a hosted billing portal for changing it.",
   docsUrl: "https://docs.emulators.dev/autumn",
   surfaces: [
     { id: "rest", kind: "rest", title: "Autumn v1 API", status: "partial", basePath: "/v1" },
     { id: "checkout", kind: "ui", title: "Hosted checkout", status: "partial", basePath: "/checkout" },
     { id: "setup", kind: "ui", title: "Hosted payment method setup", status: "partial", basePath: "/checkout/setup" },
+    { id: "portal", kind: "ui", title: "Hosted billing portal", status: "partial", basePath: "/checkout/portal" },
   ],
   auth: [{ id: "api-key", title: "Autumn secret key", type: "api-key", status: "supported" }],
   specs: [
@@ -92,6 +93,7 @@ export const manifest: ServiceManifest = {
       { name: "autumn.plans" },
       { name: "autumn.checkouts" },
       { name: "autumn.setups" },
+      { name: "autumn.portals" },
     ],
   },
   connections: [

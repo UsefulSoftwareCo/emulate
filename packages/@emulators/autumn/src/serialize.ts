@@ -171,10 +171,40 @@ export function defaultCard(id: string): AutumnPaymentMethod {
   return { id, type: "card", card: { brand: "visa", last4: "4242", exp_month: 12, exp_year: 2030 } };
 }
 
+/** Read a card out of a hosted page's form fields (the setup checkout and the
+ *  billing portal both post the same `card_number` and `exp` pair). The brand
+ *  follows the real issuer ranges Stripe's test cards use (4 Visa,
+ *  5 Mastercard, 3 Amex). */
+export function cardFromForm(cardNumber: string, exp: string, id: string): AutumnPaymentMethod {
+  const digits = cardNumber.replace(/\D/g, "");
+  const brand = digits.startsWith("4")
+    ? "visa"
+    : digits.startsWith("5")
+      ? "mastercard"
+      : digits.startsWith("3")
+        ? "amex"
+        : "card";
+  const [rawMonth = "", rawYear = ""] = exp.split("/");
+  const month = Number(rawMonth.trim());
+  const year = Number(rawYear.trim());
+  const expYear = Number.isFinite(year) && year > 0 ? (year < 100 ? 2000 + year : year) : 2030;
+  return {
+    id,
+    type: "card",
+    card: {
+      brand,
+      last4: digits.slice(-4) || "4242",
+      exp_month: Number.isFinite(month) && month > 0 ? month : 12,
+      exp_year: expYear,
+    },
+  };
+}
+
 export interface SerializeCustomerOptions {
   /** Autumn's `expand` request param. `payment_method` adds the customer's
-   *  default card (or null); without it the field is omitted entirely, which
-   *  is exactly what real Autumn does. */
+   *  default card. Without the expand, or when no card is on file, the field
+   *  is omitted entirely (verified against the live sandbox API: a customer
+   *  with no card gets no `payment_method` key even when expanded). */
   expand?: string[];
 }
 
@@ -183,9 +213,10 @@ export function serializeCustomer(
   customer: AutumnCustomer,
   options: SerializeCustomerOptions = {},
 ): Record<string, unknown> {
-  const expanded: Record<string, unknown> = options.expand?.includes("payment_method")
-    ? { payment_method: customer.payment_method ?? null }
-    : {};
+  const expanded: Record<string, unknown> =
+    options.expand?.includes("payment_method") && customer.payment_method
+      ? { payment_method: customer.payment_method }
+      : {};
   return {
     id: customer.customer_id,
     created_at: Date.parse(customer.created_at) || Date.now(),
