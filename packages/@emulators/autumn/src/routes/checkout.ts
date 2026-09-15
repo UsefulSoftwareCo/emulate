@@ -1,20 +1,67 @@
-import type { RouteContext, CheckoutLineItem } from "@emulators/core";
+import type { RouteContext, CheckoutLineItem, Store } from "@emulators/core";
 import { renderCheckoutPage, renderCardPage } from "@emulators/core";
 
 import { getAutumnStore, type AutumnStore } from "../store.js";
-import type { AutumnCheckout } from "../entities.js";
-import { activateSubscription } from "../serialize.js";
+import type { AutumnCheckout, AutumnSetupSession } from "../entities.js";
+import { activateSubscription, cardFromForm, defaultCard, nextPaymentMethodId } from "../serialize.js";
 
 const SERVICE_LABEL = "Autumn";
 
 /** Process a completed checkout the way Autumn processes Stripe's asynchronous
  *  `checkout.session.completed` webhook: now (and only now) does the customer's
- *  subscription actually become active. A card-required trial lands `trialing`. */
-function settle(as: AutumnStore, session: AutumnCheckout): void {
+ *  subscription actually become active. A card-required trial lands `trialing`.
+ *  Paying also leaves a card on file, as the Stripe subscription does. */
+function settle(store: Store, as: AutumnStore, session: AutumnCheckout): void {
   const customer = as.customers.findOneBy("customer_id", session.customer_id);
   const plan = as.plans.findOneBy("plan_id", session.plan_id);
   if (customer && plan) activateSubscription(as, customer, plan, { trial: plan.free_trial != null });
+  if (customer && !customer.payment_method) {
+    as.customers.update(customer.id, { payment_method: defaultCard(nextPaymentMethodId(store)) });
+  }
   as.checkouts.update(session.id, { status: "settled" });
+}
+
+/** Process a completed setup session the way Autumn processes Stripe's
+ *  `checkout.session.completed` webhook for a standalone setup checkout.
+ *
+ *  Surprising, but this is the real behaviour: a setup session never REPLACES
+ *  a card that is already on file. Autumn's `handleStandaloneSetupCheckout`
+ *  calls `updateDefaultPaymentMethod`, which asks `getCusPaymentMethod` for
+ *  the customer's existing `invoice_settings.default_payment_method` first and,
+ *  when one exists, simply re-sets that same card. Verified against the live
+ *  sandbox: a visa 4242 stayed the default after a second setup session saved
+ *  a mastercard 4444. The session still settles; only the customer is
+ *  untouched. An application that must CHANGE the card has to send the
+ *  customer to the billing portal (see routes/portal.ts), where Stripe itself
+ *  swaps the default. */
+function settleSetup(as: AutumnStore, session: AutumnSetupSession): void {
+  const customer = as.customers.findOneBy("customer_id", session.customer_id);
+  if (customer && session.payment_method && !customer.payment_method) {
+    as.customers.update(customer.id, { payment_method: session.payment_method });
+  }
+  as.setups.update(session.id, { status: "settled" });
+}
+
+function setupPage(session: AutumnSetupSession): string {
+  return renderCardPage(
+    "Update payment method",
+    "Save a card for future payments.",
+    `<form method="post" action="/checkout/setup/${session.session_id}/complete">
+  <div class="checkout-form-section">
+    <label class="checkout-form-label">Card information</label>
+    <div class="checkout-card-box">
+      <input type="text" name="card_number" class="checkout-input" value="4242 4242 4242 4242"/>
+      <div class="checkout-card-row">
+        <input type="text" name="exp" class="checkout-input" value="12/30"/>
+        <input type="text" name="cvc" class="checkout-input" value="123"/>
+      </div>
+    </div>
+    <div class="checkout-sim-note">Card fields are simulated. The card is saved on file.</div>
+  </div>
+  <button type="submit" class="checkout-pay-btn">Save card</button>
+</form>`,
+    SERVICE_LABEL,
+  );
 }
 
 export function checkoutRoutes(ctx: RouteContext): void {
@@ -30,8 +77,68 @@ export function checkoutRoutes(ctx: RouteContext): void {
     if (!customerId) return c.json({ message: "customer_id is required", code: "invalid_request" }, 400);
     const store = as();
     const sessions = store.checkouts.findBy("customer_id", customerId).filter((s) => s.status !== "settled");
-    for (const session of sessions) settle(store, session);
-    return c.json({ settled: sessions.length });
+    for (const session of sessions) settle(ctx.store, store, session);
+    const setups = store.setups.findBy("customer_id", customerId).filter((s) => s.status !== "settled");
+    for (const session of setups) settleSetup(store, session);
+    return c.json({ settled: sessions.length + setups.length });
+  });
+
+  // Hosted Stripe "setup mode" checkout: capture a card without charging it.
+  app.get("/checkout/setup/:sessionId", (c) => {
+    const store = as();
+    const session = store.setups.findOneBy("session_id", c.req.param("sessionId"));
+    if (!session) {
+      return c.html(
+        renderCardPage(
+          "Setup not found",
+          "This setup session does not exist.",
+          '<p class="empty">The session id is invalid or has been removed.</p>',
+          SERVICE_LABEL,
+        ),
+        404,
+      );
+    }
+    if (session.status === "settled") {
+      return c.html(
+        renderCardPage(
+          "Payment method updated",
+          "This card is already on file.",
+          '<p class="empty check">Payment method saved</p>',
+          SERVICE_LABEL,
+        ),
+      );
+    }
+    return c.html(setupPage(session));
+  });
+
+  // The browser submits the hosted setup page here. The card is captured and
+  // the browser is redirected back, but the customer's default payment method
+  // is deliberately NOT set yet: like real Stripe, that happens out of band
+  // when the webhook is processed (see /checkout/setup/:id/settle, which only
+  // sets the default when the customer has no card).
+  app.post("/checkout/setup/:sessionId/complete", async (c) => {
+    const store = as();
+    const session = store.setups.findOneBy("session_id", c.req.param("sessionId"));
+    if (!session) {
+      return c.html(renderCardPage("Setup not found", "This setup session does not exist.", "", SERVICE_LABEL), 404);
+    }
+    const form = await c.req.parseBody().catch(() => ({}) as Record<string, unknown>);
+    const cardNumber = typeof form.card_number === "string" ? form.card_number : "4242 4242 4242 4242";
+    const exp = typeof form.exp === "string" ? form.exp : "12/30";
+    store.setups.update(session.id, {
+      status: "completed",
+      payment_method: cardFromForm(cardNumber, exp, nextPaymentMethodId(ctx.store)),
+    });
+    return c.redirect(session.success_url || "/");
+  });
+
+  // Settle a single setup session explicitly (the Stripe webhook landing).
+  app.post("/checkout/setup/:sessionId/settle", (c) => {
+    const store = as();
+    const session = store.setups.findOneBy("session_id", c.req.param("sessionId"));
+    if (!session) return c.json({ message: "setup session not found", code: "not_found" }, 404);
+    settleSetup(store, session);
+    return c.json({ settled: 1 });
   });
 
   app.get("/checkout/:sessionId", (c) => {
@@ -112,7 +219,7 @@ export function checkoutRoutes(ctx: RouteContext): void {
     const store = as();
     const session = store.checkouts.findOneBy("session_id", c.req.param("sessionId"));
     if (!session) return c.json({ message: "checkout not found", code: "not_found" }, 404);
-    settle(store, session);
+    settle(ctx.store, store, session);
     return c.json({ settled: 1 });
   });
 }

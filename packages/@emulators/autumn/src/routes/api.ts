@@ -9,6 +9,19 @@ import {
   balanceForFeature,
 } from "../serialize.js";
 
+/** Autumn's `expand` request param: an array of field names, and (for hand-rolled
+ *  HTTP callers) a comma-separated string. Anything else expands nothing. */
+function parseExpand(value: unknown): string[] {
+  if (Array.isArray(value)) return value.filter((v): v is string => typeof v === "string");
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
 /** Autumn v1 RPC-style API (paths mirror autumn-js: /v1/<group>.<method>). */
 export function autumnApiRoutes(ctx: RouteContext): void {
   const { app, store, baseUrl } = ctx;
@@ -20,7 +33,7 @@ export function autumnApiRoutes(ctx: RouteContext): void {
     if (!id) return c.json({ message: "customer_id is required", code: "invalid_request" }, 400);
     const data = (body.customer_data as Record<string, unknown> | undefined) ?? body;
     const customer = ensureCustomer(as(), id, data);
-    return c.json(serializeCustomer(as(), customer));
+    return c.json(serializeCustomer(as(), customer, { expand: parseExpand(body.expand) }));
   });
 
   app.post("/v1/customers.list", async (c) => {
@@ -209,11 +222,49 @@ export function autumnApiRoutes(ctx: RouteContext): void {
     return c.json({ customer_id: customerId, payment_url: null, invoice: null, required_action: null });
   });
 
+  // Open a Stripe Checkout session in `mode: "setup"` so the customer can
+  // replace the card on file. Like the real flow, the returned `url` is a
+  // hosted page; completing it redirects back to `success_url`, but the
+  // default payment method only changes when the asynchronous
+  // `checkout.session.completed` webhook is processed (see /checkout/setup).
+  app.post("/v1/billing.setup_payment", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const customerId = String(body.customer_id ?? body.customerId ?? "");
+    if (!customerId) {
+      // Real Autumn's validation error for a missing/invalid field.
+      return c.json({ message: "customer_id: must be a string (received undefined)", code: "invalid_inputs" }, 400);
+    }
+    const entityId = typeof body.entity_id === "string" ? body.entity_id : undefined;
+    const successUrl = String(body.success_url ?? body.successUrl ?? "");
+    const store = as();
+    ensureCustomer(store, customerId, body);
+    const session = store.setups.insert({
+      session_id: "",
+      customer_id: customerId,
+      success_url: successUrl,
+      status: "pending",
+    });
+    const sessionId = `seti_emulate_${session.id}`;
+    store.setups.update(session.id, { session_id: sessionId });
+    return c.json({
+      customer_id: customerId,
+      ...(entityId ? { entity_id: entityId } : {}),
+      url: `${baseUrl}/checkout/setup/${sessionId}`,
+    });
+  });
+
+  // Open a Stripe billing portal session. The returned `url` is the hosted
+  // portal page, where the customer can change the card on file. The session
+  // is recorded so that page can link back to the application's `return_url`,
+  // as Stripe's portal does.
   app.post("/v1/billing.open_customer_portal", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const customerId = String(body.customer_id ?? body.customerId ?? "");
     if (!customerId) return c.json({ message: "customer_id is required", code: "invalid_request" }, 400);
-    ensureCustomer(as(), customerId, body);
+    const store = as();
+    ensureCustomer(store, customerId, body);
+    const returnUrl = String(body.return_url ?? body.returnUrl ?? "");
+    store.portals.insert({ customer_id: customerId, return_url: returnUrl });
     return c.json({ customer_id: customerId, url: `${baseUrl}/checkout/portal/${customerId}` });
   });
 

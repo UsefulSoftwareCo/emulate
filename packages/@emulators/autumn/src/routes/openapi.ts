@@ -57,6 +57,12 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
               },
               name: { type: "string" },
               email: { type: "string" },
+              expand: {
+                type: "array",
+                items: { type: "string", enum: ["payment_method"] },
+                description:
+                  "Fields to expand on the returned customer. `payment_method` adds the default card (or null); omit it and the field is absent.",
+              },
             },
             ["customer_id"],
             "The customer to fetch or create.",
@@ -145,6 +151,44 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
             "400": ok("Validation error."),
             "404": ok("Unknown customer, or no balance for the feature."),
           },
+        },
+      },
+      "/v1/billing.setup_payment": {
+        post: {
+          operationId: "billing.setup_payment",
+          tags: ["billing"],
+          summary: "Open a hosted setup checkout to replace the card on file",
+          requestBody: jsonBody(
+            {
+              customer_id: { type: "string" },
+              entity_id: { type: "string" },
+              plan_id: { type: "string" },
+              success_url: { type: "string" },
+            },
+            ["customer_id"],
+            "The customer whose payment method is being set up. Returns `{ customer_id, entity_id?, url }`. The captured card becomes the default only when the setup session settles AND the customer had no card: like real Autumn, a setup session never replaces an existing default. Use the billing portal to change a card.",
+          ),
+          responses: { "200": ok("The hosted setup URL."), "400": ok("Validation error.") },
+        },
+      },
+      "/v1/billing.open_customer_portal": {
+        post: {
+          operationId: "billing.open_customer_portal",
+          tags: ["billing"],
+          summary: "Open a hosted billing portal session",
+          requestBody: jsonBody(
+            {
+              customer_id: { type: "string" },
+              return_url: {
+                type: "string",
+                description:
+                  "Where the portal page links back to. Recorded on the session; omit it and no link is shown.",
+              },
+            },
+            ["customer_id"],
+            "The customer whose billing portal to open. Returns `{ customer_id, url }`; the portal page changes the card on file immediately, with no settle step.",
+          ),
+          responses: { "200": ok("The hosted portal URL."), "400": ok("Validation error.") },
         },
       },
       "/v1/plans.list": {

@@ -1,8 +1,10 @@
 // Shared state transitions and SDK-shaped serialization for the Autumn
 // emulator. Field names are the snake_case keys the real Autumn v1 API returns;
 // the autumn-js SDK remaps them to camelCase on the way in.
+import type { Store } from "@emulators/core";
+
 import type { AutumnStore } from "./store.js";
-import type { AutumnCustomer, AutumnPlan, AutumnSubscription } from "./entities.js";
+import type { AutumnCustomer, AutumnPaymentMethod, AutumnPlan, AutumnSubscription } from "./entities.js";
 
 const DAY_MS = 86_400_000;
 
@@ -155,7 +157,66 @@ export function balanceForFeature(
   return balancesFor(as, customer)[featureId];
 }
 
-export function serializeCustomer(as: AutumnStore, customer: AutumnCustomer): Record<string, unknown> {
+/** Mint the next Stripe-style PaymentMethod id for this instance. Stripe ids
+ *  are unique per object, so the counter lives on the store rather than on any
+ *  one customer (a customer can replace its card any number of times). */
+export function nextPaymentMethodId(store: Store): string {
+  const next = (store.getData<number>("autumn.payment_method_seq") ?? 0) + 1;
+  store.setData("autumn.payment_method_seq", next);
+  return `pm_emulate_${next}`;
+}
+
+/** The card a paid checkout leaves on file when the customer had none. */
+export function defaultCard(id: string): AutumnPaymentMethod {
+  return { id, type: "card", card: { brand: "visa", last4: "4242", exp_month: 12, exp_year: 2030 } };
+}
+
+/** Read a card out of a hosted page's form fields (the setup checkout and the
+ *  billing portal both post the same `card_number` and `exp` pair). The brand
+ *  follows the real issuer ranges Stripe's test cards use (4 Visa,
+ *  5 Mastercard, 3 Amex). */
+export function cardFromForm(cardNumber: string, exp: string, id: string): AutumnPaymentMethod {
+  const digits = cardNumber.replace(/\D/g, "");
+  const brand = digits.startsWith("4")
+    ? "visa"
+    : digits.startsWith("5")
+      ? "mastercard"
+      : digits.startsWith("3")
+        ? "amex"
+        : "card";
+  const [rawMonth = "", rawYear = ""] = exp.split("/");
+  const month = Number(rawMonth.trim());
+  const year = Number(rawYear.trim());
+  const expYear = Number.isFinite(year) && year > 0 ? (year < 100 ? 2000 + year : year) : 2030;
+  return {
+    id,
+    type: "card",
+    card: {
+      brand,
+      last4: digits.slice(-4) || "4242",
+      exp_month: Number.isFinite(month) && month > 0 ? month : 12,
+      exp_year: expYear,
+    },
+  };
+}
+
+export interface SerializeCustomerOptions {
+  /** Autumn's `expand` request param. `payment_method` adds the customer's
+   *  default card. Without the expand, or when no card is on file, the field
+   *  is omitted entirely (verified against the live sandbox API: a customer
+   *  with no card gets no `payment_method` key even when expanded). */
+  expand?: string[];
+}
+
+export function serializeCustomer(
+  as: AutumnStore,
+  customer: AutumnCustomer,
+  options: SerializeCustomerOptions = {},
+): Record<string, unknown> {
+  const expanded: Record<string, unknown> =
+    options.expand?.includes("payment_method") && customer.payment_method
+      ? { payment_method: customer.payment_method }
+      : {};
   return {
     id: customer.customer_id,
     created_at: Date.parse(customer.created_at) || Date.now(),
@@ -174,6 +235,7 @@ export function serializeCustomer(as: AutumnStore, customer: AutumnCustomer): Re
     invoices: [],
     products: [],
     features: {},
+    ...expanded,
   };
 }
 
