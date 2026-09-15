@@ -18,11 +18,11 @@
   "homepage": "https://emulators.dev",
   "repository": {
     "type": "git",
-    "url": "https://github.com/vercel-labs/emulate.git",
+    "url": "https://github.com/UsefulSoftwareCo/emulate.git",
     "directory": "packages/emulate"
   },
   "bugs": {
-    "url": "https://github.com/vercel-labs/emulate/issues"
+    "url": "https://github.com/UsefulSoftwareCo/emulate/issues"
   },
   "keywords": [
     "emulator",
