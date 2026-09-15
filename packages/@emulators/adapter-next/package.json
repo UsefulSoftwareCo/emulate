@@ -16,11 +16,11 @@
   "homepage": "https://emulate.dev",
   "repository": {
     "type": "git",
-    "url": "https://github.com/vercel-labs/emulate.git",
+    "url": "https://github.com/UsefulSoftwareCo/emulate.git",
     "directory": "packages/@emulators/adapter-next"
   },
   "bugs": {
-    "url": "https://github.com/vercel-labs/emulate/issues"
+    "url": "https://github.com/UsefulSoftwareCo/emulate/issues"
   },
   "files": [
     "dist"
