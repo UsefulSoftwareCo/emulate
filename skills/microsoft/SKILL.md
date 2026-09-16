@@ -343,6 +343,20 @@ curl -X PUT "$MICROSOFT_URL/v1.0/me/drive/root:/notes.txt:/content" \
   --data-binary "hello"
 ```
 
+### Draft mail and attachments
+
+- `POST /v1.0/me/messages` - create a JSON draft with optional file attachments
+- `PATCH /v1.0/me/messages/:id` - update a draft's subject, body, sender or recipients
+- `POST /v1.0/me/messages/:id/createReply` - create a reply draft in the original conversation
+- `POST /v1.0/me/messages/:id/send` - send a draft with an empty 202 response
+- `GET/POST /v1.0/me/messages/:id/attachments` - list or add file attachments
+- `GET /v1.0/me/messages/:id/attachments/:attachmentId` - fetch a file attachment
+- `GET /v1.0/me/messages/:id/attachments/:attachmentId/$value` - download raw file bytes
+
+Use `Mail.ReadWrite` for draft creation, PATCH, reply creation and attachment POST; `Mail.Send` for sending; and `Mail.Read` or `Mail.ReadWrite` for GET. Send returns an empty 202 and moves the same ID to sent items. Reply drafts keep the original conversation and target `replyTo` or `from`. Add attachments through POST, not PATCH. File attachments use `#microsoft.graph.fileAttachment` and base64 `contentBytes`, with decoded bytes smaller than 3 MB.
+
+The supported subset is JSON and delegated `/me` routes. MIME, upload sessions, item/reference attachments, quoted reply bodies, mail-folder routes, default Outlook ID changes, and real delivery are not emulated. Inspect `/_emulate/coverage` before depending on these details.
+
 ### Logout
 
 ```bash

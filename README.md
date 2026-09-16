@@ -962,6 +962,13 @@ Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with a
 - `GET /v1.0/me` - Microsoft Graph user profile
 - `GET /v1.0/users` - Microsoft Graph users
 - `GET /v1.0/me/messages` - Outlook mail messages
+- `POST /v1.0/me/messages` - create a JSON draft with optional file attachments
+- `PATCH /v1.0/me/messages/:id` - update a draft's subject, body, sender or recipients
+- `POST /v1.0/me/messages/:id/createReply` - create a reply draft in the original conversation
+- `POST /v1.0/me/messages/:id/send` - send a draft with an empty 202 response
+- `GET/POST /v1.0/me/messages/:id/attachments` - list or add file attachments
+- `GET /v1.0/me/messages/:id/attachments/:attachmentId` - fetch a file attachment
+- `GET /v1.0/me/messages/:id/attachments/:attachmentId/$value` - download raw file bytes
 - `POST /v1.0/me/sendMail` - send mail
 - `GET /v1.0/me/events` - calendar events
 - `GET /v1.0/me/drive/root/children` - OneDrive root children
@@ -973,6 +980,8 @@ Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with a
 - `GET/PUT /v1.0/drives/:driveId/items/:itemId/content` - drive-scoped file bytes
 - `GET /oauth2/v2.0/logout` - end session / logout
 - `POST /oauth2/v2.0/revoke` - token revocation
+
+Microsoft draft mail supports JSON compose/reply flows and file attachments smaller than 3 MB. Draft writes require `Mail.ReadWrite`; sending requires `Mail.Send`. IDs stay stable on send. MIME, large-upload sessions, and external delivery are not implemented. See [Microsoft mail coverage](packages/@emulators/microsoft/README.md#drafts-replies-and-file-attachments).
 
 ## AWS
 
