@@ -4,6 +4,7 @@ import type {
   MicrosoftDrive,
   MicrosoftDriveItem,
   MicrosoftEvent,
+  MicrosoftFileAttachment,
   MicrosoftMessage,
   MicrosoftOAuthClient,
   MicrosoftUser,
@@ -13,6 +14,7 @@ export interface MicrosoftStore {
   users: Collection<MicrosoftUser>;
   oauthClients: Collection<MicrosoftOAuthClient>;
   messages: Collection<MicrosoftMessage>;
+  attachments: Collection<MicrosoftFileAttachment>;
   calendars: Collection<MicrosoftCalendar>;
   events: Collection<MicrosoftEvent>;
   drives: Collection<MicrosoftDrive>;
@@ -24,6 +26,7 @@ export function getMicrosoftStore(store: Store): MicrosoftStore {
     users: store.collection<MicrosoftUser>("microsoft.users", ["oid", "email"]),
     oauthClients: store.collection<MicrosoftOAuthClient>("microsoft.oauth_clients", ["client_id"]),
     messages: store.collection<MicrosoftMessage>("microsoft.messages", ["graph_id", "user_email"]),
+    attachments: store.collection<MicrosoftFileAttachment>("microsoft.attachments", ["graph_id", "message_id"]),
     calendars: store.collection<MicrosoftCalendar>("microsoft.calendars", ["graph_id", "user_email"]),
     events: store.collection<MicrosoftEvent>("microsoft.events", ["graph_id", "calendar_id", "user_email"]),
     drives: store.collection<MicrosoftDrive>("microsoft.drives", ["graph_id", "user_email"]),
