@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { createServer, serve } from "@emulators/core";
+import { TOTP } from "otpauth";
 import { WorkOS } from "@workos-inc/node";
 import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify } from "jose";
 
@@ -624,5 +625,41 @@ describe("workos emulator with the real @workos-inc/node SDK", () => {
       session: { sealSession: false } as never,
     });
     expect(auth.user.firstName).toBe("Seeded");
+  });
+});
+
+describe("AuthKit TOTP factors", () => {
+  it("excludes pending enrollments, activates on a valid code, and rejects replay", async () => {
+    const code = await signInAndGetCode("mfa@example.test");
+    const { user } = await workos.userManagement.authenticateWithCode({ code, clientId: CLIENT_ID });
+    const first = await workos.userManagement.enrollAuthFactor({ userId: user.id, type: "totp" });
+    const restarted = await workos.userManagement.enrollAuthFactor({ userId: user.id, type: "totp" });
+    expect(restarted.authenticationFactor.id).not.toBe(first.authenticationFactor.id);
+    expect((await workos.userManagement.listAuthFactors({ userId: user.id })).data).toEqual([]);
+    const factor = restarted.authenticationFactor;
+    const challengeId = restarted.authenticationChallenge.id;
+    const invalid = await workos.mfa.verifyChallenge({ authenticationChallengeId: challengeId, code: "invalid" });
+    expect(invalid.valid).toBe(false);
+    const otp = new TOTP({ secret: factor.totp.secret }).generate();
+    expect((await workos.mfa.verifyChallenge({ authenticationChallengeId: challengeId, code: otp })).valid).toBe(true);
+    await expect(
+      workos.mfa.verifyChallenge({ authenticationChallengeId: challengeId, code: otp }),
+    ).rejects.toMatchObject({ status: 422 });
+    const listed = (await workos.userManagement.listAuthFactors({ userId: user.id })).data;
+    expect(listed).toHaveLength(1);
+    expect(listed[0]?.id).toBe(factor.id);
+    expect(listed[0]?.totp).not.toHaveProperty("secret");
+    expect(factor.totp.qrCode).toMatch(/^data:image\/png;base64,/);
+    const next = await workos.mfa.challengeFactor({ authenticationFactorId: factor.id });
+    expect(
+      (
+        await workos.mfa.verifyChallenge({
+          authenticationChallengeId: next.id,
+          code: new TOTP({ secret: factor.totp.secret }).generate(),
+        })
+      ).valid,
+    ).toBe(true);
+    await workos.mfa.deleteFactor(factor.id);
+    expect((await workos.userManagement.listAuthFactors({ userId: user.id })).data).toEqual([]);
   });
 });

@@ -4,6 +4,7 @@ import { getWorkosStore, type WorkosStore } from "./store.js";
 import { userManagementRoutes, ensureUserByEmail } from "./routes/user-management.js";
 import { organizationRoutes } from "./routes/organizations.js";
 import { apiKeyRoutes } from "./routes/api-keys.js";
+import { mfaRoutes } from "./routes/mfa.js";
 import { vaultRoutes } from "./routes/vault.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { openapiRoutes } from "./routes/openapi.js";
@@ -63,6 +64,7 @@ export const workosPlugin: ServicePlugin = {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     oauthRoutes(ctx);
     userManagementRoutes(ctx);
+    mfaRoutes(ctx);
     organizationRoutes(ctx);
     apiKeyRoutes(ctx);
     vaultRoutes(ctx);

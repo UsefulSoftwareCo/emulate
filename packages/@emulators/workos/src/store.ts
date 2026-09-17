@@ -1,6 +1,8 @@
 import { Store, type Collection } from "@emulators/core";
 
 import type {
+  WorkosMfaFactor,
+  WorkosMfaChallenge,
   WorkosApiKey,
   WorkosAuthCode,
   WorkosInvitation,
@@ -16,6 +18,8 @@ import type {
 } from "./entities.js";
 
 export interface WorkosStore {
+  mfaFactors: Collection<WorkosMfaFactor>;
+  mfaChallenges: Collection<WorkosMfaChallenge>;
   users: Collection<WorkosUser>;
   organizations: Collection<WorkosOrganization>;
   organizationDomains: Collection<WorkosOrganizationDomain>;
@@ -32,6 +36,8 @@ export interface WorkosStore {
 
 export function getWorkosStore(store: Store): WorkosStore {
   return {
+    mfaFactors: store.collection<WorkosMfaFactor>("workos.mfa_factors", ["workos_id", "user_id"]),
+    mfaChallenges: store.collection<WorkosMfaChallenge>("workos.mfa_challenges", ["workos_id", "factor_id"]),
     users: store.collection<WorkosUser>("workos.users", ["workos_id", "email"]),
     organizations: store.collection<WorkosOrganization>("workos.organizations", ["workos_id"]),
     organizationDomains: store.collection<WorkosOrganizationDomain>("workos.organization_domains", [

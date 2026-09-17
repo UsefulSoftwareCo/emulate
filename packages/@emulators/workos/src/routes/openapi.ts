@@ -54,6 +54,47 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
     },
     security: [{ bearerAuth: [] }],
     paths: {
+      "/user_management/users/{id}/auth_factors": {
+        get: {
+          operationId: "userManagement.listAuthFactors",
+          parameters: [id],
+          responses: { "200": ok("Verified factors, without secrets") },
+        },
+        post: {
+          operationId: "userManagement.enrollAuthFactor",
+          parameters: [id],
+          requestBody: jsonBody(
+            {
+              type: { const: "totp" },
+              totp_issuer: { type: "string" },
+              totp_user: { type: "string" },
+              totp_secret: { type: "string" },
+            },
+            ["type"],
+            "Begin TOTP enrollment",
+          ),
+          responses: { "200": ok("Pending factor with setup details and a challenge") },
+        },
+      },
+      "/auth/factors/{id}/challenge": {
+        post: {
+          operationId: "mfa.challengeFactor",
+          parameters: [id],
+          responses: { "200": ok("New one-use challenge") },
+        },
+      },
+      "/auth/challenges/{id}/verify": {
+        post: {
+          operationId: "mfa.verifyChallenge",
+          parameters: [id],
+          requestBody: jsonBody({ code: { type: "string" } }, ["code"], "Verify a current TOTP code"),
+          responses: { "200": ok("Verification result"), "422": ok("Already verified") },
+        },
+      },
+      "/auth/factors/{id}": {
+        get: { operationId: "mfa.getFactor", parameters: [id], responses: { "200": ok("Factor without its secret") } },
+        delete: { operationId: "mfa.deleteFactor", parameters: [id], responses: { "204": noContent("Deleted") } },
+      },
       "/user_management/authenticate": {
         post: {
           operationId: "userManagement.authenticate",

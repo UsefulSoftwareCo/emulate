@@ -54,3 +54,9 @@ curl -X POST "$WORKOS_EMULATOR_URL/_emulate/seed" -H "Content-Type: application/
 ```
 
 Inspect calls at `GET /_emulate/ledger`; reset with `POST /_emulate/reset`. Use `POST /_emulate/faults` to arm one-shot failures; matching faulted requests show `faulted: true` and `faultId` in the ledger.
+
+## TOTP MFA
+
+The real WorkOS SDK can enroll user-bound factors, list verified factors, issue challenges, verify six-digit TOTP codes, and delete factors. Enrollment returns the setup secret, URI, and a PNG QR code. Pending factors are not listed until verification succeeds. A verified challenge cannot be used again.
+
+TOTP uses SHA-1, six digits, and 30-second steps with a one-step clock tolerance. Generate codes with an authenticator or an OTP library from the returned secret. Challenge expiration and per-user retry limits belong to the application under test; this emulator does not enforce a WorkOS rate limit or a hosted AuthKit MFA policy.
