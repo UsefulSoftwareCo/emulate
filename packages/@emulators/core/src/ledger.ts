@@ -84,7 +84,8 @@ const SENSITIVE_HEADERS = new Set([
   "x-github-token",
   "stripe-signature",
 ]);
-const SENSITIVE_KEYS = /token|secret|password|authorization|api[_-]?key|client[_-]?secret|private[_-]?key/i;
+const SENSITIVE_KEYS =
+  /token|secret|password|authorization|api[_-]?key|client[_-]?secret|private[_-]?key|^code$|^qr_code$|^uri$/i;
 
 export class RequestLedger {
   private entries: LedgerEntry[] = [];
