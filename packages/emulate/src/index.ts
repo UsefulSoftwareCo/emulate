@@ -60,6 +60,9 @@ Global catalog:
   /_emulate/seed to load fixtures, /_emulate/faults to arm one-shot failures,
   and /_emulate/ledger to validate API calls.
 
+  Google OIDC signs ID tokens with RS256 and publishes verification keys at
+  /oauth2/v3/certs. Its discovery issuer is the instance URL.
+
   Hosted services:
   Available services include vercel, github, gitlab, google, slack, apple,
   microsoft, okta, aws, resend, stripe, mongoatlas, clerk, spotify, x, workos,

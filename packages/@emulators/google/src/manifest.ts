@@ -36,7 +36,7 @@ export const manifest: ServiceManifest = {
           path: "/.well-known/openid-configuration",
           status: "hand-authored",
         },
-        { operationId: "jwks", method: "GET", path: "/oauth2/v3/certs", status: "partial" },
+        { operationId: "jwks", method: "GET", path: "/oauth2/v3/certs", status: "hand-authored" },
         { operationId: "authorize", method: "GET", path: "/o/oauth2/v2/auth", status: "hand-authored" },
         { operationId: "token", method: "POST", path: "/oauth2/token", status: "hand-authored" },
         { operationId: "userinfo", method: "GET", path: "/oauth2/v2/userinfo", status: "hand-authored" },
