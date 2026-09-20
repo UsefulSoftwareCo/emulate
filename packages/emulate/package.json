@@ -97,6 +97,7 @@
     "tsup": "^8",
     "typescript": "^5.7",
     "@emulators/autumn": "workspace:*",
-    "@emulators/workos": "workspace:*"
+    "@emulators/workos": "workspace:*",
+    "@emulators/context": "workspace:*"
   }
 }

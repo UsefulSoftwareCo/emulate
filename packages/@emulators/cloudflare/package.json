@@ -47,7 +47,8 @@
     "@emulators/posthog": "workspace:*",
     "@emulators/x": "workspace:*",
     "@emulators/workos": "workspace:*",
-    "@emulators/autumn": "workspace:*"
+    "@emulators/autumn": "workspace:*",
+    "@emulators/context": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8",

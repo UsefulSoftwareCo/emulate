@@ -59,6 +59,7 @@ import {
   workosPlugin,
 } from "@emulators/workos";
 import { autumnPlugin, manifest as autumnManifest, seedFromConfig as autumnSeed } from "@emulators/autumn";
+import { contextPlugin, manifest as contextManifest, seedFromConfig as contextSeed } from "@emulators/context";
 
 // GitHub exposes three surfaces over ONE store: REST + GraphQL (githubPlugin) and
 // an MCP server (mcpPlugin's transport + OAuth/DCR routes). They compose cleanly —
@@ -100,6 +101,12 @@ export interface ServiceEntry {
 }
 
 export const SERVICES: Record<string, ServiceEntry> = {
+  context: {
+    plugin: contextPlugin,
+    manifest: contextManifest,
+    seedFromConfig: contextSeed,
+    defaultFallback: () => ({ login: "context_test", id: 1, scopes: [] }),
+  },
   github: {
     plugin: githubWithMcpPlugin,
     manifest: githubManifest,
