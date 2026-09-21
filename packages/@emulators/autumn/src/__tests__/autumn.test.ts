@@ -84,9 +84,24 @@ describe("autumn emulator with the real autumn-js SDK", () => {
     expect(check.balance?.overageAllowed).toBe(false);
   });
 
-  it("check allows a feature the customer's plan does not carry", async () => {
-    const check = await autumn.check({ customerId: "org_paid", featureId: "not-a-feature" });
-    expect(check.allowed).toBe(true);
+  // Autumn resolves the feature against the catalog before it looks at the
+  // customer, so the two misses are different answers: an id no plan declares
+  // is a 404, while a known feature the customer's plan does not carry is a
+  // denied check with a null balance. Verified against the sandbox API.
+  it("check 404s for a feature the catalog does not declare", async () => {
+    const res = await fetch(`${BASE}/v1/balances.check`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: "Bearer am_test_emulate" },
+      body: JSON.stringify({ customer_id: "org_paid", feature_id: "not-a-feature" }),
+    });
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { code: string }).code).toBe("feature_not_found");
+  });
+
+  it("check denies a catalog feature the customer's plan does not carry", async () => {
+    // `members` exists on the scale plan; org_paid is on pro, which has no item for it.
+    const check = await autumn.check({ customerId: "org_paid", featureId: "members" });
+    expect(check.allowed).toBe(false);
     expect(check.balance).toBeNull();
   });
 

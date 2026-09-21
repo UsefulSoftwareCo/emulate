@@ -55,6 +55,11 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
                 type: "object",
                 properties: { name: { type: "string" }, email: { type: "string" } },
               },
+              auto_enable_plan_id: {
+                type: "string",
+                description:
+                  "Plan a NEW customer starts on, replacing the catalog's own auto-enabled defaults. Its features' balances are granted with the subscription. An existing customer is never re-subscribed; an unknown plan 404s with product_not_found.",
+              },
               name: { type: "string" },
               email: { type: "string" },
               expand: {
@@ -123,11 +128,20 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
               customer_id: { type: "string" },
               feature_id: { type: "string" },
               required_balance: { type: "number" },
+              send_event: {
+                type: "boolean",
+                description:
+                  "Consume `required_balance` in the same call when the check passes. The check and the deduction are one atomic step, and a denied check consumes nothing, so concurrent callers cannot overspend the allowance.",
+              },
             },
             ["customer_id", "feature_id"],
-            "The customer and feature to check. `required_balance` defaults to 1.",
+            "The customer and feature to check. `required_balance` defaults to 1. A feature the catalog does not declare 404s; a declared feature no active subscription grants is denied with a null balance.",
           ),
-          responses: { "200": ok("Access decision with the feature balance."), "400": ok("Validation error.") },
+          responses: {
+            "200": ok("Access decision with the feature balance."),
+            "400": ok("Validation error."),
+            "404": ok("Unknown feature."),
+          },
         },
       },
       "/v1/balances.update": {
@@ -150,6 +164,33 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
             "200": ok("Update confirmation."),
             "400": ok("Validation error."),
             "404": ok("Unknown customer, or no balance for the feature."),
+          },
+        },
+      },
+      "/v1/billing.update": {
+        post: {
+          operationId: "billing.update",
+          tags: ["billing"],
+          summary: "Change a customer's subscription",
+          requestBody: jsonBody(
+            {
+              customer_id: { type: "string" },
+              plan_id: {
+                type: "string",
+                description: "Narrow the action to one subscription. Omit it to apply to every live subscription.",
+              },
+              cancel_action: {
+                type: "string",
+                enum: ["cancel_immediately", "cancel_end_of_cycle", "uncancel"],
+              },
+            },
+            ["customer_id"],
+            "Only `cancel_action` is modelled. `cancel_immediately` ends the subscription now, so the customer's next read shows neither it nor its balances. `cancel_end_of_cycle` keeps it active and records when it expires, and is rejected for a plan that bills nothing. `uncancel` clears a scheduled cancellation.",
+          ),
+          responses: {
+            "200": ok("`{ customer_id, payment_url }`."),
+            "400": ok("No update parameter was given."),
+            "404": ok("Unknown customer, or no such subscription."),
           },
         },
       },

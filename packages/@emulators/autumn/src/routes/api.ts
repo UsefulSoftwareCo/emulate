@@ -4,9 +4,16 @@ import { getAutumnStore } from "../store.js";
 import {
   ensureCustomer,
   serializeCustomer,
+  serializeFeature,
   serializePlan,
   activateSubscription,
+  attachPlan,
+  applyCancelAction,
   balanceForFeature,
+  checkAndConsume,
+  hasBillingCycle,
+  knownFeature,
+  type CancelAction,
 } from "../serialize.js";
 
 /** Autumn's `expand` request param: an array of field names, and (for hand-rolled
@@ -22,6 +29,8 @@ function parseExpand(value: unknown): string[] {
   return [];
 }
 
+const CANCEL_ACTIONS = new Set(["cancel_immediately", "cancel_end_of_cycle", "uncancel"]);
+
 /** Autumn v1 RPC-style API (paths mirror autumn-js: /v1/<group>.<method>). */
 export function autumnApiRoutes(ctx: RouteContext): void {
   const { app, store, baseUrl } = ctx;
@@ -32,8 +41,35 @@ export function autumnApiRoutes(ctx: RouteContext): void {
     const id = String(body.customer_id ?? body.customerId ?? body.id ?? "");
     if (!id) return c.json({ message: "customer_id is required", code: "invalid_request" }, 400);
     const data = (body.customer_data as Record<string, unknown> | undefined) ?? body;
-    const customer = ensureCustomer(as(), id, data);
-    return c.json(serializeCustomer(as(), customer, { expand: parseExpand(body.expand) }));
+    const store = as();
+    // `auto_enable_plan_id` names the plan a NEW customer starts on, replacing
+    // the catalog's own auto-enabled defaults. Autumn resolves the plan before
+    // it touches the customer, so an unknown id is a 404 even when the customer
+    // already exists, and an existing customer is never re-subscribed.
+    const autoEnablePlanId = body.auto_enable_plan_id ?? body.autoEnablePlanId;
+    let plan;
+    if (typeof autoEnablePlanId === "string" && autoEnablePlanId !== "") {
+      plan = store.plans.findOneBy("plan_id", autoEnablePlanId);
+      if (!plan) {
+        return c.json({ message: `Product ${autoEnablePlanId} not found`, code: "product_not_found" }, 404);
+      }
+    }
+    const existing = store.customers.findOneBy("customer_id", id);
+    let customer;
+    if (existing) {
+      customer = existing;
+    } else if (plan) {
+      customer = store.customers.insert({
+        customer_id: id,
+        name: typeof data.name === "string" ? data.name : null,
+        email: typeof data.email === "string" ? data.email : null,
+        subscriptions: [],
+      });
+      customer = attachPlan(store, customer, plan, { trial: false });
+    } else {
+      customer = ensureCustomer(store, id, data);
+    }
+    return c.json(serializeCustomer(store, customer, { expand: parseExpand(body.expand) }));
   });
 
   app.post("/v1/customers.list", async (c) => {
@@ -76,17 +112,22 @@ export function autumnApiRoutes(ctx: RouteContext): void {
     });
   });
 
-  // Feature access check, shaped after autumn-js's CheckResponse schema
-  // (allowed, customer_id, entity_id, required_balance, balance, flag).
-  // `allowed` is computed from the same balance state customers.get_or_create
-  // serializes: unlimited features and overage-allowed features always pass,
-  // metered features pass while `remaining` covers the required balance.
-  // A feature the customer's plan does not carry gets a permissive
-  // `allowed: true` with a null balance. The SDK types leave this case
-  // ambiguous (CheckResponse.balance is nullable either way), so the emulator
-  // deliberately fails open: an unseeded feature should not block every
-  // request in the application under test. Seed a plan item with included: 0
-  // to model a feature that denies access.
+  // Feature access check, shaped after the real v1 response at api-version
+  // 2.3.0 (allowed, customer_id, required_balance, balance, flag).
+  //
+  // Three outcomes, matching real Autumn:
+  //   - the feature is not in the catalog at all: 404 feature_not_found, so a
+  //     typo surfaces as a typo instead of silently passing;
+  //   - the feature exists but no active subscription grants it: allowed false
+  //     with a null balance;
+  //   - otherwise the balance decides, and `send_event` consumes in the
+  //     same call.
+  //
+  // With `send_event: true` the check and the consumption are one step. Autumn
+  // deducts exactly `required_balance` and deducts nothing when the check is
+  // denied, so a rejected caller never loses a unit and two concurrent callers
+  // cannot both spend the last one. See `checkAndConsume` for why the
+  // read-decide-write sequence must stay synchronous.
   app.post("/v1/balances.check", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const customerId = String(body.customer_id ?? body.customerId ?? "");
@@ -95,20 +136,22 @@ export function autumnApiRoutes(ctx: RouteContext): void {
       return c.json({ message: "customer_id and feature_id are required", code: "invalid_request" }, 400);
     }
     const requiredBalance = typeof body.required_balance === "number" ? body.required_balance : 1;
-    const entityId = typeof body.entity_id === "string" ? body.entity_id : null;
+    const sendEvent = body.send_event === true || body.sendEvent === true;
+    const entityId = typeof body.entity_id === "string" ? body.entity_id : undefined;
     const store = as();
+    if (!knownFeature(store, featureId)) {
+      return c.json({ message: `Feature ${featureId} not found`, code: "feature_not_found" }, 404);
+    }
     // Real Autumn auto-creates unknown customers on check (the SDK's own
     // backend flow relies on get_or_create semantics), so mirror that here.
     const customer = ensureCustomer(store, customerId, body);
-    const balance = balanceForFeature(store, customer, featureId);
-    const allowed =
-      balance === undefined || balance.unlimited || balance.overage_allowed || balance.remaining >= requiredBalance;
+    const outcome = checkAndConsume(store, customer, featureId, requiredBalance, sendEvent);
     return c.json({
-      allowed,
+      allowed: outcome.allowed,
       customer_id: customerId,
-      entity_id: entityId,
+      ...(entityId === undefined ? {} : { entity_id: entityId }),
       required_balance: requiredBalance,
-      balance: balance ?? null,
+      balance: outcome.balance,
       flag: null,
     });
   });
@@ -116,13 +159,13 @@ export function autumnApiRoutes(ctx: RouteContext): void {
   // Set a customer's balance for one feature, shaped after autumn-js's
   // balances.update (UpdateBalanceParams in, `{ success }` out). Exactly one
   // of `usage`, `remaining`, or `add_to_balance` must be provided. Usage is
-  // event-sourced (see serialize.ts usageFor), so the update lands as an
-  // adjustment event rather than mutating a stored counter: events.list shows
-  // the reconciliation and balances.check can never disagree with it.
-  // Entity-scoped balances, reset intervals, balance ids, and grant updates
-  // (included_grant) are unsupported. Unknown customers 404 with Autumn's
-  // real customer_not_found code; unlike track/check, update is a
-  // non-creating endpoint upstream, so the emulator mirrors that.
+  // event-sourced (see serialize.ts), so the update lands as an adjustment
+  // event rather than mutating a stored counter: events.list shows the
+  // reconciliation and balances.check can never disagree with it.
+  // Entity-scoped balances, balance ids, and grant updates (included_grant)
+  // are unsupported. Unknown customers 404 with Autumn's real
+  // customer_not_found code; unlike track/check, update is a non-creating
+  // endpoint upstream, so the emulator mirrors that.
   app.post("/v1/balances.update", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const customerId = String(body.customer_id ?? body.customerId ?? "");
@@ -171,11 +214,13 @@ export function autumnApiRoutes(ctx: RouteContext): void {
   // The plan catalog, scoped to the calling customer. The backend handler
   // injects `customer_id` into every request, so eligibility is per-customer:
   // a card-required trial reads as "Start free trial" until it is attached.
+  // A `customer_id` the emulator has never seen does not create a customer
+  // here; real Autumn answers the catalog without eligibility instead.
   app.post("/v1/plans.list", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const customerId = String(body.customer_id ?? body.customerId ?? "");
     const store = as();
-    const customer = customerId ? ensureCustomer(store, customerId, body) : undefined;
+    const customer = customerId ? store.customers.findOneBy("customer_id", customerId) : undefined;
     const list = store.plans
       .all()
       .sort((a, b) => a.order - b.order)
@@ -195,9 +240,10 @@ export function autumnApiRoutes(ctx: RouteContext): void {
       return c.json({ message: "customer_id and plan_id are required", code: "invalid_request" }, 400);
     }
     const store = as();
-    const customer = ensureCustomer(store, customerId, body);
     const plan = store.plans.findOneBy("plan_id", planId);
-    const requiresPayment = plan ? plan.price != null || plan.free_trial?.card_required === true : true;
+    if (!plan) return c.json({ message: `Product ${planId} not found`, code: "product_not_found" }, 404);
+    const customer = ensureCustomer(store, customerId, body);
+    const requiresPayment = plan.price != null || plan.free_trial?.card_required === true;
 
     if (requiresPayment) {
       const session = store.checkouts.insert({
@@ -218,8 +264,77 @@ export function autumnApiRoutes(ctx: RouteContext): void {
     }
 
     // Free or no-card plan: attach takes effect immediately, no redirect.
-    if (plan) activateSubscription(store, customer, plan, { trial: false });
+    activateSubscription(store, customer, plan, { trial: false });
     return c.json({ customer_id: customerId, payment_url: null, invoice: null, required_action: null });
+  });
+
+  // Change an existing subscription. Autumn identifies a subscription by
+  // (customer, plan), so cancelling is an update carrying a `cancel_action`
+  // rather than its own endpoint. `plan_id` narrows the action to one
+  // subscription; omitting it applies to every live subscription.
+  //
+  // `cancel_immediately` ends the subscription now, so the customer's next read
+  // shows neither the subscription nor its balances. `cancel_end_of_cycle`
+  // keeps it active and records when it expires; Autumn rejects it for a plan
+  // with no billing cycle, which the emulator mirrors. `uncancel` clears a
+  // scheduled cancellation.
+  //
+  // Only `cancel_action` is modelled. The other update parameters
+  // (feature_quantities, version, customize, discounts, billing_cycle_anchor,
+  // recalculate_balances) are not supported and report Autumn's own 400.
+  app.post("/v1/billing.update", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const customerId = String(body.customer_id ?? body.customerId ?? "");
+    if (!customerId) {
+      return c.json({ message: "customer_id: must be a string (received undefined)", code: "invalid_inputs" }, 400);
+    }
+    const rawPlanId = body.plan_id ?? body.planId;
+    const planId = typeof rawPlanId === "string" && rawPlanId !== "" ? rawPlanId : undefined;
+    const rawAction = body.cancel_action ?? body.cancelAction;
+    if (typeof rawAction !== "string" || !CANCEL_ACTIONS.has(rawAction)) {
+      return c.json(
+        {
+          message:
+            "input: At least one update parameter must be provided (feature_quantities, version, customize, cancel_action, recalculate_balances, billing_cycle_anchor, discounts, or custom_line_items)",
+          code: "invalid_inputs",
+        },
+        400,
+      );
+    }
+    const action = rawAction as CancelAction;
+    const store = as();
+    const customer = store.customers.findOneBy("customer_id", customerId);
+    if (!customer) {
+      return c.json({ message: `Customer ${customerId} not found`, code: "customer_not_found" }, 404);
+    }
+    if (action === "cancel_end_of_cycle") {
+      const targeted = (customer.subscriptions ?? []).filter((sub) => planId === undefined || sub.plan_id === planId);
+      // A plan that bills nothing has no cycle to cancel at the end of.
+      const billable = (planId: string) => {
+        const candidate = store.plans.findOneBy("plan_id", planId);
+        return candidate !== undefined && hasBillingCycle(candidate);
+      };
+      if (targeted.length > 0 && !targeted.some((sub) => billable(sub.plan_id))) {
+        return c.json(
+          {
+            message: "Free products do not have billing cycles; use cancel: 'immediately' instead.",
+            code: "invalid_request",
+          },
+          400,
+        );
+      }
+    }
+    const outcome = applyCancelAction(store, customer, action, planId);
+    if (outcome.planIds.length === 0 && planId !== undefined) {
+      return c.json(
+        {
+          message: `No active subscription found for plan '${planId}' on customer '${customerId}'`,
+          code: "cus_product_not_found",
+        },
+        404,
+      );
+    }
+    return c.json({ customer_id: customerId, payment_url: null });
   });
 
   // Open a Stripe Checkout session in `mode: "setup"` so the customer can
@@ -256,19 +371,25 @@ export function autumnApiRoutes(ctx: RouteContext): void {
   // Open a Stripe billing portal session. The returned `url` is the hosted
   // portal page, where the customer can change the card on file. The session
   // is recorded so that page can link back to the application's `return_url`,
-  // as Stripe's portal does.
+  // as Stripe's portal does. The portal is a read of an existing customer, so
+  // an unknown one 404s rather than being created.
   app.post("/v1/billing.open_customer_portal", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const customerId = String(body.customer_id ?? body.customerId ?? "");
     if (!customerId) return c.json({ message: "customer_id is required", code: "invalid_request" }, 400);
     const store = as();
-    ensureCustomer(store, customerId, body);
+    if (!store.customers.findOneBy("customer_id", customerId)) {
+      return c.json({ message: `Customer ${customerId} not found`, code: "customer_not_found" }, 404);
+    }
     const returnUrl = String(body.return_url ?? body.returnUrl ?? "");
     store.portals.insert({ customer_id: customerId, return_url: returnUrl });
     return c.json({ customer_id: customerId, url: `${baseUrl}/checkout/portal/${customerId}` });
   });
 
-  app.post("/v1/features.list", async (c) => c.json({ list: [], total: 0, offset: 0, limit: 100 }));
+  app.post("/v1/features.list", async (c) => {
+    const list = as().features.all().map(serializeFeature);
+    return c.json({ list, total: list.length, offset: 0, limit: 100 });
+  });
 
   app.post("/v1/events.list", async (c) => {
     const events = as()
