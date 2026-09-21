@@ -45,6 +45,9 @@ afterAll(async () => {
 });
 
 const teamPlan = async (customerId: string) => {
+  // Autumn only reports per-customer eligibility for a customer it knows, so
+  // the application's own backend route creates it before listing plans.
+  await autumn.customers.getOrCreate({ customerId });
   const { list } = await autumn.plans.list({ customerId });
   const team = list.find((p) => p.id === "team")!;
   const free = list.find((p) => p.id === "free")!;
@@ -95,7 +98,9 @@ describe("autumn emulator: card-required free-trial checkout", () => {
     // The webhook has not landed yet: the customer is STILL on free. This is the
     // exact window in which the billing UI shows the stale plan.
     const customer = await autumn.customers.getOrCreate({ customerId: CUSTOMER });
-    expect(customer.subscriptions ?? [], "no active subscription before settle").toHaveLength(0);
+    const planIds = (customer.subscriptions ?? []).map((s) => s.planId);
+    expect(planIds, "no Team subscription before settle").not.toContain("team");
+    expect(planIds, "still on the auto-enabled free plan").toContain("free");
   });
 
   it("settling the checkout activates the Team trial", async () => {

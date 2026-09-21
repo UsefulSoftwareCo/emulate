@@ -11,7 +11,14 @@ export interface AutumnSubscription {
   current_period_end?: number | null;
   trial_ends_at?: number | null;
   canceled_at?: number | null;
+  /** When a cancellation scheduled for the end of the cycle takes effect. */
+  expires_at?: number | null;
   quantity?: number;
+  /** Usage watermark: only tracked events with a higher event id count against
+   *  this subscription's grants. Autumn issues fresh entitlement grants when a
+   *  plan is attached, so a re-attach after a cancel starts from zero usage
+   *  rather than inheriting the previous subscription's consumption. */
+  usage_epoch?: number;
   [key: string]: unknown;
 }
 
@@ -34,16 +41,42 @@ export interface AutumnTrackEvent extends Entity {
   value: number;
 }
 
+/** How often a metered item's included grant is refilled. Autumn only exposes
+ *  the interval on the item; the concrete reset instant is derived from when
+ *  the subscription started. */
+export interface AutumnResetInterval {
+  interval: string;
+}
+
+/** Usage-based pricing attached to a single plan item (Autumn's per-unit
+ *  overage price), as distinct from the plan's own flat base price. */
+export interface AutumnItemPrice {
+  amount: number;
+  interval?: string;
+  billing_units?: number;
+  billing_method?: string;
+  max_purchase?: number | null;
+}
+
 export interface AutumnPlanItem {
   feature_id: string;
   included?: number;
   unlimited?: boolean;
-  price?: unknown;
+  /** A priced item lets usage exceed the included grant and bills the overage,
+   *  so a check against it is always allowed. */
+  overage_allowed?: boolean;
+  reset?: AutumnResetInterval | null;
+  price?: AutumnItemPrice | null;
 }
 
 export interface AutumnPlan extends Entity {
   plan_id: string;
   name: string;
+  /** Catalog group. Autumn treats plans in one group as mutually exclusive and
+   *  returns `null` for ungrouped plans. */
+  group: string | null;
+  version: number;
+  archived: boolean;
   add_on: boolean;
   auto_enable: boolean;
   price: { amount: number; interval: string } | null;
@@ -51,6 +84,20 @@ export interface AutumnPlan extends Entity {
   items: AutumnPlanItem[];
   /** Rank used to classify an attach as upgrade vs downgrade (low to high). */
   order: number;
+}
+
+/** A catalog feature. Autumn resolves a `balances.check` feature id against
+ *  this registry first: an id that is not in the catalog is a 404, while a
+ *  known id the customer's plan does not carry is a denied check with a null
+ *  balance. The emulator keeps the same distinction, so an application under
+ *  test sees a typo as a typo instead of silently passing. */
+export interface AutumnFeature extends Entity {
+  feature_id: string;
+  name: string;
+  /** `metered` | `boolean` | `credit_system`. */
+  type: string;
+  consumable: boolean;
+  archived: boolean;
 }
 
 /** A checkout session opened by `billing.attach` for a plan that needs payment

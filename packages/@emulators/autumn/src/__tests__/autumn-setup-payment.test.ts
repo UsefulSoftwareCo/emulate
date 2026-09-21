@@ -215,6 +215,8 @@ describe("autumn emulator: billing portal (change the card on file)", () => {
 
   it("the return link is omitted when the portal was opened without a return_url", async () => {
     const NO_RETURN = "org_portal_bare";
+    // The portal reads an existing customer; Autumn 404s rather than creating one.
+    await autumn.customers.getOrCreate({ customerId: NO_RETURN });
     const res = await autumn.billing.openCustomerPortal({ customerId: NO_RETURN });
     const html = await (await fetch(res.url)).text();
     expect(html, "no card yet").toContain("No payment method");
