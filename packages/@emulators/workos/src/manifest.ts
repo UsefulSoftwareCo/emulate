@@ -4,7 +4,7 @@ export const manifest: ServiceManifest = {
   id: "workos",
   name: "WorkOS",
   description:
-    "Stateful WorkOS emulator: AuthKit user management (hosted login, code + refresh grants, sealed-session JWKS), organizations and organization domains, memberships, invitations, API keys, Vault KV, and an OAuth authorization server for MCP clients.",
+    "Stateful WorkOS emulator: AuthKit user management (hosted login, code + refresh grants, sealed-session JWKS), organizations and organization domains, memberships, invitations, TOTP MFA, API keys, Vault KV, and an OAuth authorization server for MCP clients.",
   docsUrl: "https://docs.emulators.dev/workos",
   surfaces: [
     { id: "rest", kind: "rest", title: "WorkOS REST API", status: "partial", basePath: "/" },
@@ -26,6 +26,33 @@ export const manifest: ServiceManifest = {
       coverage: "hand-authored",
       url: "/openapi.json",
       operations: [
+        {
+          operationId: "userManagement.enrollAuthFactor",
+          method: "POST",
+          path: "/user_management/users/:id/auth_factors",
+          status: "hand-authored",
+        },
+        {
+          operationId: "userManagement.listAuthFactors",
+          method: "GET",
+          path: "/user_management/users/:id/auth_factors",
+          status: "hand-authored",
+        },
+        {
+          operationId: "mfa.challengeFactor",
+          method: "POST",
+          path: "/auth/factors/:id/challenge",
+          status: "hand-authored",
+        },
+        {
+          operationId: "mfa.verifyChallenge",
+          method: "POST",
+          path: "/auth/challenges/:id/verify",
+          status: "hand-authored",
+        },
+        { operationId: "mfa.getFactor", method: "GET", path: "/auth/factors/:id", status: "hand-authored" },
+        { operationId: "mfa.deleteFactor", method: "DELETE", path: "/auth/factors/:id", status: "hand-authored" },
+
         {
           operationId: "userManagement.authenticate",
           method: "POST",
@@ -194,6 +221,8 @@ export const manifest: ServiceManifest = {
     description: "Entities mutated by WorkOS provider calls.",
     collections: [
       { name: "workos.users" },
+      { name: "workos.mfa_factors" },
+      { name: "workos.mfa_challenges" },
       { name: "workos.organizations" },
       { name: "workos.organization_domains" },
       { name: "workos.memberships" },

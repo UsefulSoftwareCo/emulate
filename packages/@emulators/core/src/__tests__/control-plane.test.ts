@@ -72,7 +72,13 @@ describe("control plane", () => {
         "content-type": "application/json",
         authorization: "Bearer admin",
       },
-      body: JSON.stringify({ name: "created", token: "secret-token" }),
+      body: JSON.stringify({
+        name: "created",
+        token: "secret-token",
+        code: "123456",
+        qr_code: "data:image/png;base64,test",
+        uri: "otpauth://totp/test?secret=test",
+      }),
     });
     expect(createRes.status).toBe(201);
 
@@ -80,7 +86,10 @@ describe("control plane", () => {
       entries: Array<{
         method: string;
         path: string;
-        request: { headers: Record<string, string>; body: { token: string } };
+        request: {
+          headers: Record<string, string>;
+          body: { token: string; code: string; qr_code: string; uri: string };
+        };
         response: { status: number; body: { token: string } };
         identity: { user?: { login: string } };
       }>;
@@ -90,6 +99,9 @@ describe("control plane", () => {
     expect(ledger.entries[0]!.path).toBe("/things");
     expect(ledger.entries[0]!.request.headers.authorization).toBe("[redacted]");
     expect(ledger.entries[0]!.request.body.token).toBe("[redacted]");
+    expect(ledger.entries[0]!.request.body.code).toBe("[redacted]");
+    expect(ledger.entries[0]!.request.body.qr_code).toBe("[redacted]");
+    expect(ledger.entries[0]!.request.body.uri).toBe("[redacted]");
     expect(ledger.entries[0]!.response.body.token).toBe("[redacted]");
     expect(ledger.entries[0]!.response.status).toBe(201);
     expect(ledger.entries[0]!.identity.user?.login).toBe("admin");

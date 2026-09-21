@@ -36,6 +36,7 @@ Control plane (under /_emulate on each service):
   GET  /_emulate/connections  copyable SDK, CLI, env, and curl snippets
   GET  /_emulate/openapi      OpenAPI document (when supported)
   Stripe also serves its OpenAPI subset at /openapi.json and /openapi.yaml.
+  WorkOS supports TOTP enrollment, factor listing, and one-use challenges.
   WorkOS supports filtered GET /user_management/users queries. Its domains
   support POST /organization_domains/:id/verify and the test control route
   POST /_emulate/organization_domains/:id/verify.

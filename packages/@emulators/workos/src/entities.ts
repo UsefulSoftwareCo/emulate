@@ -116,3 +116,20 @@ export interface WorkosOAuthCode extends Entity {
   scope: string | null;
   used: boolean;
 }
+
+/** A user-bound TOTP factor, active only after a successful challenge. */
+export interface WorkosMfaFactor extends Entity {
+  workos_id: string;
+  user_id: string;
+  issuer: string;
+  label: string;
+  secret: string;
+  verified: boolean;
+}
+
+/** A TOTP challenge can be verified only once. */
+export interface WorkosMfaChallenge extends Entity {
+  workos_id: string;
+  factor_id: string;
+  verified: boolean;
+}
