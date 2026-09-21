@@ -1170,3 +1170,10 @@ Tokens are configured in the seed config and map to users. Pass them as `Authori
 **Microsoft**: OIDC authorization code flow with PKCE support. Also supports client credentials grants and Microsoft Graph users, mail, calendar, and OneDrive routes.
 
 **AWS**: Bearer tokens or IAM access key credentials. Default key pair always seeded: `AKIAIOSFODNN7EXAMPLE` / `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY`.
+
+## Context.dev company lookup
+
+The `context` service supports brand retrieval by email domain for onboarding tests.
+Create an instance on `context.emulators.dev`, mint an API key and seed explicit
+`brands` with `domain` and `title`. Unknown domains return 404; no external Context.dev
+credentials or requests are used. Other enrichment modes are not implemented.

@@ -59,6 +59,7 @@ const SERVICE_NAME_LIST = [
   // gitlab is appended last so adding it leaves every other service's default
   // multi-service port (basePort + index) unchanged.
   "gitlab",
+  "context",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -273,6 +274,16 @@ function randomId(): string {
 }
 
 export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
+  context: {
+    label: "Context.dev company lookup emulator",
+    endpoints: "brand retrieval by email domain",
+    async load() {
+      const mod = await import("@emulators/context");
+      return { plugin: mod.contextPlugin, manifest: mod.manifest, seedFromConfig: mod.seedFromConfig };
+    },
+    defaultFallback: () => ({ login: "context_test", id: 1, scopes: [] }),
+    initConfig: { context: { brands: [{ domain: "company.example", title: "Example Company" }] } },
+  },
   vercel: {
     label: "Vercel REST API emulator",
     endpoints: "projects, deployments, domains, env vars, users, teams, file uploads, protection bypass",
