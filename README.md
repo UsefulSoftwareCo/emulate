@@ -33,6 +33,7 @@ All services start with sensible defaults. No config file needed:
 - **PostHog** on `http://localhost:4016`
 - **MCP** on `http://localhost:4017`
 - **GitLab** on `http://localhost:4018` (full real GraphQL schema)
+- **Context** on `http://localhost:4019` (company lookup by work email domain)
 
 Every running service also exposes a public control plane under `/_emulate`:
 
@@ -174,7 +175,7 @@ github:
 
 ## Deployed Instances
 
-All services are available on host-based routing when deployed: `github`, `gitlab`, `mcp`, `vercel`, `google`, `okta`, `microsoft`, `spotify`, `slack`, `apple`, `aws`, `resend`, `stripe`, `mongoatlas`, `clerk`, `x`, `workos`, `autumn`, and `posthog`. Each one supports three addressing forms:
+All services are available on host-based routing when deployed: `github`, `gitlab`, `mcp`, `vercel`, `google`, `okta`, `microsoft`, `spotify`, `slack`, `apple`, `aws`, `resend`, `stripe`, `mongoatlas`, `clerk`, `x`, `workos`, `autumn`, `context`, and `posthog`. Each one supports three addressing forms:
 
 ```text
 https://github.emulators.dev                     # service host (control plane only)
@@ -264,7 +265,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]));
 
 | Option    | Default      | Description                                                                                                                                                                                                                                                                                       |
 | --------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `service` | _(required)_ | Service name: `'vercel'`, `'github'`, `'gitlab'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'spotify'`, `'x'`, `'workos'`, `'autumn'`, or `'posthog'`                                                               |
+| `service` | _(required)_ | Service name: `'vercel'`, `'github'`, `'gitlab'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'spotify'`, `'x'`, `'workos'`, `'autumn'`, `'context'`, or `'posthog'`                                                               |
 | `port`    | `4000`       | Port for the HTTP server                                                                                                                                                                                                                                                                          |
 | `seed`    | none         | Inline seed data (same shape as YAML config)                                                                                                                                                                                                                                                      |
 | `baseUrl` | none         | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |

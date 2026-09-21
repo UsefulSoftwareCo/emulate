@@ -59,6 +59,7 @@ import {
   workosPlugin,
 } from "@emulators/workos";
 import { autumnPlugin, manifest as autumnManifest, seedFromConfig as autumnSeed } from "@emulators/autumn";
+import { contextPlugin, manifest as contextManifest, seedFromConfig as contextSeed } from "@emulators/context";
 
 // GitHub exposes three surfaces over ONE store: REST + GraphQL (githubPlugin) and
 // an MCP server (mcpPlugin's transport + OAuth/DCR routes). They compose cleanly —
@@ -348,6 +349,14 @@ export const SERVICES: Record<string, ServiceEntry> = {
     manifest: autumnManifest,
     seedFromConfig: autumnSeed,
     defaultFallback: () => ({ login: "am_emulate_admin", id: 1, scopes: [] }),
+  },
+  // Context company lookup: resolve a brand from a work email domain. Read-only
+  // over seeded brands, so no ensureUser; the api-key path mints the bearer.
+  context: {
+    plugin: contextPlugin,
+    manifest: contextManifest,
+    seedFromConfig: contextSeed,
+    defaultFallback: () => ({ login: "ctx_emulate_admin", id: 1, scopes: [] }),
   },
 };
 

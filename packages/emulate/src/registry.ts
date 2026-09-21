@@ -57,8 +57,10 @@ const SERVICE_NAME_LIST = [
   "posthog",
   "mcp",
   // gitlab is appended last so adding it leaves every other service's default
-  // multi-service port (basePort + index) unchanged.
+  // multi-service port (basePort + index) unchanged. Append new services here
+  // for the same reason.
   "gitlab",
+  "context",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -991,6 +993,26 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
     initConfig: {
       autumn: {
         customers: [{ id: "org_paid_example", subscriptions: [{ plan_id: "pro", status: "active" }] }],
+      },
+    },
+  },
+  context: {
+    label: "Context company lookup emulator",
+    endpoints: "brand retrieval by work email address or domain",
+    async load() {
+      const mod = await import("@emulators/context");
+      return {
+        plugin: mod.contextPlugin,
+        manifest: mod.manifest,
+        seedFromConfig: mod.seedFromConfig,
+      };
+    },
+    defaultFallback() {
+      return { login: "ctx_emulate_admin", id: 1, scopes: [] };
+    },
+    initConfig: {
+      context: {
+        brands: [{ domain: "acme.example", title: "Acme", description: "An example company." }],
       },
     },
   },

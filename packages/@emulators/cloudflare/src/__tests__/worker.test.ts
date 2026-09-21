@@ -214,6 +214,7 @@ describe("cloudflare worker routing", () => {
     expect(ids).toContain("github");
     expect(ids).toContain("mcp");
     expect(ids).toContain("stripe");
+    expect(ids).toContain("context");
   });
 
   it("keeps path routing available for local and shared-domain URLs", async () => {
@@ -347,6 +348,59 @@ describe("cloudflare durable object control plane", () => {
     "x-emulator-instance": "my-run",
     "x-emulator-base-url": "https://github.my-run.emulators.dev",
     ...extra,
+  });
+
+  // Executor's cloud onboarding e2e provisions this service exactly this way:
+  // mint an api-key, seed a brand, then resolve the company from a work email.
+  // A missing registration only shows up here, as a 404 from the control plane.
+  it("provisions the context company lookup and resolves a seeded brand", async () => {
+    const { state } = makeState();
+    const durableObject = new EmulatorDurableObject(state, {});
+    const headers = {
+      "content-type": "application/json",
+      "x-emulator-service": "context",
+      "x-emulator-base-url": "https://context.instance.emulators.dev",
+    };
+
+    const credentialRes = await durableObject.fetch(
+      new Request("https://context.instance.emulators.dev/_emulate/credentials", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ type: "api-key" }),
+      }),
+    );
+    expect(credentialRes.status).toBe(200);
+    const { credential } = (await credentialRes.json()) as { credential: { token: string } };
+    expect(credential.token).toMatch(/^emu_context_/);
+
+    const seedRes = await durableObject.fetch(
+      new Request("https://context.instance.emulators.dev/_emulate/seed", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ brands: [{ domain: "acme.example", title: "Example Company" }] }),
+      }),
+    );
+    expect(seedRes.status).toBe(200);
+
+    const hit = await durableObject.fetch(
+      new Request("https://context.instance.emulators.dev/v1/brand/retrieve", {
+        method: "POST",
+        headers: { ...headers, authorization: `Bearer ${credential.token}` },
+        body: JSON.stringify({ type: "by_email", email: "workspace@acme.example" }),
+      }),
+    );
+    expect(hit.status).toBe(200);
+    const body = (await hit.json()) as { brand: { title: string } };
+    expect(body.brand.title).toBe("Example Company");
+
+    const miss = await durableObject.fetch(
+      new Request("https://context.instance.emulators.dev/v1/brand/retrieve", {
+        method: "POST",
+        headers: { ...headers, authorization: `Bearer ${credential.token}` },
+        body: JSON.stringify({ type: "by_email", email: "workspace@example.test" }),
+      }),
+    );
+    expect(miss.status).toBe(404);
   });
 
   it("reports the real instance id in the manifest", async () => {
