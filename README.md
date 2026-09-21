@@ -1,5 +1,6 @@
 # emulate
 
+
 This repository is forked from Vercel Labs' `emulate` project. Useful Software
 Co maintains this fork to support deployable emulator surfaces and product
 testing flows for our own development and agent-driven use cases.
@@ -818,6 +819,8 @@ curl -s -X POST http://localhost:4018/api/graphql \
 Because the full schema is real, this surface is well suited to testing GraphQL clients and generators against a large, production-shaped type system without calling gitlab.com. Use `/_emulate/manifest` for the declared coverage and `/_emulate/ledger` to inspect calls.
 
 ## Google OAuth + Gmail, Calendar, and Drive APIs
+
+Google ID tokens use RS256 and the instance publishes its public signing keys at `/oauth2/v3/certs`. Verify the signature, instance issuer, client audience, expiry and nonce through OIDC discovery. Signing keys are retained with instance state across hosted eviction; resetting the instance replaces them.
 
 OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local inbox, calendar, and drive flows.
 

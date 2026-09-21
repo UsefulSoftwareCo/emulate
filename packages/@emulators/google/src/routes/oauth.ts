@@ -1,5 +1,4 @@
 import { createHash, randomBytes } from "crypto";
-import { SignJWT } from "jose";
 import type { RouteContext } from "@emulators/core";
 import {
   escapeHtml,
@@ -15,8 +14,7 @@ import {
 } from "@emulators/core";
 import { getGoogleStore } from "../store.js";
 import type { GoogleUser } from "../entities.js";
-
-const JWT_SECRET = new TextEncoder().encode("emulate-google-jwt-secret");
+import { googleSigning } from "../signing.js";
 
 type PendingCode = {
   email: string;
@@ -66,30 +64,29 @@ async function createIdToken(
   clientId: string,
   nonce: string | null,
   baseUrl: string,
+  signing: ReturnType<typeof googleSigning>,
 ): Promise<string> {
-  const builder = new SignJWT({
-    sub: user.uid,
-    email: user.email,
-    email_verified: user.email_verified,
-    name: user.name,
-    given_name: user.given_name,
-    family_name: user.family_name,
-    picture: user.picture,
-    locale: user.locale,
-    ...(user.hd ? { hd: user.hd } : {}),
-    ...(nonce ? { nonce } : {}),
-  })
-    .setProtectedHeader({ alg: "HS256", typ: "JWT" })
-    .setIssuer(baseUrl)
-    .setAudience(clientId)
-    .setIssuedAt()
-    .setExpirationTime("1h");
-
-  return builder.sign(JWT_SECRET);
+  return signing.sign(
+    {
+      sub: user.uid,
+      email: user.email,
+      email_verified: user.email_verified,
+      name: user.name,
+      given_name: user.given_name,
+      family_name: user.family_name,
+      picture: user.picture,
+      locale: user.locale,
+      ...(user.hd ? { hd: user.hd } : {}),
+      ...(nonce ? { nonce } : {}),
+    },
+    baseUrl,
+    clientId,
+  );
 }
 
 export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): void {
   const gs = getGoogleStore(store);
+  const signing = googleSigning(store);
 
   // ---------- OIDC Discovery ----------
 
@@ -103,7 +100,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       jwks_uri: `${baseUrl}/oauth2/v3/certs`,
       response_types_supported: ["code"],
       subject_types_supported: ["public"],
-      id_token_signing_alg_values_supported: ["HS256"],
+      id_token_signing_alg_values_supported: ["RS256"],
       scopes_supported: ["openid", "email", "profile"],
       token_endpoint_auth_methods_supported: ["client_secret_post", "client_secret_basic"],
       claims_supported: [
@@ -121,10 +118,10 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     });
   });
 
-  // ---------- JWKS (stub) ----------
+  // ---------- Public signing keys ----------
 
-  app.get("/oauth2/v3/certs", (c) => {
-    return c.json({ keys: [] });
+  app.get("/oauth2/v3/certs", async (c) => {
+    return c.json(await signing.jwks());
   });
 
   // Google API Discovery document, pointed at this instance.
@@ -387,7 +384,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       clientId: pending.clientId,
     });
 
-    const idToken = await createIdToken(user, pending.clientId, pending.nonce, baseUrl);
+    const idToken = await createIdToken(user, pending.clientId, pending.nonce, baseUrl, signing);
 
     debug("google.oauth", `[Google token] issued token for ${user.email}`);
 

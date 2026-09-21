@@ -4,6 +4,8 @@ description: Emulated Google OAuth 2.0, OpenID Connect, Gmail, Calendar, and Dri
 allowed-tools: Bash(npx emulate:*), Bash(emulate:*), Bash(curl:*)
 ---
 
+Google ID tokens use RS256 and the instance publishes its public signing keys at `/oauth2/v3/certs`. Verify the signature, instance issuer, client audience, expiry and nonce through OIDC discovery. Signing keys are retained with instance state across hosted eviction; resetting the instance replaces them.
+
 # Google OAuth 2.0 / OIDC + Gmail, Calendar & Drive Emulator
 
 OAuth 2.0 and OpenID Connect emulation with authorization code flow, PKCE support, ID tokens, OIDC discovery, refresh tokens, plus Gmail, Google Calendar, and Google Drive REST API surfaces.
