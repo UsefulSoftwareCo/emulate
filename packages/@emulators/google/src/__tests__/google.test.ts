@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { Hono } from "@emulators/core";
-import { decodeJwt } from "jose";
+import { decodeJwt, jwtVerify, createRemoteJWKSet, customFetch } from "jose";
 import {
   Store,
   WebhookDispatcher,
@@ -895,6 +895,51 @@ describe("Google plugin integration", () => {
     });
     const message = (await messageRes.json()) as { labelIds: string[] };
     expect(message.labelIds).not.toContain(created.id);
+  });
+
+  it("verifies ID tokens through discovery keys and rejects tampering and wrong audiences", async () => {
+    const discovery = await app.request(`${base}/.well-known/openid-configuration`);
+    expect(await discovery.json()).toMatchObject({
+      issuer: base,
+      jwks_uri: `${base}/oauth2/v3/certs`,
+      id_token_signing_alg_values_supported: ["RS256"],
+    });
+    const authorized = await formRequest(app, "/o/oauth2/v2/auth/callback", {
+      email: "testuser@example.com",
+      redirect_uri: "http://localhost:3000/api/auth/callback/google",
+      scope: "openid email profile",
+      client_id: "emu_google_client_id",
+      nonce: "synthetic-request-nonce",
+    });
+    const location = authorized.headers.get("Location");
+    if (location === null) throw new Error("Authorization did not redirect");
+    const code = new URL(location).searchParams.get("code");
+    if (code === null) throw new Error("Authorization code missing");
+    const response = await formRequest(app, "/oauth2/token", {
+      code,
+      grant_type: "authorization_code",
+      redirect_uri: "http://localhost:3000/api/auth/callback/google",
+      client_id: "emu_google_client_id",
+      client_secret: "emu_google_client_secret",
+    });
+    expect(response.status).toBe(200);
+    const body: unknown = await response.json();
+    if (typeof body !== "object" || body === null || !("id_token" in body) || typeof body.id_token !== "string")
+      throw new Error("Token response must include an ID token");
+    const publicKeys = await app.request(`${base}/oauth2/v3/certs`);
+    expect(await publicKeys.text()).not.toContain('"d":');
+    const jwks = createRemoteJWKSet(new URL(`${base}/oauth2/v3/certs`), {
+      [customFetch]: async (url) => app.request(String(url)),
+    });
+    const options = { issuer: base, audience: "emu_google_client_id", algorithms: ["RS256"] };
+    const verified = await jwtVerify(body.id_token, jwks, options);
+    expect(verified.payload.nonce).toBe("synthetic-request-nonce");
+    expect(verified.payload.email).toBe("testuser@example.com");
+    expect(verified.protectedHeader.kid).toBeTypeOf("string");
+    await expect(jwtVerify(body.id_token, jwks, { ...options, audience: "another-client" })).rejects.toThrow();
+    const [header, , signature] = body.id_token.split(".");
+    const changed = Buffer.from(JSON.stringify({ ...verified.payload, sub: "forged" })).toString("base64url");
+    await expect(jwtVerify(`${header}.${changed}.${signature}`, jwks, options)).rejects.toThrow();
   });
 
   it("exchanges auth codes for refresh tokens and refreshes access tokens", async () => {

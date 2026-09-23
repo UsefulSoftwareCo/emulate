@@ -64,6 +64,7 @@ Global catalog:
   Available services include vercel, github, gitlab, google, slack, apple,
   microsoft, okta, aws, resend, stripe, mongoatlas, clerk, spotify, x, workos,
   autumn, context, posthog, and mcp.
+  Google OIDC tokens use RS256; verify them with the instance /oauth2/v3/certs.
   MCP OAuth compliance scenarios are configured under mcp.oauth in seed data;
   see the MCP manifest seed schema for issuer, resource, DCR, and token-auth knobs.
   Microsoft Graph includes OneDrive file content upload/download routes under
