@@ -820,6 +820,8 @@ Because the full schema is real, this surface is well suited to testing GraphQL 
 
 ## Google OAuth + Gmail, Calendar, and Drive APIs
 
+Google ID tokens use RS256 signatures. Verify them with the public keys at `/oauth2/v3/certs`, the instance issuer, your client ID, and the request nonce. Signing keys last for the server process; restarting it invalidates earlier tokens.
+
 OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local inbox, calendar, and drive flows.
 
 - `GET /o/oauth2/v2/auth` - authorization endpoint
