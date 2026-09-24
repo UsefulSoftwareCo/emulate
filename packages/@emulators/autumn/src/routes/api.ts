@@ -11,6 +11,7 @@ import {
   applyCancelAction,
   balanceForFeature,
   checkAndConsume,
+  compactUsage,
   hasBillingCycle,
   knownFeature,
   type CancelAction,
@@ -98,12 +99,13 @@ export function autumnApiRoutes(ctx: RouteContext): void {
     if (!customerId || !featureId) {
       return c.json({ message: "customer_id and feature_id are required", code: "invalid_request" }, 400);
     }
-    ensureCustomer(as(), customerId, {});
+    const customer = ensureCustomer(as(), customerId, {});
     const event = as().events.insert({
       customer_id: customerId,
       feature_id: featureId,
       value: typeof body.value === "number" ? body.value : 1,
     });
+    compactUsage(as(), customer, featureId);
     return c.json({
       id: `evt_emulate_${event.id}`,
       code: "event_received",
@@ -207,6 +209,7 @@ export function autumnApiRoutes(ctx: RouteContext): void {
     const delta = targetUsage - balance.usage;
     if (delta !== 0) {
       store.events.insert({ customer_id: customerId, feature_id: featureId, value: delta });
+      compactUsage(store, customer, featureId);
     }
     return c.json({ success: true });
   });
