@@ -569,6 +569,87 @@ describe("cloudflare durable object control plane", () => {
     expect([...storage.keys()].filter((key) => key.startsWith("ledger:entry:"))).toHaveLength(70);
   });
 
+  it("writes only what an admission changed, never rescans storage, and keeps storage bounded", async () => {
+    const { state, storage, puts } = makeState();
+    let lists = 0;
+    const list = state.storage.list.bind(state.storage);
+    state.storage.list = (options) => {
+      lists++;
+      return list(options);
+    };
+    const headers = {
+      "x-emulator-service": "autumn",
+      "x-emulator-instance": "admission",
+      "x-emulator-base-url": "https://autumn.admission.emulators.dev",
+      authorization: "Bearer am_sk_test",
+      "content-type": "application/json",
+    };
+    const call = (path: string, body: unknown) =>
+      do1.fetch(
+        new Request(`https://autumn.admission.emulators.dev${path}`, {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+        }),
+      );
+    const do1 = new EmulatorDurableObject(state, {});
+    const seeded = await do1.fetch(
+      new Request("https://autumn.admission.emulators.dev/__seed", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          strict: false,
+          autumn: {
+            plans: [{ id: "team", name: "Team", items: [{ feature_id: "executions", included: 500 }] }],
+            customers: [{ id: "org_synthetic", subscriptions: [{ plan_id: "team", status: "active" }] }],
+          },
+        }),
+      }),
+    );
+    expect(seeded.status).toBe(200);
+    const getOrCreate = () => call("/v1/customers.get_or_create", { customer_id: "org_synthetic" });
+    const consume = () =>
+      call("/v1/balances.check", {
+        customer_id: "org_synthetic",
+        feature_id: "executions",
+        required_balance: 1,
+        send_event: true,
+      });
+    expect((await getOrCreate()).status).toBe(200);
+
+    // A lookup that changes no billing state adds only its ledger entry and the ledger index.
+    puts.length = 0;
+    lists = 0;
+    expect((await getOrCreate()).status).toBe(200);
+    expect(puts.map((put) => put.key.replace(/req_\d+$/, "req_N")).sort()).toEqual([
+      "ledger:entry:req_N",
+      "ledger:meta",
+    ]);
+    expect(lists).toBe(0);
+
+    // Consumption writes the changed records only, and stored events stay bounded.
+    for (let i = 0; i < 300; i++) expect((await consume()).status).toBe(200);
+    expect(lists).toBe(0);
+    puts.length = 0;
+    const last = (await (await consume()).json()) as { balance: { usage: number; remaining: number } };
+    expect(last.balance).toMatchObject({ usage: 301, remaining: 199 });
+    expect(puts.length).toBeLessThan(10);
+    const events = [...storage.keys()].filter((key) => key.startsWith("snapshot:item:autumn.events:"));
+    expect(events.length).toBeLessThanOrEqual(65);
+
+    // A fresh Durable Object over the same storage restores the same balance.
+    const do2 = new EmulatorDurableObject(state, {});
+    const restored = await do2.fetch(
+      new Request("https://autumn.admission.emulators.dev/v1/customers.get_or_create", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ customer_id: "org_synthetic" }),
+      }),
+    );
+    const customer = (await restored.json()) as { balances: { executions: { usage: number } } };
+    expect(customer.balances.executions.usage).toBe(301);
+  });
+
   it("persists the request ledger across durable object eviction", async () => {
     const { state } = makeState();
     const do1 = new EmulatorDurableObject(state, {});
