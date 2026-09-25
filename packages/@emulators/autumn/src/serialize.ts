@@ -14,6 +14,7 @@ import type {
   AutumnPlan,
   AutumnPlanItem,
   AutumnSubscription,
+  AutumnTrackEvent,
 } from "./entities.js";
 
 const DAY_MS = 86_400_000;
@@ -177,17 +178,69 @@ function resetWindow(sub: AutumnSubscription, item: AutumnPlanItem): { start: nu
   return { start, resetsAt: start + span };
 }
 
+function eventTime(event: AutumnTrackEvent): number {
+  return Date.parse(event.created_at) || 0;
+}
+
 function usageFor(as: AutumnStore, customerId: string, featureId: string, since: number, after: number): number {
   return as.events
-    .all()
-    .filter(
-      (e) =>
-        e.customer_id === customerId &&
-        e.feature_id === featureId &&
-        e.id > after &&
-        (Date.parse(e.created_at) || 0) >= since,
-    )
+    .findBy("customer_id", customerId)
+    .filter((e) => e.feature_id === featureId && e.id > after && eventTime(e) >= since)
     .reduce((sum, e) => sum + (e.value ?? 0), 0);
+}
+
+/** Raw events one customer and feature may hold before they are rolled up. */
+const USAGE_ROLLUP_THRESHOLD = 64;
+
+/**
+ * Roll up a customer's usage events for one feature so that storage and balance
+ * reads stay bounded however many executions are tracked. Real Autumn keeps a
+ * running balance per window rather than replaying history, so a rollup is as
+ * faithful as the raw events for every balance Autumn can report.
+ *
+ * Balances count events after a subscription's usage watermark (by event id)
+ * and inside an item's current reset window (by time). Only adjacent events that
+ * no watermark or current window start separates are merged; the merged event
+ * keeps the newest id and time, so every current balance is unchanged. Later
+ * windows start after every existing event, and later watermarks are at or
+ * above every existing id, so those balances are unchanged too. A catalog edit
+ * that adds a reset interval to an existing item sees rolled-up history at the
+ * granularity of the rollups. `events.list` returns the rollups.
+ */
+export function compactUsage(as: AutumnStore, customer: AutumnCustomer, featureId: string): void {
+  const events = as.events.findBy("customer_id", customer.customer_id).filter((e) => e.feature_id === featureId);
+  if (events.length <= USAGE_ROLLUP_THRESHOLD) return;
+  const watermarks: number[] = [];
+  const windowStarts: number[] = [];
+  for (const sub of customer.subscriptions ?? []) {
+    watermarks.push(sub.usage_epoch ?? 0);
+    const plan = as.plans.findOneBy("plan_id", sub.plan_id);
+    for (const item of plan?.items ?? []) {
+      if (item.feature_id !== featureId) continue;
+      const window = resetWindow(sub, item);
+      if (window) windowStarts.push(window.start);
+    }
+  }
+  const segment = (event: AutumnTrackEvent) =>
+    `${watermarks.filter((mark) => event.id > mark).length}:${windowStarts.filter((start) => eventTime(event) >= start).length}`;
+  const merge = (run: AutumnTrackEvent[]) => {
+    if (run.length < 2) return;
+    const last = run[run.length - 1];
+    as.events.update(last.id, { value: run.reduce((sum, e) => sum + (e.value ?? 0), 0) });
+    for (const event of run.slice(0, -1)) as.events.delete(event.id);
+  };
+  let run: AutumnTrackEvent[] = [];
+  let runSegment = "";
+  for (const event of events.sort((a, b) => a.id - b.id)) {
+    const key = segment(event);
+    if (run.length > 0 && key !== runSegment) {
+      merge(run);
+      run = [];
+    }
+    run.push(event);
+    runSegment = key;
+  }
+  merge(run);
 }
 
 /** The emulator synthesizes this object for autumn-js's `customerToFeatures`
@@ -369,7 +422,9 @@ export function checkAndConsume(
   const allowed = balance.unlimited || balance.overage_allowed || balance.remaining >= requiredBalance;
   if (!allowed || !sendEvent || requiredBalance === 0) return { allowed, balance };
   as.events.insert({ customer_id: customer.customer_id, feature_id: featureId, value: requiredBalance });
-  return { allowed, balance: balanceForFeature(as, customer, featureId) ?? balance };
+  const consumed = balanceForFeature(as, customer, featureId) ?? balance;
+  compactUsage(as, customer, featureId);
+  return { allowed, balance: consumed };
 }
 
 /** Mint the next Stripe-style PaymentMethod id for this instance. Stripe ids

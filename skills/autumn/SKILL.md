@@ -125,6 +125,8 @@ Attaching a plan after an immediate cancel issues fresh grants, so usage starts 
 
 `balances.update` sets a customer's balance for one feature. Exactly one of `usage`, `remaining`, or `add_to_balance` is required. Use it for continuous-use features (seats, storage) where the app reconciles an absolute count rather than tracking deltas. The update is recorded as an adjustment event, so `events.list` shows the reconciliation and `balances.check` stays consistent. Unknown customers 404 with `customer_not_found`; a feature the customer's plan does not carry 404s with `not_found`.
 
+Once a customer has more than 64 usage events for a feature, the emulator rolls up adjacent events into one event carrying their total. It only rolls up events that no subscription watermark or current reset window separates, so every balance stays the same. `events.list` then returns the rolled-up events, and storage stays bounded however many checks consume usage.
+
 ```ts
 await autumn.balances.update({ customerId: "org_123", featureId: "members", usage: 12 });
 ```

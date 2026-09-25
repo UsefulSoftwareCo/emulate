@@ -100,12 +100,19 @@ const ledgerEntryKey = (id: string): string => `${LEDGER_ENTRY_PREFIX}${encodeKe
 
 // One Durable Object instance == one stateful emulator instance. Its `store`
 // lives in DO memory (single-threaded → the serialized-write consistency the
-// in-process emulator already assumes), snapshotted to DO storage after every
-// mutating request so the instance survives eviction. Auth is FAITHFUL by
+// in-process emulator already assumes). After every mutating request, the
+// changed parts of the store and ledger are written to DO storage so the
+// instance survives eviction. Auth is FAITHFUL by
 // default (strict): only seeded or minted tokens work; everything else gets the
 // real API's 401/403. Mint tokens at runtime via `POST /__token`.
 export class EmulatorDurableObject {
   private live?: Live;
+  // The JSON of every snapshot and ledger value last written to storage, by key.
+  // `persist()` writes only the keys whose value changed and deletes only the
+  // keys the state no longer has, so a request that changed nothing costs no
+  // storage writes and the cost of a request does not grow with stored history.
+  // Undefined until read from storage for the current live instance.
+  private written?: Map<string, string>;
 
   constructor(
     private readonly state: DurableObjectState,
@@ -295,6 +302,7 @@ export class EmulatorDurableObject {
     const entry = SERVICES[service];
     if (!entry) throw new Error(`unknown emulator service: ${service}`);
 
+    this.written = undefined;
     const persisted = await this.readPersistedState();
     await this.migrateLegacyState(persisted);
     const strict = persisted.strict ?? true;
@@ -374,15 +382,63 @@ export class EmulatorDurableObject {
     return this.live;
   }
 
+  /** Every snapshot and ledger value the live state needs in storage, by key. */
+  private persistedEntries(live: Live): Map<string, unknown> {
+    const entries = new Map<string, unknown>();
+    const snapshot = live.store.snapshot();
+    const meta: SnapshotMeta = { collections: {} };
+    for (const [key, value] of Object.entries(snapshot.data)) entries.set(snapshotDataKey(key), value);
+    for (const [name, collection] of Object.entries(snapshot.collections)) {
+      meta.collections[name] = { autoId: collection.autoId, indexFields: collection.indexFields };
+      for (const item of collection.items) entries.set(snapshotItemKey(name, item.id), item);
+    }
+    entries.set(SNAPSHOT_META_KEY, meta);
+    // The request ledger is intentionally durable, agent-readable history. Entries
+    // are split by id so each request writes only its own entry.
+    const ledger = live.ledger.serialize();
+    for (const entry of ledger.entries) entries.set(ledgerEntryKey(entry.id), entry);
+    entries.set(LEDGER_META_KEY, {
+      counter: ledger.counter,
+      ids: ledger.entries.map((entry) => entry.id),
+    } satisfies LedgerMeta);
+    return entries;
+  }
+
+  private async readWritten(): Promise<Map<string, string>> {
+    const written = new Map<string, string>();
+    for (const prefix of [SNAPSHOT_ITEM_PREFIX, SNAPSHOT_DATA_PREFIX, LEDGER_ENTRY_PREFIX]) {
+      for (const [key, value] of await this.state.storage.list({ prefix })) written.set(key, JSON.stringify(value));
+    }
+    for (const key of [SNAPSHOT_META_KEY, LEDGER_META_KEY]) {
+      const value = await this.state.storage.get(key);
+      if (value !== undefined) written.set(key, JSON.stringify(value));
+    }
+    return written;
+  }
+
   private async persist(): Promise<void> {
-    if (!this.live) return;
-    const persisted = await this.readPersistedState();
-    await this.writeStoreSnapshot(this.live.store.snapshot());
-    // Persist the request ledger so inspection history survives Durable Object
-    // eviction. Entries are split by id because the ledger is intentionally
-    // durable, agent-readable history.
-    await this.writeLedger(this.live.ledger.serialize());
-    await this.writeStateMeta(persisted);
+    const live = this.live;
+    if (!live) return;
+    const written = (this.written ??= await this.readWritten());
+    const puts: Array<{ key: string; value: unknown }> = [];
+    const entries = this.persistedEntries(live);
+    for (const [key, value] of entries) {
+      const json = JSON.stringify(value);
+      if (written.get(key) === json) continue;
+      puts.push({ key, value });
+      written.set(key, json);
+    }
+    const deletes = [...written.keys()].filter((key) => !entries.has(key));
+    for (const key of deletes) written.delete(key);
+    if (puts.length === 0 && deletes.length === 0) return;
+    try {
+      await inBatches(puts, (put) => this.state.storage.put(put.key, put.value));
+      await this.deleteKeys(deletes);
+    } catch (error) {
+      // Storage no longer matches the recorded values; read it again next time.
+      this.written = undefined;
+      throw error;
+    }
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -408,6 +464,7 @@ export class EmulatorDurableObject {
       await this.clearMinted();
       await this.writeStateMeta({ seed, strict: strict !== false });
       this.live = undefined;
+      this.written = undefined;
       await this.ensure(service, instance, baseUrl);
       await this.persist();
       return Response.json({ ok: true, url: baseUrl, strict: strict !== false });
