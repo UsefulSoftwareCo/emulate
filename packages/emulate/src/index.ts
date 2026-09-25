@@ -67,6 +67,8 @@ Global catalog:
   Google OIDC tokens use RS256; verify them with the instance /oauth2/v3/certs.
   MCP OAuth compliance scenarios are configured under mcp.oauth in seed data;
   see the MCP manifest seed schema for issuer, resource, DCR, and token-auth knobs.
+  Microsoft Graph supports JSON mail drafts, replies, sends, and file attachments
+  under /v1.0/me/messages (files smaller than 3 MB; no MIME or upload sessions).
   Microsoft Graph includes OneDrive file content upload/download routes under
   /v1.0/me/drive and /v1.0/drives/:driveId.
   Service host:    <service>.emulators.dev (control plane only, no shared
