@@ -98,6 +98,7 @@
     "typescript": "^5.7",
     "@emulators/autumn": "workspace:*",
     "@emulators/context": "workspace:*",
+    "@emulators/planetscale": "workspace:*",
     "@emulators/workos": "workspace:*"
   }
 }

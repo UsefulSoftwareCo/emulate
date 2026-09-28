@@ -23,6 +23,7 @@ export const allDocsPages: NavItem[] = [
   { name: "Clerk", href: "/docs/clerk" },
   { name: "WorkOS", href: "/docs/workos" },
   { name: "Spotify", href: "/docs/spotify" },
+  { name: "PlanetScale", href: "/docs/planetscale" },
   { name: "PostHog", href: "/docs/posthog" },
   { name: "Authentication", href: "/docs/authentication" },
   { name: "Service Manifest", href: "/docs/manifest" },

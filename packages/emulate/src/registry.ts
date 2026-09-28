@@ -61,6 +61,7 @@ const SERVICE_NAME_LIST = [
   // for the same reason.
   "gitlab",
   "context",
+  "planetscale",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -1013,6 +1014,30 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
     initConfig: {
       context: {
         brands: [{ domain: "acme.example", title: "Acme", description: "An example company." }],
+      },
+    },
+  },
+  planetscale: {
+    label: "PlanetScale OAuth and MCP emulator",
+    endpoints: "Doorkeeper OAuth with dynamic client registration, MCP server at /mcp/planetscale",
+    async load() {
+      const mod = await import("@emulators/planetscale");
+      return {
+        plugin: mod.planetscalePlugin,
+        manifest: mod.manifest,
+        seedFromConfig: mod.seedFromConfig,
+        issueCredential(store: Store, baseUrl: string, _tokenMap: TokenMap, request: CredentialRequest) {
+          return mod.issueCredential(store, baseUrl, request);
+        },
+      };
+    },
+    defaultFallback() {
+      return { login: "planetscale-user", id: 1, scopes: [] };
+    },
+    initConfig: {
+      planetscale: {
+        users: [{ login: "planetscale-user", name: "PlanetScale User", email: "user@example.com" }],
+        organizations: [{ name: "acme", databases: [{ name: "app-db", kind: "mysql" }] }],
       },
     },
   },

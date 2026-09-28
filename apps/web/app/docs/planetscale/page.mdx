@@ -1,0 +1,42 @@
+# PlanetScale
+
+PlanetScale emulation covering the Doorkeeper OAuth authorization server and the hosted MCP server at `/mcp/planetscale`.
+
+## OAuth
+
+- `GET /.well-known/oauth-authorization-server` — metadata advertising `client_secret_basic` and `client_secret_post`, `plain` and `S256` PKCE, and the `iss` authorization response parameter
+- `POST /oauth/registration` — Dynamic Client Registration
+- `GET /oauth/authorize` — consent page with one sign in button per seeded user
+- `POST /oauth/token` — `authorization_code` and `refresh_token` grants
+- `POST /oauth/revoke` — token revocation
+
+```bash
+curl -X POST http://localhost:4020/oauth/registration \
+  -H "Content-Type: application/json" \
+  -d '{"client_name":"My app","redirect_uris":["http://localhost:3000/callback"]}'
+```
+
+The token endpoint authenticates clients like Doorkeeper: the HTTP Basic header is base64 decoded and compared literally, with no form url decoding. PlanetScale client ids and secrets always contain `_`, so a client that form url encodes Basic credentials (sending `_` as `%5F`) receives `401 invalid_client`, as it would from real PlanetScale. Use `client_secret_post` or raw Basic credentials.
+
+## MCP
+
+Point an MCP client at `<base>/mcp/planetscale`. Unauthenticated requests answer `401` with a `resource_metadata` link, so the client discovers OAuth, registers, and signs in. The read only tools are `planetscale_list_organizations`, `planetscale_get_organization`, `planetscale_list_databases`, `planetscale_get_database`, and `planetscale_list_branches`, backed by seeded state.
+
+## Seed
+
+```yaml
+planetscale:
+  users:
+    - login: planetscale-user
+  organizations:
+    - name: acme
+      databases:
+        - name: app-db
+          branches:
+            - name: main
+              production: true
+```
+
+## Validation
+
+Every token and revoke call records a ledger side effect describing the client authentication method, outcome, and whether the presented `client_id` was percent encoded. Read it from `/_emulate/ledger`.

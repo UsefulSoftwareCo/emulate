@@ -60,6 +60,12 @@ import {
 } from "@emulators/workos";
 import { autumnPlugin, manifest as autumnManifest, seedFromConfig as autumnSeed } from "@emulators/autumn";
 import { contextPlugin, manifest as contextManifest, seedFromConfig as contextSeed } from "@emulators/context";
+import {
+  issueCredential as planetscaleIssueCredential,
+  manifest as planetscaleManifest,
+  planetscalePlugin,
+  seedFromConfig as planetscaleSeed,
+} from "@emulators/planetscale";
 
 // GitHub exposes three surfaces over ONE store: REST + GraphQL (githubPlugin) and
 // an MCP server (mcpPlugin's transport + OAuth/DCR routes). They compose cleanly —
@@ -357,6 +363,16 @@ export const SERVICES: Record<string, ServiceEntry> = {
     manifest: contextManifest,
     seedFromConfig: contextSeed,
     defaultFallback: () => ({ login: "ctx_emulate_admin", id: 1, scopes: [] }),
+  },
+  // PlanetScale: Doorkeeper OAuth (DCR, literal Basic client auth) plus the hosted
+  // MCP server at /mcp/planetscale. Access tokens live in the plugin's own store
+  // collections, so no ensureUser; credentials register a DCR client.
+  planetscale: {
+    plugin: planetscalePlugin,
+    manifest: planetscaleManifest,
+    seedFromConfig: planetscaleSeed,
+    defaultFallback: () => ({ login: "planetscale-user", id: 1, scopes: [] }),
+    issueCredential: planetscaleIssueCredential,
   },
 };
 

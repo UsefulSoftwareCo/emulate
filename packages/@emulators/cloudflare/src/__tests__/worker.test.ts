@@ -215,6 +215,7 @@ describe("cloudflare worker routing", () => {
     expect(ids).toContain("mcp");
     expect(ids).toContain("stripe");
     expect(ids).toContain("context");
+    expect(ids).toContain("planetscale");
   });
 
   it("keeps path routing available for local and shared-domain URLs", async () => {
@@ -401,6 +402,54 @@ describe("cloudflare durable object control plane", () => {
       }),
     );
     expect(miss.status).toBe(404);
+  });
+
+  // Executor's PlanetScale e2e registers a client through DCR on a path form
+  // instance and exchanges a code. The client auth outcome must survive Durable
+  // Object eviction, because the registration and the exchange are separate requests.
+  it("serves PlanetScale DCR and literal Basic client auth across eviction", async () => {
+    const { state } = makeState();
+    const base = "https://emulators.dev/planetscale/ps-run";
+    const headers = {
+      "x-emulator-service": "planetscale",
+      "x-emulator-instance": "ps-run",
+      "x-emulator-base-url": base,
+    };
+    const first = new EmulatorDurableObject(state, {});
+    const metadata = await first.fetch(
+      new Request("https://emulators.dev/.well-known/oauth-authorization-server", { headers }),
+    );
+    expect(((await metadata.json()) as { issuer: string }).issuer).toBe(base);
+
+    const registered = await first.fetch(
+      new Request("https://emulators.dev/oauth/registration", {
+        method: "POST",
+        headers: { ...headers, "content-type": "application/json" },
+        body: JSON.stringify({ client_name: "Executor", redirect_uris: ["https://app.example/callback"] }),
+      }),
+    );
+    expect(registered.status).toBe(201);
+    const client = (await registered.json()) as { client_id: string; client_secret: string };
+
+    const evicted = new EmulatorDurableObject(state, {});
+    const exchange = (id: string, secret: string) =>
+      evicted.fetch(
+        new Request("https://emulators.dev/oauth/token", {
+          method: "POST",
+          headers: {
+            ...headers,
+            "content-type": "application/x-www-form-urlencoded",
+            authorization: `Basic ${Buffer.from(`${id}:${secret}`).toString("base64")}`,
+          },
+          body: "grant_type=authorization_code&code=bogus&redirect_uri=https%3A%2F%2Fapp.example%2Fcallback",
+        }),
+      );
+    const raw = await exchange(client.client_id, client.client_secret);
+    expect(raw.status).toBe(400);
+    expect(((await raw.json()) as { error: string }).error).toBe("invalid_grant");
+    const encoded = await exchange(client.client_id.replace(/_/g, "%5F"), client.client_secret);
+    expect(encoded.status).toBe(401);
+    expect(encoded.headers.get("www-authenticate")).toContain('realm="Doorkeeper", error="invalid_client"');
   });
 
   it("reports the real instance id in the manifest", async () => {

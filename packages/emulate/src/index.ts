@@ -63,7 +63,9 @@ Global catalog:
   Hosted services:
   Available services include vercel, github, gitlab, google, slack, apple,
   microsoft, okta, aws, resend, stripe, mongoatlas, clerk, spotify, x, workos,
-  autumn, context, posthog, and mcp.
+  autumn, context, planetscale, posthog, and mcp.
+  PlanetScale emulates the Doorkeeper OAuth server (DCR, literal HTTP Basic
+  client auth) and the hosted MCP server at /mcp/planetscale.
   Google OIDC tokens use RS256; verify them with the instance /oauth2/v3/certs.
   MCP OAuth compliance scenarios are configured under mcp.oauth in seed data;
   see the MCP manifest seed schema for issuer, resource, DCR, and token-auth knobs.

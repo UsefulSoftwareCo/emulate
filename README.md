@@ -34,6 +34,7 @@ All services start with sensible defaults. No config file needed:
 - **MCP** on `http://localhost:4017`
 - **GitLab** on `http://localhost:4018` (full real GraphQL schema)
 - **Context** on `http://localhost:4019` (company lookup by work email domain)
+- **PlanetScale** on `http://localhost:4020` (Doorkeeper OAuth with DCR, MCP server at `/mcp/planetscale`)
 
 Every running service also exposes a public control plane under `/_emulate`:
 
@@ -175,7 +176,7 @@ github:
 
 ## Deployed Instances
 
-All services are available on host-based routing when deployed: `github`, `gitlab`, `mcp`, `vercel`, `google`, `okta`, `microsoft`, `spotify`, `slack`, `apple`, `aws`, `resend`, `stripe`, `mongoatlas`, `clerk`, `x`, `workos`, `autumn`, `context`, and `posthog`. Each one supports three addressing forms:
+All services are available on host-based routing when deployed: `github`, `gitlab`, `mcp`, `vercel`, `google`, `okta`, `microsoft`, `spotify`, `slack`, `apple`, `aws`, `resend`, `stripe`, `mongoatlas`, `clerk`, `x`, `workos`, `autumn`, `context`, `planetscale`, and `posthog`. Each one supports three addressing forms:
 
 ```text
 https://github.emulators.dev                     # service host (control plane only)
@@ -265,7 +266,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]));
 
 | Option    | Default      | Description                                                                                                                                                                                                                                                                                       |
 | --------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `service` | _(required)_ | Service name: `'vercel'`, `'github'`, `'gitlab'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'spotify'`, `'x'`, `'workos'`, `'autumn'`, `'context'`, or `'posthog'`                                                               |
+| `service` | _(required)_ | Service name: `'vercel'`, `'github'`, `'gitlab'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'spotify'`, `'x'`, `'workos'`, `'autumn'`, `'context'`, `'planetscale'`, or `'posthog'`                                                               |
 | `port`    | `4000`       | Port for the HTTP server                                                                                                                                                                                                                                                                          |
 | `seed`    | none         | Inline seed data (same shape as YAML config)                                                                                                                                                                                                                                                      |
 | `baseUrl` | none         | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -817,6 +818,40 @@ curl -s -X POST http://localhost:4018/api/graphql \
 ```
 
 Because the full schema is real, this surface is well suited to testing GraphQL clients and generators against a large, production-shaped type system without calling gitlab.com. Use `/_emulate/manifest` for the declared coverage and `/_emulate/ledger` to inspect calls.
+
+## PlanetScale OAuth + MCP
+
+PlanetScale is modelled as its two surfaces an MCP client touches: the Doorkeeper OAuth authorization server and the hosted MCP server.
+
+```bash
+npx emulate --service planetscale
+```
+
+When all services run together, PlanetScale uses `http://localhost:4020`.
+
+- `GET /.well-known/oauth-authorization-server` - authorization server metadata (`client_secret_basic` and `client_secret_post` only, `plain` and `S256` PKCE, `iss` in the authorization response)
+- `POST /oauth/registration` - Dynamic Client Registration. Returns a `pscale_app_` client id and a 61 character `pscale_app_secret_` secret with no `client_secret_expires_at`, and replaces the requested scope with PlanetScale's default set
+- `GET /oauth/authorize` - consent page with one sign in button per seeded user; the button POSTs to `/oauth/authorize` and redirects with `code`, `state`, and `iss`
+- `POST /oauth/token` - `authorization_code` (with PKCE) and `refresh_token` grants
+- `POST /oauth/revoke` - token revocation
+- `POST /mcp/planetscale` - Streamable HTTP MCP server with read only `planetscale_list_organizations`, `planetscale_get_organization`, `planetscale_list_databases`, `planetscale_get_database`, and `planetscale_list_branches` tools
+- `GET /.well-known/oauth-protected-resource/mcp/planetscale` - protected resource metadata
+
+Client authentication follows Doorkeeper exactly: the HTTP Basic header is base64 decoded, split on the first colon, and compared literally with no form url decoding. A client that form url encodes its id or secret before base64 (as RFC 6749 section 2.3.1 describes, and as `oauth4webapi`'s `ClientSecretBasic` does, escaping `_` as `%5F`) fails with `401 invalid_client` and Doorkeeper's `WWW-Authenticate: Bearer realm="Doorkeeper", ...` header. Every token and revoke call records a ledger side effect such as `client_auth method=client_secret_basic outcome=unknown_client client_id="pscale%5Fapp%5F..." client_id_percent_encoded=true`. Secrets are never recorded.
+
+```yaml
+planetscale:
+  users:
+    - login: planetscale-user
+  organizations:
+    - name: acme
+      databases:
+        - name: app-db
+          kind: mysql
+          branches:
+            - name: main
+              production: true
+```
 
 ## Google OAuth + Gmail, Calendar, and Drive APIs
 

@@ -48,7 +48,8 @@
     "@emulators/x": "workspace:*",
     "@emulators/workos": "workspace:*",
     "@emulators/autumn": "workspace:*",
-    "@emulators/context": "workspace:*"
+    "@emulators/context": "workspace:*",
+    "@emulators/planetscale": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8",
