@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { EmulatorDurableObject } from "../durable-object.js";
 import worker, { parseHostRoute, type Env } from "../worker.js";
 
@@ -450,6 +450,93 @@ describe("cloudflare durable object control plane", () => {
     const encoded = await exchange(client.client_id.replace(/_/g, "%5F"), client.client_secret);
     expect(encoded.status).toBe(401);
     expect(encoded.headers.get("www-authenticate")).toContain('realm="Doorkeeper", error="invalid_client"');
+  });
+
+  // Executor's Cloud onboarding signs in with Google twice against one instance.
+  // A relying party caches the JWKS it fetched for the first sign-in and does
+  // not refetch it for a short cooldown, so an instance rebuilt in a new isolate
+  // must keep signing with the key it already published.
+  it("keeps the Google ID token signing key across eviction into a new isolate", async () => {
+    const { state } = makeState();
+    const base = "https://emulators.dev/google/oidc-run";
+    const redirect = "https://app.example/api/auth/callback/google";
+    const headers = {
+      "x-emulator-service": "google",
+      "x-emulator-instance": "oidc-run",
+      "x-emulator-base-url": base,
+    };
+    const request = (object: EmulatorDurableObject, path: string, init: RequestInit = {}) =>
+      object.fetch(new Request(`https://emulators.dev${path}`, { ...init, headers: { ...headers, ...init.headers } }));
+    const json = (object: EmulatorDurableObject, path: string, body: unknown) =>
+      request(object, path, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const form = (object: EmulatorDurableObject, path: string, body: Record<string, string>) =>
+      request(object, path, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams(body).toString(),
+      });
+
+    const first = new EmulatorDurableObject(state, {});
+    const issued = await json(first, "/_emulate/credentials", {
+      type: "oauth-authorization-code",
+      redirect_uris: [redirect],
+    });
+    const { credential } = (await issued.json()) as { credential: { client_id: string; client_secret: string } };
+    expect((await json(first, "/_emulate/seed", { users: [{ email: "person@example.test" }] })).status).toBe(200);
+
+    const signIn = async (object: EmulatorDurableObject, nonce: string) => {
+      const authorized = await form(object, "/o/oauth2/v2/auth/callback", {
+        email: "person@example.test",
+        redirect_uri: redirect,
+        scope: "openid email profile",
+        client_id: credential.client_id,
+        nonce,
+      });
+      const code = new URL(authorized.headers.get("location") ?? "").searchParams.get("code") ?? "";
+      const token = await form(object, "/oauth2/token", {
+        code,
+        grant_type: "authorization_code",
+        redirect_uri: redirect,
+        client_id: credential.client_id,
+        client_secret: credential.client_secret,
+      });
+      expect(token.status).toBe(200);
+      return ((await token.json()) as { id_token: string }).id_token;
+    };
+    type Jwk = { kid: string; kty: string; n: string; e: string };
+    const certs = async (object: EmulatorDurableObject) =>
+      ((await (await request(object, "/oauth2/v3/certs")).json()) as { keys: Jwk[] }).keys;
+    const verifies = async (idToken: string, keys: Jwk[]) => {
+      const [header, payload, signature] = idToken.split(".");
+      const { kid } = JSON.parse(Buffer.from(header, "base64url").toString()) as { kid: string };
+      const jwk = keys.find((key) => key.kid === kid);
+      if (!jwk) return false;
+      const key = await crypto.subtle.importKey("jwk", jwk, { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" }, false, [
+        "verify",
+      ]);
+      return crypto.subtle.verify(
+        "RSASSA-PKCS1-v1_5",
+        key,
+        Buffer.from(signature, "base64url"),
+        new TextEncoder().encode(`${header}.${payload}`),
+      );
+    };
+
+    const firstToken = await signIn(first, "first-nonce");
+    const published = await certs(first);
+    expect(await verifies(firstToken, published)).toBe(true);
+
+    // Eviction discards the isolate, including module state, before the rebuild.
+    vi.resetModules();
+    const { EmulatorDurableObject: Rebuilt } = await import("../durable-object.js");
+    const rebuilt = new Rebuilt(state, {});
+    const secondToken = await signIn(rebuilt, "second-nonce");
+    expect(await verifies(secondToken, published)).toBe(true);
+    expect(await verifies(firstToken, await certs(rebuilt))).toBe(true);
   });
 
   it("reports the real instance id in the manifest", async () => {
