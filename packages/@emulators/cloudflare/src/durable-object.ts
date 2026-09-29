@@ -365,6 +365,7 @@ export class EmulatorDurableObject {
       webhooks.clear();
       ledger.clear();
       this.seedInto(store, service, baseUrl, persisted.seed);
+      await entry.prepare?.(store);
       await this.persist();
     };
 
@@ -379,6 +380,12 @@ export class EmulatorDurableObject {
     }
 
     this.live = { app, store, tokenMap: tokenMap as TokenMap, ledger, service, instance, baseUrl, reset: resetService };
+    if (entry.prepare) {
+      // Persist prepared state now: a read-only first request would not persist it,
+      // and a rebuild must not replace state a client has already observed.
+      await entry.prepare(store);
+      await this.persist();
+    }
     return this.live;
   }
 

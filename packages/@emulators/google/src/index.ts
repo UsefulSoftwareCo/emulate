@@ -16,7 +16,7 @@ import { driveRoutes } from "./routes/drive.js";
 import { historyRoutes } from "./routes/history.js";
 import { labelRoutes } from "./routes/labels.js";
 import { messageRoutes } from "./routes/messages.js";
-import { oauthRoutes } from "./routes/oauth.js";
+import { ensureSigningKey, oauthRoutes } from "./routes/oauth.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { threadRoutes } from "./routes/threads.js";
 import { getGoogleStore } from "./store.js";
@@ -24,6 +24,11 @@ import { getGoogleStore } from "./store.js";
 export { getGoogleStore, type GoogleStore } from "./store.js";
 export * from "./entities.js";
 export { manifest } from "./manifest.js";
+
+/** Create the instance state that needs async work, so a host can persist it before serving. */
+export async function prepare(store: Store): Promise<void> {
+  await ensureSigningKey(store);
+}
 
 export interface GoogleSeedUser {
   email: string;

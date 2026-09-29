@@ -23,7 +23,12 @@ import {
   seedFromConfig as vercelSeed,
   vercelPlugin,
 } from "@emulators/vercel";
-import { googlePlugin, manifest as googleManifest, seedFromConfig as googleSeed } from "@emulators/google";
+import {
+  googlePlugin,
+  manifest as googleManifest,
+  prepare as googlePrepare,
+  seedFromConfig as googleSeed,
+} from "@emulators/google";
 import { manifest as oktaManifest, oktaPlugin, seedFromConfig as oktaSeed } from "@emulators/okta";
 import { manifest as microsoftManifest, microsoftPlugin, seedFromConfig as microsoftSeed } from "@emulators/microsoft";
 import {
@@ -93,6 +98,9 @@ export interface ServiceEntry {
   plugin: ServicePlugin;
   manifest: ServiceManifest;
   seedFromConfig?: (store: Store, baseUrl: string, config: Record<string, unknown>) => void;
+  // Create instance state that needs async work, such as signing keys. The host
+  // persists it before serving so the instance keeps it across eviction.
+  prepare?: (store: Store) => Promise<void>;
   defaultFallback: (cfg?: Record<string, unknown>) => { login: string; id: number; scopes: string[] };
   createAppKeyResolver?: (store: Store) => AppKeyResolver;
   // Idempotently find-or-create the identity behind a minted token; returns its
@@ -204,6 +212,7 @@ export const SERVICES: Record<string, ServiceEntry> = {
     plugin: googlePlugin,
     manifest: googleManifest,
     seedFromConfig: googleSeed,
+    prepare: googlePrepare,
     defaultFallback: (cfg) => ({
       login: (cfg?.users as Array<{ email?: string }> | undefined)?.[0]?.email ?? "admin",
       id: 1,

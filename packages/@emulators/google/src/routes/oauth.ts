@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "crypto";
-import { SignJWT, generateKeyPair, exportJWK, calculateJwkThumbprint } from "jose";
+import { SignJWT, generateKeyPair, exportJWK, importJWK, calculateJwkThumbprint, type JWK } from "jose";
 import type { RouteContext } from "@emulators/core";
 import {
   escapeHtml,
@@ -16,17 +16,43 @@ import {
 import { getGoogleStore } from "../store.js";
 import type { GoogleUser } from "../entities.js";
 
-async function generateSigningKeys() {
-  const { privateKey, publicKey } = await generateKeyPair("RS256", { extractable: true });
-  const publicJwk = await exportJWK(publicKey);
+type SigningKeys = {
+  privateKey: Awaited<ReturnType<typeof importJWK>>;
+  publicJwk: JWK & { kid: string; use: "sig"; alg: "RS256" };
+  kid: string;
+};
+
+const SIGNING_KEY = "google.oauth.signingKey";
+const imported = new WeakMap<Store, { jwk: JWK; keys: Promise<SigningKeys> }>();
+
+async function importSigningKeys(privateJwk: JWK): Promise<SigningKeys> {
+  const privateKey = await importJWK(privateJwk, "RS256");
+  const publicJwk = { kty: privateJwk.kty, n: privateJwk.n, e: privateJwk.e };
   const kid = await calculateJwkThumbprint(publicJwk);
   return { privateKey, publicJwk: { ...publicJwk, kid, use: "sig", alg: "RS256" }, kid };
 }
 
-// All instances served by this process advertise the same public key. Generate
-// it on the first OIDC request, never during module loading.
-let signingKeys: ReturnType<typeof generateSigningKeys> | undefined;
-const keys = () => (signingKeys ??= generateSigningKeys());
+/**
+ * The instance's ID token signing key. It lives in the instance store, so a
+ * hosted instance rebuilt after eviction keeps publishing and signing with the
+ * key relying parties already cached. Real Google never swaps its signing key
+ * without publishing the new one first.
+ */
+export async function ensureSigningKey(store: Store): Promise<SigningKeys> {
+  let jwk = store.getData<JWK>(SIGNING_KEY);
+  if (!jwk) {
+    const { privateKey } = await generateKeyPair("RS256", { extractable: true });
+    const generated = await exportJWK(privateKey);
+    // A concurrent request may have stored a key while this one was generating.
+    jwk = store.getData<JWK>(SIGNING_KEY) ?? generated;
+    store.setData(SIGNING_KEY, jwk);
+  }
+  const cached = imported.get(store);
+  if (cached?.jwk === jwk) return cached.keys;
+  const keys = importSigningKeys(jwk);
+  imported.set(store, { jwk, keys });
+  return keys;
+}
 
 type PendingCode = {
   email: string;
@@ -72,12 +98,13 @@ function isPendingCodeExpired(p: PendingCode): boolean {
 const SERVICE_LABEL = "Google";
 
 async function createIdToken(
+  store: Store,
   user: GoogleUser,
   clientId: string,
   nonce: string | null,
   baseUrl: string,
 ): Promise<string> {
-  const { privateKey, kid } = await keys();
+  const { privateKey, kid } = await ensureSigningKey(store);
   const builder = new SignJWT({
     sub: user.uid,
     email: user.email,
@@ -135,7 +162,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
   // ---------- Public signing keys ----------
 
   app.get("/oauth2/v3/certs", async (c) => {
-    return c.json({ keys: [(await keys()).publicJwk] });
+    return c.json({ keys: [(await ensureSigningKey(store)).publicJwk] });
   });
 
   // Google API Discovery document, pointed at this instance.
@@ -398,7 +425,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       clientId: pending.clientId,
     });
 
-    const idToken = await createIdToken(user, pending.clientId, pending.nonce, baseUrl);
+    const idToken = await createIdToken(store, user, pending.clientId, pending.nonce, baseUrl);
 
     debug("google.oauth", `[Google token] issued token for ${user.email}`);
 
