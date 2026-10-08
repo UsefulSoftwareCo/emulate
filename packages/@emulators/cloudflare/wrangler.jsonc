@@ -25,7 +25,10 @@
   // Workers Logs keeps the structured failure reports from worker.ts and
   // durable-object.ts, so a 5xx seen by a client can be traced by its cf-ray.
   // Invocation logs are off: each one records the request URL, and an
-  // instance URL is the only access control for its emulator.
+  // instance URL is the only access control for its emulator. That setting
+  // does not stop Cloudflare recording uncaught exceptions with their message,
+  // stack and URL, so neither the Worker nor the Durable Object lets an error
+  // escape: both answer it with a report instead.
   "observability": {
     "enabled": true,
     "logs": {

@@ -8,7 +8,7 @@ import { coverageReport, enrichManifest, resolveConnections } from "./manifest.j
 import type { TokenMap } from "./middleware/auth.js";
 import { escapeHtml, renderCardPage } from "./ui.js";
 import type { FaultArmInput, FaultRegistry } from "./faults.js";
-import { isPlatformFailure } from "./platform-failure.js";
+import { ControlPlaneRejection } from "./control-plane-rejection.js";
 
 export interface CredentialRequest {
   type?: string;
@@ -199,8 +199,8 @@ export function registerControlPlane(app: Hono<AppEnv>, options: ControlPlaneOpt
     try {
       await options.seed(body);
     } catch (err) {
-      if (isPlatformFailure(err)) throw err;
-      return c.json({ error: "invalid_seed", message: err instanceof Error ? err.message : "Seed failed." }, 400);
+      if (!ControlPlaneRejection.is(err)) throw err;
+      return c.json({ error: "invalid_seed", message: err.message }, 400);
     }
     return c.json({ ok: true });
   });
@@ -217,11 +217,8 @@ export function registerControlPlane(app: Hono<AppEnv>, options: ControlPlaneOpt
       }
       return c.json({ credential });
     } catch (err) {
-      if (isPlatformFailure(err)) throw err;
-      return c.json(
-        { error: "unsupported", message: err instanceof Error ? err.message : "Credential creation failed." },
-        400,
-      );
+      if (!ControlPlaneRejection.is(err)) throw err;
+      return c.json({ error: "unsupported", message: err.message }, 400);
     }
   });
   app.post("/_emulate/instances", async (c) => {

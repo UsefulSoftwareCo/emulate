@@ -1,5 +1,4 @@
 import { createServer as createNodeServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
-import { isPlatformFailure } from "./platform-failure.js";
 
 type BodyInit = ConstructorParameters<typeof Response>[0];
 type HeadersInit = ConstructorParameters<typeof Headers>[0];
@@ -286,7 +285,6 @@ export class Hono<E = unknown> {
       const response = await this.dispatch(context, matched.handlers);
       return context.finalize(response ?? (await this.notFoundHandler(context)));
     } catch (err) {
-      if (isPlatformFailure(err)) throw err;
       return context.finalize(await this.errorHandler(err, context));
     }
   };

@@ -11,6 +11,7 @@ import type {
   Hono,
   AppEnv,
 } from "@emulators/core";
+import { ControlPlaneRejection } from "@emulators/core";
 
 export interface LoadedService {
   plugin: ServicePlugin;
@@ -96,13 +97,14 @@ export function issueServiceCredential(
     type === "oauth-client-credentials" ||
     type === "dynamic-client-registration"
   ) {
-    if (!loaded.seedFromConfig) throw new Error(`Credential type ${type} is not supported by ${service}`);
+    if (!loaded.seedFromConfig)
+      throw new ControlPlaneRejection(`Credential type ${type} is not supported by ${service}`);
     const clientId = request.client_id ?? defaultClientId(service);
     const clientSecret = request.client_secret ?? defaultClientSecret(service);
     const redirectUris = normalizeRedirectUris(request.redirect_uris);
     const name = request.name ?? `${SERVICE_REGISTRY[service].label.replace(/ emulator$/i, "")} Client`;
     const seed = credentialSeed(service, { clientId, clientSecret, redirectUris, name, request });
-    if (!seed) throw new Error(`Credential type ${type} is not supported by ${service}`);
+    if (!seed) throw new ControlPlaneRejection(`Credential type ${type} is not supported by ${service}`);
     loaded.seedFromConfig(store, baseUrl, seed, webhooks);
     return {
       type,
@@ -114,7 +116,7 @@ export function issueServiceCredential(
     };
   }
 
-  throw new Error(`Credential type ${type} is not supported by ${service}`);
+  throw new ControlPlaneRejection(`Credential type ${type} is not supported by ${service}`);
 }
 
 function defaultToken(service: ServiceName, type: string): string {

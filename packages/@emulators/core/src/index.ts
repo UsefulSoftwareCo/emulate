@@ -156,4 +156,4 @@ export {
   type ManifestResponse,
   type SpecsResponse,
 } from "./client.js";
-export { isPlatformFailure } from "./platform-failure.js";
+export { ControlPlaneRejection } from "./control-plane-rejection.js";

@@ -1,6 +1,5 @@
 import {
   createServer,
-  isPlatformFailure,
   type AppKeyResolver,
   type LedgerEntry,
   type LedgerSnapshot,
@@ -10,7 +9,7 @@ import {
   type TokenMap,
 } from "@emulators/core";
 import { SERVICES, issueCloudflareCredential } from "./services.js";
-import { failureReport } from "./diagnostics.js";
+import { failureResponse, isPlatformFailure } from "./diagnostics.js";
 
 // Minimal CF runtime types (avoid a hard dep on @cloudflare/workers-types here).
 interface DurableObjectStorage {
@@ -455,21 +454,19 @@ export class EmulatorDurableObject {
     try {
       return await this.handle(request);
     } catch (error) {
-      // Cloudflare's own failures (e.g. "object has moved to a different machine")
-      // carry `.retryable`/`.overloaded`; rethrow them so the Worker reports the flags.
-      if (isPlatformFailure(error)) throw error;
-      // Answer with a report instead of throwing: an exception crossing the stub
-      // reaches the client as an opaque Cloudflare 500 page. The report and the
-      // log hold no message or stack, which can quote tokens, codes or emails.
-      const report = await failureReport("emulator_error", error, {
+      // Nothing may escape this boundary. A thrown error reaches the client as
+      // an opaque Cloudflare 500, and Cloudflare records it as an exception
+      // event with its message, stack and the request URL, any of which can
+      // quote tokens, codes, emails or the instance name. Cloudflare's own
+      // failures (e.g. "object has moved to a different machine") keep their
+      // `.retryable`/`.overloaded` flags in the report and its 503 status.
+      return failureResponse(isPlatformFailure(error) ? "emulator_unavailable" : "emulator_error", error, {
         service: request.headers.get("x-emulator-service") ?? "",
         instance: request.headers.get("x-emulator-instance") ?? "default",
         method: request.method,
         path: new URL(request.url).pathname,
         headers: request.headers,
       });
-      console.error(JSON.stringify(report));
-      return Response.json(report, { status: 500 });
     }
   }
 
