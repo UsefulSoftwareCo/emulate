@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { EmulatorDurableObject } from "../durable-object.js";
+import { instanceId } from "../diagnostics.js";
 import worker, { parseHostRoute, type Env } from "../worker.js";
 
 describe("cloudflare worker routing", () => {
@@ -252,6 +253,32 @@ describe("cloudflare worker routing", () => {
   });
 });
 
+// Synthetic secrets: an instance URL is the only access control for its
+// emulator, and errors and paths can quote tokens, codes and addresses. None of
+// these may reach a failure response or a log line.
+const SECRET_INSTANCE = "d040-probe-0123456789abcdef01234567";
+const SECRETS = [
+  SECRET_INSTANCE,
+  "0123456789abcdef01234567",
+  "emu_resend_SYNTHETICtoken0001",
+  "SYNTH-CODE-482913",
+  "pat.synthetic@example.test",
+];
+const leakedSecrets = (text: string) => SECRETS.filter((secret) => text.includes(secret));
+const REPORT_KEYS = [
+  "error",
+  "errorClass",
+  "instanceId",
+  "method",
+  "overloaded",
+  "ray",
+  "remote",
+  "retryable",
+  "route",
+  "service",
+];
+const RAY = "8f1d2c3b4a5e6f70-PHX";
+
 describe("cloudflare worker durable object failures", () => {
   // Cloudflare raises Durable Object stub failures as exceptions carrying
   // `.retryable`, `.overloaded` and `.remote` flags.
@@ -276,67 +303,124 @@ describe("cloudflare worker durable object failures", () => {
     return { env, calls };
   };
 
-  it("retries a reset that Cloudflare marks retryable, with a fresh stub", async () => {
-    const { env, calls } = failingEnv([doError("Network connection lost.", { retryable: true })]);
-    const response = await worker.fetch(
-      new Request("https://emulators.dev/resend/run-1/_emulate/reset", { method: "POST", body: "{}" }),
-      env,
-    );
-    expect(response.status).toBe(200);
-    expect(calls).toEqual(["POST /_emulate/reset", "POST /_emulate/reset"]);
-  });
+  const captureErrors = () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    return {
+      text: () => spy.mock.calls.map((args) => args.map(String).join(" ")).join("\n"),
+      restore: () => spy.mockRestore(),
+    };
+  };
 
-  it("does not retry a credential request; it names the endpoint, instance and cause", async () => {
-    const { env, calls } = failingEnv([doError("Network connection lost.", { retryable: true })]);
-    const response = await worker.fetch(
-      new Request("https://emulators.dev/google/run-1/_emulate/credentials", {
+  it("answers a retryable reset once, with a report and no replay", async () => {
+    const logs = captureErrors();
+    try {
+      const { env, calls } = failingEnv([doError("Network connection lost.", { retryable: true })]);
+      const response = await worker.fetch(
+        new Request(`https://emulators.dev/resend/${SECRET_INSTANCE}/_emulate/reset`, {
+          method: "POST",
+          headers: { "cf-ray": RAY },
+          body: "{}",
+        }),
+        env,
+      );
+      // A retryable flag does not prove the object never ran the reset.
+      expect(calls).toEqual(["POST /_emulate/reset"]);
+      expect(response.status).toBe(503);
+      const report = await response.json();
+      expect(report).toEqual({
+        error: "emulator_unavailable",
+        service: "resend",
+        instanceId: await instanceId("resend", SECRET_INSTANCE),
         method: "POST",
-        headers: { "cf-ray": "abc123-PHX" },
-        body: JSON.stringify({ type: "api-key" }),
-      }),
-      env,
-    );
-    expect(calls).toEqual(["POST /_emulate/credentials"]);
-    expect(response.status).toBe(503);
-    expect(await response.json()).toEqual({
-      error: "emulator_unavailable",
-      message: "Network connection lost.",
-      service: "google",
-      instance: "run-1",
-      method: "POST",
-      path: "/_emulate/credentials",
-      attempts: 1,
-      retryable: true,
-      overloaded: false,
-      remote: false,
-      ray: "abc123-PHX",
-    });
+        route: "/_emulate/reset",
+        errorClass: "Error",
+        retryable: true,
+        overloaded: false,
+        remote: false,
+        ray: RAY,
+      });
+      expect(JSON.parse(logs.text())).toEqual(report);
+    } finally {
+      logs.restore();
+    }
   });
 
-  it("never retries an overloaded object", async () => {
+  it("does not replay a WorkOS authorize, which issues a code on every call", async () => {
+    const { env, calls } = failingEnv([doError("Network connection lost.", { retryable: true })]);
+    const response = await worker.fetch(
+      new Request(
+        `https://emulators.dev/workos/${SECRET_INSTANCE}/oauth2/authorize?client_id=c&redirect_uri=https%3A%2F%2Fapp.example.test%2Fcb`,
+      ),
+      env,
+    );
+    expect(calls).toEqual(["GET /oauth2/authorize"]);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ route: "/oauth2/authorize", retryable: true });
+  });
+
+  it("keeps tokens, codes, addresses and the instance out of the response and the log", async () => {
+    const logs = captureErrors();
+    try {
+      const failure = doError(
+        `lost while serving ${SECRET_INSTANCE}: token emu_resend_SYNTHETICtoken0001 code SYNTH-CODE-482913 for pat.synthetic@example.test`,
+        { retryable: true },
+      );
+      const { env } = failingEnv([failure]);
+      const response = await worker.fetch(
+        new Request(
+          `https://emulators.dev/resend/${SECRET_INSTANCE}/domains/pat.synthetic@example.test?code=SYNTH-CODE-482913`,
+          {
+            headers: { authorization: "Bearer emu_resend_SYNTHETICtoken0001", "cf-ray": RAY },
+          },
+        ),
+        env,
+      );
+      const text = await response.text();
+      const report = JSON.parse(text) as Record<string, unknown>;
+      expect(Object.keys(report).sort()).toEqual(REPORT_KEYS);
+      expect(report.route).toBe("/domains/:id");
+      expect(leakedSecrets(text)).toEqual([]);
+      expect(logs.text()).not.toBe("");
+      expect(leakedSecrets(logs.text())).toEqual([]);
+    } finally {
+      logs.restore();
+    }
+  });
+
+  it("does not echo header or path values it cannot vouch for", async () => {
+    const logs = captureErrors();
+    try {
+      const { env } = failingEnv([doError("Network connection lost.", { retryable: true })]);
+      const response = await worker.fetch(
+        new Request(`https://emulators.dev/pat.synthetic@example.test/${SECRET_INSTANCE}/emails`, {
+          headers: { "cf-ray": "SYNTH-CODE-482913" },
+        }),
+        env,
+      );
+      const text = await response.text();
+      expect(JSON.parse(text)).toMatchObject({ service: "unknown", route: "unmatched", ray: null });
+      expect(leakedSecrets(text)).toEqual([]);
+      expect(leakedSecrets(logs.text())).toEqual([]);
+    } finally {
+      logs.restore();
+    }
+  });
+
+  it("answers an overloaded object with a 503", async () => {
     const { env, calls } = failingEnv([
       doError("Durable Object is overloaded. Too many requests queued.", { retryable: true, overloaded: true }),
     ]);
-    const response = await worker.fetch(new Request("https://emulators.dev/resend/run-1/emails"), env);
+    const response = await worker.fetch(new Request(`https://emulators.dev/resend/${SECRET_INSTANCE}/emails`), env);
     expect(calls).toEqual(["GET /emails"]);
     expect(response.status).toBe(503);
-    expect(await response.json()).toMatchObject({ overloaded: true, attempts: 1 });
+    expect(await response.json()).toMatchObject({ overloaded: true, route: "/emails" });
   });
 
-  it("stops after a bounded number of attempts", async () => {
-    const lost = () => doError("Network connection lost.", { retryable: true });
-    const { env, calls } = failingEnv([lost(), lost(), lost(), lost()]);
-    const response = await worker.fetch(new Request("https://emulators.dev/resend/run-1/emails"), env);
-    expect(calls).toHaveLength(3);
-    expect(response.status).toBe(503);
-    expect(await response.json()).toMatchObject({ attempts: 3, path: "/emails" });
-  });
-
-  it("reports an object killed by its own limits as a 500 without retrying", async () => {
+  it("reports an object killed by its own limits as a 500", async () => {
     const { env, calls } = failingEnv([
       doError("Durable Object's isolate exceeded its memory limit and was reset.", { remote: true }),
     ]);
-    const response = await worker.fetch(new Request("https://emulators.dev/resend/run-1/emails"), env);
+    const response = await worker.fetch(new Request(`https://emulators.dev/resend/${SECRET_INSTANCE}/emails`), env);
     expect(calls).toHaveLength(1);
     expect(response.status).toBe(500);
     expect(await response.json()).toMatchObject({ remote: true, retryable: false, service: "resend" });
@@ -442,48 +526,135 @@ describe("cloudflare durable object control plane", () => {
     ...extra,
   });
 
-  it("answers an emulator failure with its cause instead of throwing", async () => {
+  // Builds the instance, then makes the next storage write throw `failure` once.
+  // One-shot, so a later write (the persist after every mutating request)
+  // cannot rethrow it and hide what the router did with the first one.
+  const failNextWriteAfterWarmup = async (failure: unknown) => {
+    const { state } = makeState();
+    const durableObject = new EmulatorDurableObject(state, {});
+    const warm = await durableObject.fetch(
+      new Request("https://github.my-run.emulators.dev/_emulate/manifest", { headers: idHeaders() }),
+    );
+    expect(warm.status).toBe(200);
+    const put = state.storage.put;
+    let thrown = false;
+    state.storage.put = async (key, value) => {
+      if (thrown) return put(key, value);
+      thrown = true;
+      throw failure;
+    };
+    return durableObject;
+  };
+  const control = (path: string, body: unknown, extra: Record<string, string> = {}) =>
+    new Request(`https://github.my-run.emulators.dev${path}`, {
+      method: "POST",
+      headers: { ...idHeaders(extra), "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  const moved = () =>
+    Object.assign(new Error("cannot access storage because object has moved to a different machine"), {
+      retryable: true,
+    });
+
+  it("answers an emulator failure with a report instead of throwing", async () => {
     // A 1-byte value cap makes every persist fail the way an oversized value does.
     const { state } = makeState({ limit: 1 });
     const durableObject = new EmulatorDurableObject(state, {});
-    const response = await durableObject.fetch(
-      new Request("https://github.my-run.emulators.dev/_emulate/reset", {
-        method: "POST",
-        headers: { ...idHeaders({ "cf-ray": "abc123-SJC" }), "content-type": "application/json" },
-        body: "{}",
-      }),
-    );
+    const response = await durableObject.fetch(control("/_emulate/reset", {}, { "cf-ray": RAY }));
     expect(response.status).toBe(500);
-    const body = (await response.json()) as Record<string, unknown>;
-    expect(body).toMatchObject({
+    expect(await response.json()).toEqual({
       error: "emulator_error",
       service: "github",
-      instance: "my-run",
+      instanceId: await instanceId("github", "my-run"),
       method: "POST",
-      path: "/_emulate/reset",
-      ray: "abc123-SJC",
+      route: "/_emulate/reset",
+      errorClass: "Error",
+      retryable: false,
+      overloaded: false,
+      remote: false,
+      ray: RAY,
     });
-    expect(String(body.message)).toMatch(/^Values cannot be larger than 1 bytes/);
+  });
+
+  it("keeps secrets in an emulator error out of the response and the log", async () => {
+    const logs = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const durableObject = await failNextWriteAfterWarmup(
+        new Error(
+          `write failed for ${SECRET_INSTANCE}: token emu_resend_SYNTHETICtoken0001 code SYNTH-CODE-482913 for pat.synthetic@example.test`,
+        ),
+      );
+      // The error is thrown inside the router (reset runs in the control plane),
+      // which used to answer it with its raw message.
+      const response = await durableObject.fetch(control("/_emulate/reset", {}));
+      expect(response.status).toBe(500);
+      const text = await response.text();
+      expect(Object.keys(JSON.parse(text)).sort()).toEqual(REPORT_KEYS);
+      expect(JSON.parse(text)).toMatchObject({ error: "emulator_error", route: "/_emulate/reset" });
+      expect(leakedSecrets(text)).toEqual([]);
+      const logged = logs.mock.calls.map((args) => args.map(String).join(" ")).join("\n");
+      expect(logged).not.toBe("");
+      expect(leakedSecrets(logged)).toEqual([]);
+    } finally {
+      logs.mockRestore();
+    }
   });
 
   it("lets Cloudflare's retryable storage failures reach the Worker with their flags", async () => {
     const { state } = makeState();
-    const moved = Object.assign(new Error("cannot access storage because object has moved to a different machine"), {
-      retryable: true,
-    });
+    const failure = moved();
     state.storage.get = async () => {
-      throw moved;
+      throw failure;
     };
     const durableObject = new EmulatorDurableObject(state, {});
+    // Thrown while the object loads, before the service router runs.
+    await expect(durableObject.fetch(control("/_emulate/reset", {}))).rejects.toBe(failure);
+  });
+
+  it("carries a flagged failure through the service router", async () => {
+    const failure = moved();
+    const durableObject = await failNextWriteAfterWarmup(failure);
+    // Reset persists from inside the router, whose error handler used to answer
+    // every error as a plain 500 without the flags.
+    await expect(durableObject.fetch(control("/_emulate/reset", {}))).rejects.toBe(failure);
+  });
+
+  it("carries a flagged failure through the control plane's own catches", async () => {
+    const credentials = moved();
     await expect(
-      durableObject.fetch(
-        new Request("https://github.my-run.emulators.dev/_emulate/reset", {
+      (await failNextWriteAfterWarmup(credentials)).fetch(
+        control("/_emulate/credentials", { type: "bearer-token", login: "synthetic-user" }),
+      ),
+    ).rejects.toBe(credentials);
+    const seed = moved();
+    await expect(
+      (await failNextWriteAfterWarmup(seed)).fetch(control("/_emulate/seed", { users: [{ login: "synthetic-user" }] })),
+    ).rejects.toBe(seed);
+  });
+
+  it("returns the flagged failure to the Worker, which reports it as a 503", async () => {
+    const logs = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const durableObject = await failNextWriteAfterWarmup(moved());
+      const env: Env = { EMULATOR: { idFromName: (n) => n, get: () => durableObject } };
+      const response = await worker.fetch(
+        new Request("https://emulators.dev/github/my-run/_emulate/reset", {
           method: "POST",
-          headers: { ...idHeaders(), "content-type": "application/json" },
+          headers: { "cf-ray": RAY },
           body: "{}",
         }),
-      ),
-    ).rejects.toBe(moved);
+        env,
+      );
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({
+        error: "emulator_unavailable",
+        route: "/_emulate/reset",
+        retryable: true,
+        ray: RAY,
+      });
+    } finally {
+      logs.mockRestore();
+    }
   });
 
   // Executor's cloud onboarding e2e provisions this service exactly this way:

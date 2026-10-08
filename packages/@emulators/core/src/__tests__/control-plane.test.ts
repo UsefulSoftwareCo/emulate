@@ -3,6 +3,7 @@ import { createServer } from "../server.js";
 import { randomInstanceName } from "../control-plane.js";
 import type { ServicePlugin } from "../plugin.js";
 import type { Store } from "../store.js";
+import { ApiError } from "../middleware/error-handler.js";
 
 interface Thing {
   id: number;
@@ -305,5 +306,34 @@ describe("randomInstanceName", () => {
     const name = randomInstanceName("x".repeat(100));
     expect(name.length).toBeLessThanOrEqual(63);
     expect(name).toMatch(/-[0-9a-f]{24}$/);
+  });
+});
+
+describe("unexpected route errors", () => {
+  const throwing: ServicePlugin = {
+    name: "throwing",
+    register(app) {
+      app.get("/missing", () => {
+        throw new ApiError(404, "Thing not found");
+      });
+      app.get("/broken", () => {
+        throw new Error("token emu_demo_SYNTHETIC0001 for pat.synthetic@example.test");
+      });
+    },
+  };
+
+  it("answers them with their message by default", async () => {
+    const { app } = createServer(throwing);
+    const res = await app.request("/broken");
+    expect(res.status).toBe(500);
+    expect(await res.json()).toMatchObject({ message: "token emu_demo_SYNTHETIC0001 for pat.synthetic@example.test" });
+  });
+
+  it("rethrows them for a host that reports failures itself, but keeps API errors", async () => {
+    const { app } = createServer(throwing, { rethrowUnexpectedErrors: true });
+    await expect(app.request("/broken")).rejects.toThrow("emu_demo_SYNTHETIC0001");
+    const res = await app.request("/missing");
+    expect(res.status).toBe(404);
+    expect(await res.json()).toMatchObject({ message: "Thing not found" });
   });
 });

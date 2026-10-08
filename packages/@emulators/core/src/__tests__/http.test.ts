@@ -71,4 +71,32 @@ describe("internal http layer", () => {
     expect(res.headers.get("Access-Control-Allow-Headers")).toBe("x-test");
     expect(res.headers.get("Access-Control-Max-Age")).toBe("60");
   });
+
+  it("passes Cloudflare's flagged failures through the error handler", async () => {
+    const moved = Object.assign(new Error("object has moved to a different machine"), { retryable: true });
+    const overloaded = Object.assign(new Error("Durable Object is overloaded."), { overloaded: true });
+    const app = new Hono();
+    app.onError(() => new Response("handled", { status: 500 }));
+    app.get("/moved", () => {
+      throw moved;
+    });
+    app.get("/overloaded", () => {
+      throw overloaded;
+    });
+    app.get("/plain", () => {
+      throw new Error("plain");
+    });
+
+    await expect(app.request("/moved")).rejects.toBe(moved);
+    await expect(app.request("/overloaded")).rejects.toBe(overloaded);
+    expect(await (await app.request("/plain")).text()).toBe("handled");
+  });
+
+  it("names the route pattern a request would match", () => {
+    const app = new Hono();
+    app.get("/domains/:id", (c) => c.text("ok"));
+    expect(app.routePattern("GET", "/domains/pat.synthetic@example.test")).toBe("/domains/:id");
+    expect(app.routePattern("HEAD", "/domains/x")).toBe("/domains/:id");
+    expect(app.routePattern("POST", "/domains/x")).toBeUndefined();
+  });
 });
