@@ -6,20 +6,25 @@ import { Log, LogLevel, Miniflare } from "miniflare";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 // Runs the real Worker and Durable Object in workerd and records everything
-// Cloudflare would: every tail event (the source of Workers Logs, including
-// uncaught exception events) and workerd's own stdout and stderr. Faults are
-// injected at the storage and stub boundaries with synthetic secrets in the
-// message, the error name and the instance URL; none may reach any of it.
+// Cloudflare could: every tail event (the source of Workers Logs and Issues,
+// including uncaught exception events), workerd's own stdout and stderr, and
+// the Analytics Engine data points the code writes. Faults are injected at the
+// storage and stub boundaries with synthetic secrets in the message, the error
+// name and the instance URL; none may reach any of it.
 const SECRET = "SYNTHETICtoken482913";
 const SUFFIX = "0123456789abcdef01234567";
 const INSTANCE = `synthetic-${SUFFIX}`;
 const SECRETS = [SECRET, SUFFIX];
+const POINT = "probe:analytics-engine";
 
 // The probe module wraps the shipped exports. Its Durable Object hands the real
 // one a storage proxy that fails the way `x-probe-fault` asks, and its Worker
-// can swap in a namespace whose addressing or stub fails.
+// can swap in a namespace whose addressing or stub fails. Both get a FAILURES
+// dataset that reports each data point as a tagged log line, so the tail sees
+// exactly what Analytics Engine would store.
 const PROBE = `
 import worker, { EmulatorDurableObject } from "./worker.ts";
+const FAILURES = { writeDataPoint: (point) => console.log("${POINT}", JSON.stringify(point)) };
 const secretError = (flags) =>
   Object.assign(new Error("uncaught ${SECRET} https://resend.${INSTANCE}.emulators.dev/emails"), { name: "${SECRET}" }, flags);
 export class ProbeObject extends EmulatorDurableObject {
@@ -34,7 +39,7 @@ export class ProbeObject extends EmulatorDurableObject {
         return typeof value === "function" ? value.bind(target) : value;
       },
     });
-    super({ storage, blockConcurrencyWhile: state.blockConcurrencyWhile.bind(state) }, env);
+    super({ storage, blockConcurrencyWhile: state.blockConcurrencyWhile.bind(state) }, { ...env, FAILURES });
     this.setFault = (next) => { fault = next; };
   }
   async fetch(request) {
@@ -44,13 +49,14 @@ export class ProbeObject extends EmulatorDurableObject {
 }
 export default {
   fetch(request, env) {
+    env = { ...env, FAILURES };
     const fault = request.headers.get("x-probe-fault");
     if (fault === "worker-id")
       env = { ...env, EMULATOR: { idFromName() { throw secretError({}); }, get: () => env.EMULATOR.get() } };
     if (fault === "worker-stub")
       env = { ...env, EMULATOR: { idFromName: (n) => n, get: () => ({ fetch: async () => { throw secretError({ retryable: true, overloaded: true }); } }) } };
     if (fault === "worker-env")
-      env = { get EMULATE_HOST_SUFFIX() { throw secretError({}); } };
+      env = { FAILURES, get EMULATE_HOST_SUFFIX() { throw secretError({}); } };
     return worker.fetch(request, env);
   },
 };
@@ -58,7 +64,7 @@ export default {
 
 interface TailEvent {
   outcome: string;
-  event?: unknown;
+  event?: { request?: { url: string; headers: Record<string, string> } };
   entrypoint?: string;
   exceptions: Array<{ name: string; message: string; stack?: string }>;
   logs: Array<{ level: string; message: unknown[] }>;
@@ -204,17 +210,37 @@ describe("emulate-hosts in workerd", () => {
     expect(tailed.length).toBeGreaterThanOrEqual(CASES.length);
     expect(tailed.map((event) => event.outcome).filter((outcome) => outcome !== "ok")).toEqual([]);
     expect(tailed.flatMap((event) => event.exceptions)).toEqual([]);
-    // Each failure is logged once, as its report.
-    const logged = tailed.flatMap((event) => event.logs.map((log) => log.message.map(String).join(" ")));
-    expect(logged).toHaveLength(CASES.length);
-    // Every event also carries its invocation's request (URL and headers), the
-    // metadata Workers Logs keeps only as invocation logs, which are off. The
-    // rest of each event is what the code under test can put there.
-    const recorded = [
-      JSON.stringify(tailed.map(({ event: _event, ...rest }) => rest)),
-      runtimeOutput.join(""),
-      ...responses,
-    ].join("\n");
-    expect(SECRETS.filter((secret) => recorded.includes(secret))).toEqual([]);
+    // The code writes nothing to the console: every log line is a data point
+    // from the probe's dataset, one per failure.
+    const logged = tailed.flatMap((event) => event.logs.map((log) => log.message.map(String)));
+    expect(logged.filter(([tag]) => tag !== POINT)).toEqual([]);
+    const points = logged.map(([, point]) => JSON.parse(point) as { blobs: string[] });
+    expect(points).toHaveLength(CASES.length);
+    expect(points.map((point) => point.blobs[0]).sort()).toEqual(CASES.map((c) => c.report.error).sort());
+
+    // The secret is nowhere: not in the complete tail events, the runtime's
+    // output, the data points or the responses.
+    const everything = [JSON.stringify(tailed), runtimeOutput.join(""), ...responses].join("\n");
+    expect(everything).not.toContain(SECRET);
+    // The instance name is only in the platform's own invocation metadata: the
+    // Worker's request URL and the object's routing headers. That metadata is
+    // what Workers Logs and Issues store with each record, which is why
+    // observability is off (see the telemetry settings test in worker.test.ts).
+    const carriers = new Set<string>();
+    const visit = (value: unknown, path: string) => {
+      if (typeof value === "string") {
+        if (value.includes(SUFFIX)) carriers.add(path.replace(/^\d+\./, ""));
+      } else if (value && typeof value === "object") {
+        for (const [key, child] of Object.entries(value)) visit(child, `${path}.${key}`);
+      }
+    };
+    tailed.forEach((event, i) => visit(event, String(i)));
+    expect([...carriers].sort()).toEqual([
+      "event.request.headers.x-emulator-base-url",
+      "event.request.headers.x-emulator-instance",
+      "event.request.url",
+    ]);
+    expect(SECRETS.filter((secret) => [runtimeOutput.join(""), ...responses].join("\n").includes(secret))).toEqual([]);
+    expect(SECRETS.filter((secret) => JSON.stringify(points).includes(secret))).toEqual([]);
   }, 60_000);
 });
