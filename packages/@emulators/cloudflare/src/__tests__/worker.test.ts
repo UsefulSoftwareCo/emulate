@@ -252,6 +252,97 @@ describe("cloudflare worker routing", () => {
   });
 });
 
+describe("cloudflare worker durable object failures", () => {
+  // Cloudflare raises Durable Object stub failures as exceptions carrying
+  // `.retryable`, `.overloaded` and `.remote` flags.
+  const doError = (message: string, flags: { retryable?: boolean; overloaded?: boolean; remote?: boolean }) =>
+    Object.assign(new Error(message), flags);
+
+  const failingEnv = (failures: Error[]) => {
+    const calls: string[] = [];
+    const env: Env = {
+      EMULATOR: {
+        idFromName: (n) => n,
+        get: () => ({
+          async fetch(request) {
+            calls.push(`${request.method} ${new URL(request.url).pathname}`);
+            const failure = failures.shift();
+            if (failure) throw failure;
+            return Response.json({ ok: true });
+          },
+        }),
+      },
+    };
+    return { env, calls };
+  };
+
+  it("retries a reset that Cloudflare marks retryable, with a fresh stub", async () => {
+    const { env, calls } = failingEnv([doError("Network connection lost.", { retryable: true })]);
+    const response = await worker.fetch(
+      new Request("https://emulators.dev/resend/run-1/_emulate/reset", { method: "POST", body: "{}" }),
+      env,
+    );
+    expect(response.status).toBe(200);
+    expect(calls).toEqual(["POST /_emulate/reset", "POST /_emulate/reset"]);
+  });
+
+  it("does not retry a credential request; it names the endpoint, instance and cause", async () => {
+    const { env, calls } = failingEnv([doError("Network connection lost.", { retryable: true })]);
+    const response = await worker.fetch(
+      new Request("https://emulators.dev/google/run-1/_emulate/credentials", {
+        method: "POST",
+        headers: { "cf-ray": "abc123-PHX" },
+        body: JSON.stringify({ type: "api-key" }),
+      }),
+      env,
+    );
+    expect(calls).toEqual(["POST /_emulate/credentials"]);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({
+      error: "emulator_unavailable",
+      message: "Network connection lost.",
+      service: "google",
+      instance: "run-1",
+      method: "POST",
+      path: "/_emulate/credentials",
+      attempts: 1,
+      retryable: true,
+      overloaded: false,
+      remote: false,
+      ray: "abc123-PHX",
+    });
+  });
+
+  it("never retries an overloaded object", async () => {
+    const { env, calls } = failingEnv([
+      doError("Durable Object is overloaded. Too many requests queued.", { retryable: true, overloaded: true }),
+    ]);
+    const response = await worker.fetch(new Request("https://emulators.dev/resend/run-1/emails"), env);
+    expect(calls).toEqual(["GET /emails"]);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ overloaded: true, attempts: 1 });
+  });
+
+  it("stops after a bounded number of attempts", async () => {
+    const lost = () => doError("Network connection lost.", { retryable: true });
+    const { env, calls } = failingEnv([lost(), lost(), lost(), lost()]);
+    const response = await worker.fetch(new Request("https://emulators.dev/resend/run-1/emails"), env);
+    expect(calls).toHaveLength(3);
+    expect(response.status).toBe(503);
+    expect(await response.json()).toMatchObject({ attempts: 3, path: "/emails" });
+  });
+
+  it("reports an object killed by its own limits as a 500 without retrying", async () => {
+    const { env, calls } = failingEnv([
+      doError("Durable Object's isolate exceeded its memory limit and was reset.", { remote: true }),
+    ]);
+    const response = await worker.fetch(new Request("https://emulators.dev/resend/run-1/emails"), env);
+    expect(calls).toHaveLength(1);
+    expect(response.status).toBe(500);
+    expect(await response.json()).toMatchObject({ remote: true, retryable: false, service: "resend" });
+  });
+});
+
 describe("cloudflare durable object control plane", () => {
   function makeState(options: { limit?: number; initial?: Record<string, unknown> } = {}) {
     const storage = new Map<string, unknown>();
@@ -349,6 +440,30 @@ describe("cloudflare durable object control plane", () => {
     "x-emulator-instance": "my-run",
     "x-emulator-base-url": "https://github.my-run.emulators.dev",
     ...extra,
+  });
+
+  it("answers an emulator failure with its cause instead of throwing", async () => {
+    // A 1-byte value cap makes every persist fail the way an oversized value does.
+    const { state } = makeState({ limit: 1 });
+    const durableObject = new EmulatorDurableObject(state, {});
+    const response = await durableObject.fetch(
+      new Request("https://github.my-run.emulators.dev/_emulate/reset", {
+        method: "POST",
+        headers: { ...idHeaders({ "cf-ray": "abc123-SJC" }), "content-type": "application/json" },
+        body: "{}",
+      }),
+    );
+    expect(response.status).toBe(500);
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      error: "emulator_error",
+      service: "github",
+      instance: "my-run",
+      method: "POST",
+      path: "/_emulate/reset",
+      ray: "abc123-SJC",
+    });
+    expect(String(body.message)).toMatch(/^Values cannot be larger than 1 bytes/);
   });
 
   // Executor's cloud onboarding e2e provisions this service exactly this way:
