@@ -4,6 +4,7 @@ import { randomInstanceName } from "../control-plane.js";
 import type { ServicePlugin } from "../plugin.js";
 import type { Store } from "../store.js";
 import { ApiError } from "../middleware/error-handler.js";
+import { ControlPlaneRejection } from "../control-plane-rejection.js";
 
 interface Thing {
   id: number;
@@ -335,5 +336,44 @@ describe("unexpected route errors", () => {
     const res = await app.request("/missing");
     expect(res.status).toBe(404);
     expect(await res.json()).toMatchObject({ message: "Thing not found" });
+  });
+});
+
+describe("seed and credential failures", () => {
+  const plugin: ServicePlugin = { name: "seeded", register() {} };
+  const failing = (error: unknown, rethrowUnexpectedErrors = false) =>
+    createServer(plugin, {
+      rethrowUnexpectedErrors,
+      seed: () => {
+        throw error;
+      },
+      issueCredential: () => {
+        throw error;
+      },
+    }).app;
+  const post = (app: ReturnType<typeof failing>, path: string) =>
+    app.request(path, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+
+  it("answers the emulator's own rejections with a 400 and their message", async () => {
+    const app = failing(new ControlPlaneRejection("Credential type synthetic is not supported by seeded"));
+    const seed = await post(app, "/_emulate/seed");
+    expect(seed.status).toBe(400);
+    expect(await seed.json()).toEqual({
+      error: "invalid_seed",
+      message: "Credential type synthetic is not supported by seeded",
+    });
+    const credentials = await post(app, "/_emulate/credentials");
+    expect(credentials.status).toBe(400);
+    expect(await credentials.json()).toMatchObject({ error: "unsupported" });
+  });
+
+  it("sends any other error to the app's error handler, not a 400", async () => {
+    const error = () => new Error("storage write failed: token emu_demo_SYNTHETIC0001");
+    for (const path of ["/_emulate/seed", "/_emulate/credentials"]) {
+      const res = await post(failing(error()), path);
+      expect(res.status).toBe(500);
+      const thrown = error();
+      await expect(post(failing(thrown, true), path)).rejects.toBe(thrown);
+    }
   });
 });

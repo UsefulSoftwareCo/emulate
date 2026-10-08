@@ -263,6 +263,7 @@ const SECRETS = [
   "emu_resend_SYNTHETICtoken0001",
   "SYNTH-CODE-482913",
   "pat.synthetic@example.test",
+  "SYNTHETICtoken482913",
 ];
 const leakedSecrets = (text: string) => SECRETS.filter((secret) => text.includes(secret));
 const REPORT_KEYS = [
@@ -424,6 +425,96 @@ describe("cloudflare worker durable object failures", () => {
     expect(calls).toHaveLength(1);
     expect(response.status).toBe(500);
     expect(await response.json()).toMatchObject({ remote: true, retryable: false, service: "resend" });
+  });
+
+  it("reports failures to read the body or address the object instead of throwing", async () => {
+    const logs = captureErrors();
+    try {
+      const secretError = () => new Error(`lost ${SECRET_INSTANCE} token emu_resend_SYNTHETICtoken0001`);
+      const addressing: Env = {
+        EMULATOR: {
+          idFromName: () => {
+            throw secretError();
+          },
+          get: () => ({ fetch: async () => Response.json({ ok: true }) }),
+        },
+      };
+      const addressed = await worker.fetch(
+        new Request(`https://emulators.dev/resend/${SECRET_INSTANCE}/emails`),
+        addressing,
+      );
+      expect(addressed.status).toBe(500);
+      expect(await addressed.json()).toMatchObject({ error: "emulator_unavailable", route: "/emails" });
+
+      const { env, calls } = failingEnv([]);
+      const unreadable = new Request(`https://emulators.dev/resend/${SECRET_INSTANCE}/emails`, {
+        method: "POST",
+        body: new ReadableStream({
+          start(controller) {
+            controller.error(secretError());
+          },
+        }),
+        duplex: "half",
+      } as RequestInit);
+      const read = await worker.fetch(unreadable, env);
+      expect(calls).toEqual([]);
+      expect(read.status).toBe(500);
+      expect(await read.json()).toMatchObject({ error: "emulator_unavailable", route: "/emails" });
+      expect(leakedSecrets(logs.text())).toEqual([]);
+    } finally {
+      logs.restore();
+    }
+  });
+
+  it("reports any other Worker failure instead of throwing", async () => {
+    const logs = captureErrors();
+    try {
+      const env = {
+        get EMULATE_HOST_SUFFIX(): string {
+          throw new Error(`config read failed for ${SECRET_INSTANCE}`);
+        },
+      } as unknown as Env;
+      const response = await worker.fetch(new Request(`https://emulators.dev/resend/${SECRET_INSTANCE}/emails`), env);
+      const text = await response.text();
+      expect(response.status).toBe(500);
+      expect(JSON.parse(text)).toEqual({
+        error: "worker_error",
+        service: "unknown",
+        instanceId: null,
+        method: "GET",
+        route: "unmatched",
+        errorClass: "Error",
+        retryable: false,
+        overloaded: false,
+        remote: false,
+        ray: null,
+      });
+      expect(leakedSecrets(text + logs.text())).toEqual([]);
+    } finally {
+      logs.restore();
+    }
+  });
+
+  it("reports only allowlisted error classes and methods", async () => {
+    const logs = captureErrors();
+    try {
+      const { env } = failingEnv([
+        doError("lost", { retryable: true }),
+        Object.assign(doError("lost", { retryable: true }), { name: "SYNTHETICtoken482913" }),
+        Object.assign(new TypeError("lost"), { retryable: true }),
+      ]);
+      const send = (method: string) =>
+        worker
+          .fetch(new Request(`https://emulators.dev/resend/${SECRET_INSTANCE}/emails`, { method }), env)
+          .then((r) => r.json() as Promise<Record<string, unknown>>);
+      expect(await send("SYNTHETICTOKEN")).toMatchObject({ method: "OTHER", errorClass: "Error" });
+      expect(await send("GET")).toMatchObject({ method: "GET", errorClass: "other" });
+      expect(await send("GET")).toMatchObject({ errorClass: "TypeError" });
+      expect(logs.text()).not.toContain("SYNTHETICTOKEN");
+      expect(leakedSecrets(logs.text())).toEqual([]);
+    } finally {
+      logs.restore();
+    }
   });
 });
 
@@ -600,39 +691,107 @@ describe("cloudflare durable object control plane", () => {
     }
   });
 
-  it("lets Cloudflare's retryable storage failures reach the Worker with their flags", async () => {
+  // Every failure below must come back as a report: an error thrown out of the
+  // object is recorded by Cloudflare with its message, stack and URL.
+  const reportOf = async (response: Promise<Response>) => {
+    const res = await response;
+    return { status: res.status, report: (await res.json()) as Record<string, unknown> };
+  };
+
+  it("reports Cloudflare's retryable storage failures with their flags instead of throwing", async () => {
     const { state } = makeState();
-    const failure = moved();
     state.storage.get = async () => {
-      throw failure;
+      throw moved();
     };
     const durableObject = new EmulatorDurableObject(state, {});
     // Thrown while the object loads, before the service router runs.
-    await expect(durableObject.fetch(control("/_emulate/reset", {}))).rejects.toBe(failure);
+    expect(await reportOf(durableObject.fetch(control("/_emulate/reset", {}, { "cf-ray": RAY })))).toEqual({
+      status: 503,
+      report: {
+        error: "emulator_unavailable",
+        service: "github",
+        instanceId: await instanceId("github", "my-run"),
+        method: "POST",
+        route: "/_emulate/reset",
+        errorClass: "Error",
+        retryable: true,
+        overloaded: false,
+        remote: false,
+        ray: RAY,
+      },
+    });
   });
 
-  it("carries a flagged failure through the service router", async () => {
-    const failure = moved();
-    const durableObject = await failNextWriteAfterWarmup(failure);
+  it("reports a flagged failure from inside the service router", async () => {
+    const durableObject = await failNextWriteAfterWarmup(moved());
     // Reset persists from inside the router, whose error handler used to answer
     // every error as a plain 500 without the flags.
-    await expect(durableObject.fetch(control("/_emulate/reset", {}))).rejects.toBe(failure);
+    expect(await reportOf(durableObject.fetch(control("/_emulate/reset", {})))).toMatchObject({
+      status: 503,
+      report: { error: "emulator_unavailable", route: "/_emulate/reset", retryable: true },
+    });
   });
 
-  it("carries a flagged failure through the control plane's own catches", async () => {
-    const credentials = moved();
-    await expect(
-      (await failNextWriteAfterWarmup(credentials)).fetch(
-        control("/_emulate/credentials", { type: "bearer-token", login: "synthetic-user" }),
-      ),
-    ).rejects.toBe(credentials);
-    const seed = moved();
-    await expect(
-      (await failNextWriteAfterWarmup(seed)).fetch(control("/_emulate/seed", { users: [{ login: "synthetic-user" }] })),
-    ).rejects.toBe(seed);
+  it("reports flagged and plain storage failures from seed and credential requests", async () => {
+    const logs = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const credentials = () => control("/_emulate/credentials", { type: "bearer-token", login: "synthetic-user" });
+      const seed = () => control("/_emulate/seed", { users: [{ login: "synthetic-user" }] });
+      const plain = () =>
+        new Error(
+          `storage write failed for ${SECRET_INSTANCE}: token emu_resend_SYNTHETICtoken0001 for pat.synthetic@example.test`,
+        );
+      for (const [request, route] of [
+        [credentials, "/_emulate/credentials"],
+        [seed, "/_emulate/seed"],
+      ] as const) {
+        expect(await reportOf((await failNextWriteAfterWarmup(moved())).fetch(request()))).toMatchObject({
+          status: 503,
+          report: { error: "emulator_unavailable", route, retryable: true },
+        });
+        // A host failure is not the caller's mistake: it used to come back as a
+        // 400 quoting the raw message.
+        const res = await (await failNextWriteAfterWarmup(plain())).fetch(request());
+        const text = await res.text();
+        expect({ status: res.status, report: JSON.parse(text) }).toMatchObject({
+          status: 500,
+          report: { error: "emulator_error", route, errorClass: "Error" },
+        });
+        expect(leakedSecrets(text)).toEqual([]);
+      }
+      expect(leakedSecrets(logs.mock.calls.map((args) => args.map(String).join(" ")).join("\n"))).toEqual([]);
+    } finally {
+      logs.mockRestore();
+    }
   });
 
-  it("returns the flagged failure to the Worker, which reports it as a 503", async () => {
+  it("still answers a credential type the emulator does not support with a 400", async () => {
+    const { state } = makeState();
+    const durableObject = new EmulatorDurableObject(state, {});
+    const res = await durableObject.fetch(control("/_emulate/credentials", { type: "synthetic-unsupported-type" }));
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "unsupported",
+      message: "Credential type synthetic-unsupported-type is not supported by github",
+    });
+  });
+
+  it("reports an error whose name could carry a secret as class other", async () => {
+    const logs = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const named = Object.assign(new Error("synthetic"), { name: "SYNTHETICtoken482913" });
+      const durableObject = await failNextWriteAfterWarmup(named);
+      const res = await durableObject.fetch(control("/_emulate/reset", {}));
+      const text = await res.text();
+      expect(JSON.parse(text)).toMatchObject({ errorClass: "other" });
+      expect(text).not.toContain("SYNTHETICtoken482913");
+      expect(logs.mock.calls.flat().map(String).join("\n")).not.toContain("SYNTHETICtoken482913");
+    } finally {
+      logs.mockRestore();
+    }
+  });
+
+  it("passes the object's flagged report through the Worker as a 503", async () => {
     const logs = vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       const durableObject = await failNextWriteAfterWarmup(moved());
@@ -652,6 +811,8 @@ describe("cloudflare durable object control plane", () => {
         retryable: true,
         ray: RAY,
       });
+      // Reported once, by the object.
+      expect(logs).toHaveBeenCalledTimes(1);
     } finally {
       logs.mockRestore();
     }
