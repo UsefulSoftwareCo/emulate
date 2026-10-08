@@ -449,6 +449,26 @@ export class EmulatorDurableObject {
   }
 
   async fetch(request: Request): Promise<Response> {
+    try {
+      return await this.handle(request);
+    } catch (error) {
+      // Answer with the cause instead of throwing: an exception crossing the stub
+      // reaches the client as an opaque Cloudflare 500 page with no message.
+      const report = {
+        error: "emulator_error",
+        message: error instanceof Error ? error.message : String(error),
+        service: request.headers.get("x-emulator-service"),
+        instance: request.headers.get("x-emulator-instance"),
+        method: request.method,
+        path: new URL(request.url).pathname,
+        ray: request.headers.get("cf-ray"),
+      };
+      console.error(JSON.stringify({ ...report, stack: error instanceof Error ? error.stack : undefined }));
+      return Response.json(report, { status: 500 });
+    }
+  }
+
+  private async handle(request: Request): Promise<Response> {
     const service = request.headers.get("x-emulator-service") ?? "";
     const instance = request.headers.get("x-emulator-instance") ?? "default";
     const baseUrl = request.headers.get("x-emulator-base-url") ?? new URL(request.url).origin;

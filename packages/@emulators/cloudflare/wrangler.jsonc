@@ -22,6 +22,12 @@
       "zone_name": "emulators.dev"
     }
   ],
+  // Workers Logs: keeps every invocation's logs and uncaught exceptions,
+  // including the structured `emulator_unavailable` reports from worker.ts, so
+  // a 5xx seen by a client can be traced by its cf-ray.
+  "observability": {
+    "enabled": true
+  },
   "vars": {
     "EMULATE_HOST_SUFFIX": "emulators.dev"
   },
