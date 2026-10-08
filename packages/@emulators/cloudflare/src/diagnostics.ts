@@ -1,14 +1,14 @@
 import { createServer } from "@emulators/core";
 import { SERVICES } from "./services.js";
 
-// Failure reports go to the client and to Workers Logs, so every field is
-// either a fixed value or chosen from a fixed list: no field copies text from
-// the request or the error. The instance name is the sole access control for
-// its emulator, request paths hold ids, emails and codes, and error messages,
-// names and stacks can quote any of them. A report names the service from the
-// registry, the instance by a short hash, the request by a route template the
-// service's router declares, and the error by an allowlisted class name and
-// Cloudflare's flags.
+// Failure reports go to the client, so every field is either a fixed value or
+// chosen from a fixed list: no field copies text from the request or the
+// error. The instance name is the sole access control for its emulator,
+// request paths hold ids, emails and codes, and error messages, names and
+// stacks can quote any of them. A report names the service from the registry,
+// the instance by a short hash, the request by a route template the service's
+// router declares, and the error by an allowlisted class name and Cloudflare's
+// flags.
 export interface FailureReport {
   error: "emulator_unavailable" | "emulator_error" | "worker_error";
   service: string;
@@ -47,14 +47,26 @@ export async function failureReport(
   };
 }
 
+// The subset of a Workers Analytics Engine dataset binding the reports use.
+export interface FailureSink {
+  writeDataPoint(point: { indexes?: string[]; blobs?: string[]; doubles?: number[] }): void;
+}
+
 // The response for a failure at the Worker or Durable Object boundary: the
-// report, logged once and returned as JSON. 503 when Cloudflare flags the
-// failure retryable or overloaded, otherwise 500. Building it never throws, so
-// no raw error escapes the boundary to Cloudflare's exception logging.
+// report as JSON, 503 when Cloudflare flags the failure retryable or
+// overloaded, otherwise 500. Building it never throws, so no raw error escapes
+// the boundary.
+//
+// Nothing is written to the console. Workers Issues keeps each error log and
+// each 5xx with its invocation's URL, which for an instance holds the instance
+// name, so observability stays off (wrangler.jsonc) and the report is recorded
+// once in Analytics Engine instead. A data point holds only what is written to
+// it.
 export async function failureResponse(
   error: FailureReport["error"],
   cause: unknown,
   request: Parameters<typeof failureReport>[2],
+  env?: { FAILURES?: FailureSink },
 ): Promise<Response> {
   let report: FailureReport;
   try {
@@ -73,8 +85,24 @@ export async function failureResponse(
       ray: null,
     };
   }
-  console.error(JSON.stringify(report));
-  return Response.json(report, { status: report.retryable || report.overloaded ? 503 : 500 });
+  const status = report.retryable || report.overloaded ? 503 : 500;
+  try {
+    env?.FAILURES?.writeDataPoint(failurePoint(report, status));
+  } catch {
+    // Recording is best effort; the client still gets its report.
+  }
+  return Response.json(report, { status });
+}
+
+// A report as an Analytics Engine data point, without the instance hash: the
+// stored record names the service, route and failure but no instance. The ray
+// joins it to the client's copy of the report, which has the hash.
+export function failurePoint(report: FailureReport, status: number) {
+  return {
+    indexes: [report.service],
+    blobs: [report.error, report.service, report.method, report.route, report.errorClass, report.ray ?? ""],
+    doubles: [status, Number(report.retryable), Number(report.overloaded), Number(report.remote)],
+  };
 }
 
 // Cloudflare raises its own runtime failures (a Durable Object that moved to a

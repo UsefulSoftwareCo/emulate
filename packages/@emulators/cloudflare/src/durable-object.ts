@@ -9,7 +9,7 @@ import {
   type TokenMap,
 } from "@emulators/core";
 import { SERVICES, issueCloudflareCredential } from "./services.js";
-import { failureResponse, isPlatformFailure } from "./diagnostics.js";
+import { failureResponse, isPlatformFailure, type FailureSink } from "./diagnostics.js";
 
 // Minimal CF runtime types (avoid a hard dep on @cloudflare/workers-types here).
 interface DurableObjectStorage {
@@ -117,7 +117,7 @@ export class EmulatorDurableObject {
 
   constructor(
     private readonly state: DurableObjectState,
-    _env: unknown,
+    private readonly env: { FAILURES?: FailureSink },
   ) {}
 
   private async readPersistedState(): Promise<PersistedState> {
@@ -460,13 +460,18 @@ export class EmulatorDurableObject {
       // quote tokens, codes, emails or the instance name. Cloudflare's own
       // failures (e.g. "object has moved to a different machine") keep their
       // `.retryable`/`.overloaded` flags in the report and its 503 status.
-      return failureResponse(isPlatformFailure(error) ? "emulator_unavailable" : "emulator_error", error, {
-        service: request.headers.get("x-emulator-service") ?? "",
-        instance: request.headers.get("x-emulator-instance") ?? "default",
-        method: request.method,
-        path: new URL(request.url).pathname,
-        headers: request.headers,
-      });
+      return failureResponse(
+        isPlatformFailure(error) ? "emulator_unavailable" : "emulator_error",
+        error,
+        {
+          service: request.headers.get("x-emulator-service") ?? "",
+          instance: request.headers.get("x-emulator-instance") ?? "default",
+          method: request.method,
+          path: new URL(request.url).pathname,
+          headers: request.headers,
+        },
+        this.env,
+      );
     }
   }
 

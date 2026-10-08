@@ -22,20 +22,34 @@
       "zone_name": "emulators.dev"
     }
   ],
-  // Workers Logs keeps the structured failure reports from worker.ts and
-  // durable-object.ts, so a 5xx seen by a client can be traced by its cf-ray.
-  // Invocation logs are off: each one records the request URL, and an
-  // instance URL is the only access control for its emulator. That setting
-  // does not stop Cloudflare recording uncaught exceptions with their message,
-  // stack and URL, so neither the Worker nor the Durable Object lets an error
-  // escape: both answer it with a report instead.
+  // Observability is off, every part of it, and set explicitly so each deploy
+  // also turns off anything enabled from the dashboard. Workers Issues keeps
+  // every 5xx response and every console.error with its invocation's URL,
+  // whether or not Workers Logs is on; logs and traces are invocation
+  // telemetry too. An instance URL is the only access control for its
+  // emulator. Failures are recorded instead as allowlisted reports in the
+  // FAILURES Analytics Engine dataset (diagnostics.ts), which stores only the
+  // fields written to it. These settings are not part of a Worker version:
+  // `wrangler rollback` leaves them as they are.
   "observability": {
-    "enabled": true,
+    "enabled": false,
     "logs": {
-      "enabled": true,
+      "enabled": false,
       "invocation_logs": false
+    },
+    "traces": {
+      "enabled": false
+    },
+    "issues": {
+      "enabled": false
     }
   },
+  "analytics_engine_datasets": [
+    {
+      "binding": "FAILURES",
+      "dataset": "emulate_hosts_failures"
+    }
+  ],
   "vars": {
     "EMULATE_HOST_SUFFIX": "emulators.dev"
   },

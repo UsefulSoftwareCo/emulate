@@ -9,7 +9,7 @@ import { EmulatorDurableObject } from "./durable-object.js";
 import { SERVICES } from "./services.js";
 import { SERVICE_ICONS } from "./icons.js";
 import { consoleHtml } from "./console-html.js";
-import { failureResponse } from "./diagnostics.js";
+import { failureResponse, type FailureSink } from "./diagnostics.js";
 
 export { EmulatorDurableObject };
 
@@ -41,6 +41,8 @@ interface EmulatorNamespace {
 export interface Env {
   EMULATOR: EmulatorNamespace;
   EMULATE_HOST_SUFFIX?: string;
+  // Analytics Engine dataset for failure reports (wrangler.jsonc).
+  FAILURES?: FailureSink;
 }
 
 const DEFAULT_HOST_SUFFIX = "emulators.dev";
@@ -96,13 +98,18 @@ async function forwardToDurableObject(
     // was killed by its own limits. Nothing is retried: a flag does not prove
     // the object never ran the request, and replaying a reset, an OAuth
     // authorize or a write can change state twice.
-    return failureResponse("emulator_unavailable", error, {
-      service: opts.service,
-      instance: opts.instance,
-      method: request.method,
-      path: opts.innerPath,
-      headers: request.headers,
-    });
+    return failureResponse(
+      "emulator_unavailable",
+      error,
+      {
+        service: opts.service,
+        instance: opts.instance,
+        method: request.method,
+        path: opts.innerPath,
+        headers: request.headers,
+      },
+      env,
+    );
   }
 }
 
@@ -119,13 +126,12 @@ export default {
       // Nothing may escape the Worker: Cloudflare records an uncaught
       // exception with its message, stack and the request URL, and the
       // instance URL is the only access control for its emulator.
-      return failureResponse("worker_error", error, {
-        service: "",
-        instance: "",
-        method: request.method,
-        path: "",
-        headers: request.headers,
-      });
+      return failureResponse(
+        "worker_error",
+        error,
+        { service: "", instance: "", method: request.method, path: "", headers: request.headers },
+        env,
+      );
     }
   },
 };
