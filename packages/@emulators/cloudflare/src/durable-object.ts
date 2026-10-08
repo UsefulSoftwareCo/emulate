@@ -105,6 +105,11 @@ const ledgerEntryKey = (id: string): string => `${LEDGER_ENTRY_PREFIX}${encodeKe
 // instance survives eviction. Auth is FAITHFUL by
 // default (strict): only seeded or minted tokens work; everything else gets the
 // real API's 401/403. Mint tokens at runtime via `POST /__token`.
+const isCloudflareFailure = (error: unknown): boolean =>
+  typeof error === "object" &&
+  error !== null &&
+  ((error as { retryable?: unknown }).retryable === true || (error as { overloaded?: unknown }).overloaded === true);
+
 export class EmulatorDurableObject {
   private live?: Live;
   // The JSON of every snapshot and ledger value last written to storage, by key.
@@ -452,6 +457,10 @@ export class EmulatorDurableObject {
     try {
       return await this.handle(request);
     } catch (error) {
+      // Cloudflare's own failures (e.g. "object has moved to a different machine")
+      // carry `.retryable`/`.overloaded`; rethrow them so the Worker sees the flags
+      // and applies Cloudflare's retry contract.
+      if (isCloudflareFailure(error)) throw error;
       // Answer with the cause instead of throwing: an exception crossing the stub
       // reaches the client as an opaque Cloudflare 500 page with no message.
       const report = {
