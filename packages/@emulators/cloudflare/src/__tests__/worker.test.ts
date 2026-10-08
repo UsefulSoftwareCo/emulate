@@ -466,6 +466,26 @@ describe("cloudflare durable object control plane", () => {
     expect(String(body.message)).toMatch(/^Values cannot be larger than 1 bytes/);
   });
 
+  it("lets Cloudflare's retryable storage failures reach the Worker with their flags", async () => {
+    const { state } = makeState();
+    const moved = Object.assign(new Error("cannot access storage because object has moved to a different machine"), {
+      retryable: true,
+    });
+    state.storage.get = async () => {
+      throw moved;
+    };
+    const durableObject = new EmulatorDurableObject(state, {});
+    await expect(
+      durableObject.fetch(
+        new Request("https://github.my-run.emulators.dev/_emulate/reset", {
+          method: "POST",
+          headers: { ...idHeaders(), "content-type": "application/json" },
+          body: "{}",
+        }),
+      ),
+    ).rejects.toBe(moved);
+  });
+
   // Executor's cloud onboarding e2e provisions this service exactly this way:
   // mint an api-key, seed a brand, then resolve the company from a work email.
   // A missing registration only shows up here, as a 404 from the control plane.
