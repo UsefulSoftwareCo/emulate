@@ -136,9 +136,16 @@ afterAll(async () => {
 async function waitForTail(count: number): Promise<void> {
   const deadline = Date.now() + 5_000;
   while (tailed.length < count && Date.now() < deadline) await new Promise((r) => setTimeout(r, 25));
-  // Late events (a second invocation, a trailing log) would land here.
-  await new Promise((r) => setTimeout(r, 200));
 }
+
+// A fault injected in the object's storage reaches it, so the request is one
+// Worker invocation plus one object invocation; a Worker fault stops at the
+// Worker. Each event is named by its entrypoint, the object's class or none.
+const invocations = (fault: string) => (fault.startsWith("do-") ? ["ProbeObject", "worker"] : ["worker"]);
+const invocation = (event: TailEvent) => ({
+  fault: event.event?.request?.headers["x-probe-fault"],
+  entrypoint: event.entrypoint ?? "worker",
+});
 
 const CASES: Array<{ fault: string; method?: string; path: string; status: number; report: Record<string, unknown> }> =
   [
@@ -203,11 +210,18 @@ describe("emulate-hosts in workerd", () => {
       responses.push(text);
       expect({ fault: c.fault, status: response.status }).toEqual({ fault: c.fault, status: c.status });
       expect(JSON.parse(text)).toMatchObject(c.report);
-      // The Worker's invocation, plus the object's when the request reached it.
-      await waitForTail(before + 1);
+      // Exactly this request's invocations, and nothing from an earlier one.
+      const expected = invocations(c.fault);
+      await waitForTail(before + expected.length);
+      expect(
+        tailed
+          .slice(before)
+          .map(invocation)
+          .sort((a, b) => a.entrypoint.localeCompare(b.entrypoint)),
+      ).toEqual(expected.map((entrypoint) => ({ fault: c.fault, entrypoint })));
     }
 
-    expect(tailed.length).toBeGreaterThanOrEqual(CASES.length);
+    expect(tailed).toHaveLength(CASES.flatMap((c) => invocations(c.fault)).length);
     expect(tailed.map((event) => event.outcome).filter((outcome) => outcome !== "ok")).toEqual([]);
     expect(tailed.flatMap((event) => event.exceptions)).toEqual([]);
     // The code writes nothing to the console: every log line is a data point
@@ -222,10 +236,11 @@ describe("emulate-hosts in workerd", () => {
     // output, the data points or the responses.
     const everything = [JSON.stringify(tailed), runtimeOutput.join(""), ...responses].join("\n");
     expect(everything).not.toContain(SECRET);
-    // The instance name is only in the platform's own invocation metadata: the
-    // Worker's request URL and the object's routing headers. That metadata is
-    // what Workers Logs and Issues store with each record, which is why
-    // observability is off (see the telemetry settings test in worker.test.ts).
+    // The instance name is only in each invocation's request: the client's URL
+    // to the Worker, and the x-emulator-* headers the Worker sets on its request
+    // to the object. Workers Logs and Issues can store an invocation's request
+    // with each record, which is why observability is off (see the telemetry
+    // settings test in worker.test.ts).
     const carriers = new Set<string>();
     const visit = (value: unknown, path: string) => {
       if (typeof value === "string") {
