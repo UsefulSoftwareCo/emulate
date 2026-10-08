@@ -9,6 +9,7 @@ import { EmulatorDurableObject } from "./durable-object.js";
 import { SERVICES } from "./services.js";
 import { SERVICE_ICONS } from "./icons.js";
 import { consoleHtml } from "./console-html.js";
+import { failureReport } from "./diagnostics.js";
 
 export { EmulatorDurableObject };
 
@@ -78,79 +79,34 @@ async function forwardToDurableObject(
   // Manual redirect: the emulator's OAuth callbacks return 302s (e.g. → the app's
   // redirect_uri). Without this, the Worker→DO stub.fetch FOLLOWS the redirect
   // internally and re-fetches the DO by the Location path, mangling it.
-  const inner = () =>
-    new Request(`${origin}${opts.innerPath}${opts.search}`, {
-      method: request.method,
-      headers,
-      body,
-      redirect: "manual",
-    });
+  const inner = new Request(`${origin}${opts.innerPath}${opts.search}`, {
+    method: request.method,
+    headers,
+    body,
+    redirect: "manual",
+  });
   const id = env.EMULATOR.idFromName(`${opts.service}:${opts.instance}`);
-  const idempotent = isIdempotent(request.method, opts.innerPath);
-  for (let attempt = 1; ; attempt++) {
-    try {
-      // A stub that threw is not reused: Cloudflare documents that many
-      // exceptions leave it broken, so every attempt gets a fresh one.
-      return await env.EMULATOR.get(id).fetch(inner());
-    } catch (error) {
-      const failure = durableObjectFailure(error);
-      if (idempotent && failure.retryable && !failure.overloaded && attempt < DO_MAX_ATTEMPTS) {
-        await sleep(DO_BASE_BACKOFF_MS * Math.random() * 2 ** attempt);
-        continue;
-      }
-      const report = {
-        error: "emulator_unavailable",
-        message: failure.message,
-        service: opts.service,
-        instance: opts.instance,
-        method: request.method,
-        path: opts.innerPath,
-        attempts: attempt,
-        retryable: failure.retryable,
-        overloaded: failure.overloaded,
-        remote: failure.remote,
-        ray: request.headers.get("cf-ray"),
-      };
-      console.error(JSON.stringify(report));
-      // 503 when Cloudflare says the object was unreachable or overloaded; 500
-      // when the emulator itself threw or was killed (remote, not retryable).
-      return Response.json(report, { status: failure.retryable || failure.overloaded ? 503 : 500 });
-    }
+  try {
+    return await env.EMULATOR.get(id).fetch(inner);
+  } catch (error) {
+    // The stub failed: Cloudflare could not reach the object, the object was
+    // overloaded, or a platform failure inside it (flagged `.retryable` or
+    // `.overloaded`) propagated out. Uncaught, this reaches the client as an
+    // opaque Cloudflare 500 page. Nothing is retried: a flag does not prove the
+    // object never ran the request, and replaying a reset, an OAuth authorize or
+    // a write can change state twice.
+    const report = await failureReport("emulator_unavailable", error, {
+      service: opts.service,
+      instance: opts.instance,
+      method: request.method,
+      path: opts.innerPath,
+      headers: request.headers,
+    });
+    console.error(JSON.stringify(report));
+    // 503 when Cloudflare says the object was unreachable or overloaded; 500
+    // when the emulator itself threw or was killed (remote, not retryable).
+    return Response.json(report, { status: report.retryable || report.overloaded ? 503 : 500 });
   }
-}
-
-// Cloudflare's Durable Object error contract: an exception with `.retryable`
-// may be retried if the request is idempotent; one with `.overloaded` must not
-// be; `.remote` marks an error raised by (or a limit hit in) the object itself.
-// https://developers.cloudflare.com/durable-objects/best-practices/error-handling/
-const DO_MAX_ATTEMPTS = 3;
-const DO_BASE_BACKOFF_MS = 100;
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// Only requests whose repetition cannot change the result are retried: GET and
-// HEAD (idempotent by RFC 9110) and `POST /_emulate/reset`, which always restores
-// the instance's seeded state and answers `{ ok: true }`. Seeds, credentials and
-// provider writes are not idempotent and fail precisely instead.
-const isIdempotent = (method: string, innerPath: string): boolean =>
-  method === "GET" || method === "HEAD" || (method === "POST" && innerPath === "/_emulate/reset");
-
-function durableObjectFailure(error: unknown): {
-  message: string;
-  retryable: boolean;
-  overloaded: boolean;
-  remote: boolean;
-} {
-  const flags = (typeof error === "object" && error !== null ? error : {}) as {
-    retryable?: unknown;
-    overloaded?: unknown;
-    remote?: unknown;
-  };
-  return {
-    message: error instanceof Error ? error.message : String(error),
-    retryable: flags.retryable === true,
-    overloaded: flags.overloaded === true,
-    remote: flags.remote === true,
-  };
 }
 
 // Router:

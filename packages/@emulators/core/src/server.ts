@@ -33,6 +33,13 @@ export interface ServerOptions {
   reset?: () => void | Promise<void>;
   seed?: (seed: unknown) => void | Promise<void>;
   issueCredential?: (request: CredentialRequest) => IssuedCredential | Promise<IssuedCredential>;
+  /**
+   * Rethrow errors that carry no HTTP `status` instead of answering them with
+   * their message. A host that reports failures itself (the Cloudflare Durable
+   * Object) sets this so raw messages, which can quote tokens, codes or emails,
+   * never reach a response.
+   */
+  rethrowUnexpectedErrors?: boolean;
 }
 
 export function createServer(plugin: ServicePlugin, options: ServerOptions = {}) {
@@ -60,7 +67,15 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
 
   registerFontRoutes(app);
 
-  app.onError(createApiErrorHandler(docsUrl));
+  const apiErrorHandler = createApiErrorHandler(docsUrl);
+  app.onError(
+    options.rethrowUnexpectedErrors
+      ? (err, c) => {
+          if (!hasHttpStatus(err)) throw err;
+          return apiErrorHandler(err, c);
+        }
+      : apiErrorHandler,
+  );
   app.use("*", cors());
   app.use("*", createErrorHandler(docsUrl));
   app.use("*", authMiddleware(tokenMap, options.appKeyResolver, options.fallbackUser));
@@ -146,3 +161,6 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
 
   return { app, store, webhooks, ledger, faults, port, baseUrl, tokenMap };
 }
+
+const hasHttpStatus = (err: unknown): boolean =>
+  typeof err === "object" && err !== null && typeof (err as { status?: unknown }).status === "number";

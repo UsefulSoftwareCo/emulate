@@ -22,11 +22,16 @@
       "zone_name": "emulators.dev"
     }
   ],
-  // Workers Logs: keeps every invocation's logs and uncaught exceptions,
-  // including the structured `emulator_unavailable` reports from worker.ts, so
-  // a 5xx seen by a client can be traced by its cf-ray.
+  // Workers Logs keeps the structured failure reports from worker.ts and
+  // durable-object.ts, so a 5xx seen by a client can be traced by its cf-ray.
+  // Invocation logs are off: each one records the request URL, and an
+  // instance URL is the only access control for its emulator.
   "observability": {
-    "enabled": true
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": false
+    }
   },
   "vars": {
     "EMULATE_HOST_SUFFIX": "emulators.dev"
