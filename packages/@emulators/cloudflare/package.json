@@ -52,6 +52,8 @@
     "@emulators/planetscale": "workspace:*"
   },
   "devDependencies": {
+    "esbuild": "0.27.4",
+    "miniflare": "4.20260702.0",
     "tsup": "^8",
     "typescript": "^5.7"
   }
