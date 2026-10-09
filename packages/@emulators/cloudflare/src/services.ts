@@ -71,6 +71,12 @@ import {
   planetscalePlugin,
   seedFromConfig as planetscaleSeed,
 } from "@emulators/planetscale";
+import {
+  issueCredential as miroIssueCredential,
+  manifest as miroManifest,
+  miroPlugin,
+  seedFromConfig as miroSeed,
+} from "@emulators/miro";
 
 // GitHub exposes three surfaces over ONE store: REST + GraphQL (githubPlugin) and
 // an MCP server (mcpPlugin's transport + OAuth/DCR routes). They compose cleanly —
@@ -382,6 +388,16 @@ export const SERVICES: Record<string, ServiceEntry> = {
     seedFromConfig: planetscaleSeed,
     defaultFallback: () => ({ login: "planetscale-user", id: 1, scopes: [] }),
     issueCredential: planetscaleIssueCredential,
+  },
+  // Miro: the remote MCP server at the origin root and its OAuth server (DCR,
+  // S256 PKCE, HS256 ID tokens without nonce). Tokens live in the plugin's own
+  // store collections; credentials register a DCR client.
+  miro: {
+    plugin: miroPlugin,
+    manifest: miroManifest,
+    seedFromConfig: miroSeed,
+    defaultFallback: () => ({ login: "user@example.com", id: 1, scopes: [] }),
+    issueCredential: miroIssueCredential,
   },
 };
 

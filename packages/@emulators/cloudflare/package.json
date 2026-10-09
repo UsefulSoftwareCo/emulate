@@ -49,7 +49,8 @@
     "@emulators/workos": "workspace:*",
     "@emulators/autumn": "workspace:*",
     "@emulators/context": "workspace:*",
-    "@emulators/planetscale": "workspace:*"
+    "@emulators/planetscale": "workspace:*",
+    "@emulators/miro": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8",

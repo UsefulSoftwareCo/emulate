@@ -62,6 +62,7 @@ const SERVICE_NAME_LIST = [
   "gitlab",
   "context",
   "planetscale",
+  "miro",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -1038,6 +1039,31 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
       planetscale: {
         users: [{ login: "planetscale-user", name: "PlanetScale User", email: "user@example.com" }],
         organizations: [{ name: "acme", databases: [{ name: "app-db", kind: "mysql" }] }],
+      },
+    },
+  },
+  miro: {
+    label: "Miro MCP OAuth emulator",
+    endpoints: "OAuth 2.1 with dynamic client registration and HS256 OIDC ID tokens, MCP server at /",
+    async load() {
+      const mod = await import("@emulators/miro");
+      return {
+        plugin: mod.miroPlugin,
+        manifest: mod.manifest,
+        seedFromConfig: mod.seedFromConfig,
+        issueCredential(store: Store, baseUrl: string, _tokenMap: TokenMap, request: CredentialRequest) {
+          return mod.issueCredential(store, baseUrl, request);
+        },
+      };
+    },
+    defaultFallback() {
+      return { login: "user@example.com", id: 1, scopes: [] };
+    },
+    initConfig: {
+      miro: {
+        users: [{ email: "user@example.com", name: "Miro User" }],
+        boards: [{ name: "Product Roadmap", items: [{ type: "sticky_note", content: "Ship OAuth for MCP" }] }],
+        id_token_nonce: "omit",
       },
     },
   },

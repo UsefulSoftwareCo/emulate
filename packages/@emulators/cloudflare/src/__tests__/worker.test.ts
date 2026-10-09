@@ -216,6 +216,7 @@ describe("cloudflare worker routing", () => {
     expect(ids).toContain("stripe");
     expect(ids).toContain("context");
     expect(ids).toContain("planetscale");
+    expect(ids).toContain("miro");
   });
 
   it("keeps path routing available for local and shared-domain URLs", async () => {
@@ -537,6 +538,64 @@ describe("cloudflare durable object control plane", () => {
     const secondToken = await signIn(rebuilt, "second-nonce");
     expect(await verifies(secondToken, published)).toBe(true);
     expect(await verifies(firstToken, await certs(rebuilt))).toBe(true);
+  });
+
+  // Executor connects to Miro's MCP server at the origin root. On a path form
+  // instance the root, the trailing slash issuer, and the gateway 401 must all
+  // stay instance scoped, and a DCR client must survive eviction.
+  it("serves the Miro MCP root, metadata, and DCR across eviction", async () => {
+    const { state } = makeState();
+    const base = "https://emulators.dev/miro/miro-run";
+    const headers = {
+      "x-emulator-service": "miro",
+      "x-emulator-instance": "miro-run",
+      "x-emulator-base-url": base,
+    };
+    const first = new EmulatorDurableObject(state, {});
+    const metadata = await first.fetch(
+      new Request("https://emulators.dev/.well-known/oauth-authorization-server", { headers }),
+    );
+    expect(((await metadata.json()) as { issuer: string }).issuer).toBe(`${base}/`);
+
+    const unauthenticated = await first.fetch(
+      new Request("https://emulators.dev/", {
+        method: "POST",
+        headers: { ...headers, "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
+      }),
+    );
+    expect(unauthenticated.status).toBe(401);
+    expect(unauthenticated.headers.get("www-authenticate")).toBe(
+      `Bearer resource_metadata="${base}/.well-known/oauth-protected-resource"`,
+    );
+
+    const registered = await first.fetch(
+      new Request("https://emulators.dev/register", {
+        method: "POST",
+        headers: { ...headers, "content-type": "application/json" },
+        body: JSON.stringify({ client_name: "Executor", redirect_uris: ["https://app.example/callback"] }),
+      }),
+    );
+    expect(registered.status).toBe(201);
+    const client = (await registered.json()) as { client_id: string; client_secret: string };
+
+    const evicted = new EmulatorDurableObject(state, {});
+    const exchange = await evicted.fetch(
+      new Request("https://emulators.dev/token", {
+        method: "POST",
+        headers: { ...headers, "content-type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          code: "bogus",
+          code_verifier: "x".repeat(43),
+          redirect_uri: "https://app.example/callback",
+          client_id: client.client_id,
+          client_secret: client.client_secret,
+        }).toString(),
+      }),
+    );
+    expect(exchange.status).toBe(400);
+    expect(((await exchange.json()) as { error: string }).error).toBe("invalid_grant");
   });
 
   it("reports the real instance id in the manifest", async () => {

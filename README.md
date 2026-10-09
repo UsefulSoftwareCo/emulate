@@ -35,6 +35,7 @@ All services start with sensible defaults. No config file needed:
 - **GitLab** on `http://localhost:4018` (full real GraphQL schema)
 - **Context** on `http://localhost:4019` (company lookup by work email domain)
 - **PlanetScale** on `http://localhost:4020` (Doorkeeper OAuth with DCR, MCP server at `/mcp/planetscale`)
+- **Miro** on `http://localhost:4021` (MCP server at `/`, OAuth with DCR and HS256 ID tokens)
 
 Every running service also exposes a public control plane under `/_emulate`:
 
@@ -176,7 +177,7 @@ github:
 
 ## Deployed Instances
 
-All services are available on host-based routing when deployed: `github`, `gitlab`, `mcp`, `vercel`, `google`, `okta`, `microsoft`, `spotify`, `slack`, `apple`, `aws`, `resend`, `stripe`, `mongoatlas`, `clerk`, `x`, `workos`, `autumn`, `context`, `planetscale`, and `posthog`. Each one supports three addressing forms:
+All services are available on host-based routing when deployed: `github`, `gitlab`, `mcp`, `vercel`, `google`, `okta`, `microsoft`, `spotify`, `slack`, `apple`, `aws`, `resend`, `stripe`, `mongoatlas`, `clerk`, `x`, `workos`, `autumn`, `context`, `planetscale`, `miro`, and `posthog`. Each one supports three addressing forms:
 
 ```text
 https://github.emulators.dev                     # service host (control plane only)
@@ -266,7 +267,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]));
 
 | Option    | Default      | Description                                                                                                                                                                                                                                                                                       |
 | --------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `service` | _(required)_ | Service name: `'vercel'`, `'github'`, `'gitlab'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'spotify'`, `'x'`, `'workos'`, `'autumn'`, `'context'`, `'planetscale'`, or `'posthog'`                                                               |
+| `service` | _(required)_ | Service name: `'vercel'`, `'github'`, `'gitlab'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'spotify'`, `'x'`, `'workos'`, `'autumn'`, `'context'`, `'planetscale'`, `'miro'`, or `'posthog'`                                                               |
 | `port`    | `4000`       | Port for the HTTP server                                                                                                                                                                                                                                                                          |
 | `seed`    | none         | Inline seed data (same shape as YAML config)                                                                                                                                                                                                                                                      |
 | `baseUrl` | none         | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
@@ -851,6 +852,40 @@ planetscale:
           branches:
             - name: main
               production: true
+```
+
+## Miro MCP + OAuth
+
+Miro is modelled as the remote MCP server at `https://mcp.miro.com/` and the OAuth 2.1 authorization server on the same origin.
+
+```bash
+npx emulate --service miro
+```
+
+When all services run together, Miro uses `http://localhost:4021`.
+
+- `GET /.well-known/oauth-authorization-server` - RFC 8414 metadata. The issuer is the base URL with a trailing slash. No `jwks_uri` and no ID token fields
+- `GET /.well-known/openid-configuration` - OIDC metadata that disagrees with the RFC 8414 document exactly as Miro's does: `token_endpoint_auth_methods_supported: ["none"]`, HS256 ID tokens, `revocation_endpoint`, and a nonstandard `audience`
+- `GET /.well-known/oauth-protected-resource` - protected resource metadata for the resource `<base>/`
+- `POST /register` - Dynamic Client Registration, issuing a client secret
+- `GET /authorize` - consent page with one sign in button per seeded user; S256 PKCE is required
+- `POST /token` - `authorization_code` and `refresh_token` grants with `client_secret_post` or `client_secret_basic`. The advertised jwt-bearer grant is not emulated
+- `POST /oidc/revoke` - token revocation
+- `POST /` - Streamable HTTP MCP server with read only `board_search_boards` and `canvas_search` tools. Any request without a valid bearer token, on any unknown path, answers `401 {"error":"Authentication required"}` with `WWW-Authenticate: Bearer resource_metadata="<base>/.well-known/oauth-protected-resource"`
+
+When `openid` is granted, the token response carries an `id_token` signed HS256 with the client secret, with `iss`, `sub`, `aud`, `exp`, `iat`, and (with `email`) `email` and `email_verified`. Like real Miro, it never includes `nonce`, even when the authorization request sent one, so OIDC clients that validate the nonce reject it. Seed `id_token_nonce: echo` to compare against compliant behaviour.
+
+```yaml
+miro:
+  id_token_nonce: omit
+  users:
+    - email: user@example.com
+      name: Miro User
+  boards:
+    - name: Product Roadmap
+      items:
+        - type: sticky_note
+          content: Ship OAuth for MCP
 ```
 
 ## Google OAuth + Gmail, Calendar, and Drive APIs
