@@ -73,6 +73,19 @@ export function autumnApiRoutes(ctx: RouteContext): void {
     return c.json(serializeCustomer(store, customer, { expand: parseExpand(body.expand) }));
   });
 
+  // Read-only: unlike get_or_create, an unknown customer is a 404 and nothing is created.
+  app.post("/v1/customers.get", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const id = String(body.customer_id ?? body.customerId ?? "");
+    if (!id) return c.json({ message: "customer_id is required", code: "invalid_request" }, 400);
+    const store = as();
+    const customer = store.customers.findOneBy("customer_id", id);
+    if (!customer) {
+      return c.json({ message: `Customer ${id} not found`, code: "customer_not_found" }, 404);
+    }
+    return c.json(serializeCustomer(store, customer, { expand: parseExpand(body.expand) }));
+  });
+
   app.post("/v1/customers.list", async (c) => {
     const store = as();
     const customers = store.customers.all().map((customer) => serializeCustomer(store, customer));

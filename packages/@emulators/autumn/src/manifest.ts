@@ -26,6 +26,7 @@ export const manifest: ServiceManifest = {
           path: "/v1/customers.get_or_create",
           status: "hand-authored",
         },
+        { operationId: "customers.get", method: "POST", path: "/v1/customers.get", status: "hand-authored" },
         { operationId: "customers.list", method: "POST", path: "/v1/customers.list", status: "hand-authored" },
         { operationId: "customers.update", method: "POST", path: "/v1/customers.update", status: "hand-authored" },
         { operationId: "balances.track", method: "POST", path: "/v1/balances.track", status: "hand-authored" },

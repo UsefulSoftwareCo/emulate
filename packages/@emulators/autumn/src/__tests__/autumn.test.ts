@@ -62,6 +62,24 @@ describe("autumn emulator with the real autumn-js SDK", () => {
     expect(customer.subscriptions?.map((s) => s.planId ?? (s as { plan_id?: string }).plan_id)).toContain("pro");
   });
 
+  it("customers.get reads a seeded customer and never creates one", async () => {
+    const get = (customerId: string) =>
+      fetch(`${BASE}/v1/customers.get`, {
+        method: "POST",
+        headers: { authorization: "Bearer am_test_emulate", "content-type": "application/json" },
+        body: JSON.stringify({ customer_id: customerId }),
+      });
+    const found = await get("org_paid");
+    expect(found.status).toBe(200);
+    const customer = (await found.json()) as { id: string; subscriptions: Array<{ plan_id: string; status: string }> };
+    expect(customer.id).toBe("org_paid");
+    expect(customer.subscriptions.map((s) => `${s.plan_id}:${s.status}`)).toEqual(["pro:active"]);
+    const missing = await get("org_never_created");
+    expect(missing.status).toBe(404);
+    expect(await missing.json()).toMatchObject({ code: "customer_not_found" });
+    expect((await get("org_never_created")).status).toBe(404);
+  });
+
   it("tracks usage events", async () => {
     await autumn.track({ customerId: "org_fresh", featureId: "executions", value: 1 });
   });

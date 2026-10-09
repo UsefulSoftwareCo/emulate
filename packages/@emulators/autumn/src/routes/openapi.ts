@@ -75,6 +75,30 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
           responses: { "200": ok("The customer."), "400": ok("Validation error.") },
         },
       },
+      "/v1/customers.get": {
+        post: {
+          operationId: "customers.get",
+          tags: ["customers"],
+          summary: "Get a customer",
+          requestBody: jsonBody(
+            {
+              customer_id: { type: "string" },
+              expand: {
+                type: "array",
+                items: { type: "string", enum: ["payment_method"] },
+                description:
+                  "Fields to expand on the returned customer. `payment_method` adds the default card (or null); omit it and the field is absent.",
+              },
+            },
+            ["customer_id"],
+            "The customer to fetch. Never creates one.",
+          ),
+          responses: {
+            "200": ok("The customer."),
+            "404": ok("No customer with this id (`customer_not_found`)."),
+          },
+        },
+      },
       "/v1/customers.list": {
         post: {
           operationId: "customers.list",

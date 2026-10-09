@@ -6,7 +6,7 @@ allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 
 # Autumn Emulator
 
-Stateful Autumn billing emulation: customers (`customers.get_or_create`, including `auto_enable_plan_id`), a seedable feature and plan catalog with per-customer eligibility (`plans.list`, `features.list`), usage tracking (`balances.track`), balance reconciliation (`balances.update`), feature access checks with atomic check-and-consume (`balances.check`), subscription changes (`billing.update`), `billing.attach` / `billing.setup_payment` / `billing.open_customer_portal`, a hosted checkout flow for paid plans and card-required free trials, a hosted setup flow for putting a card on file, and a hosted billing portal for changing it.
+Stateful Autumn billing emulation: customers (`customers.get_or_create`, including `auto_enable_plan_id`, and the read-only `customers.get`, a 404 `customer_not_found` for an unknown id), a seedable feature and plan catalog with per-customer eligibility (`plans.list`, `features.list`), usage tracking (`balances.track`), balance reconciliation (`balances.update`), feature access checks with atomic check-and-consume (`balances.check`), subscription changes (`billing.update`), `billing.attach` / `billing.setup_payment` / `billing.open_customer_portal`, a hosted checkout flow for paid plans and card-required free trials, a hosted setup flow for putting a card on file, and a hosted billing portal for changing it.
 
 The request and response shapes, status codes and error codes below were taken from the real Autumn sandbox API at `x-api-version: 2.3.0` rather than from the docs, so an application can point at the emulator with no emulator-specific branches.
 
