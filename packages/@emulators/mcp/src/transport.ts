@@ -1,7 +1,8 @@
 import type { AuthUser, Context, Store } from "@emulators/core";
 import { callTool, TOOL_DEFINITIONS, ToolError } from "./tools.js";
 
-export const PROTOCOL_VERSION = "2025-06-18";
+export const SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26"] as const;
+export const PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0];
 export const SERVER_NAME = "github-mcp (emulated)";
 export const SERVER_VERSION = "0.6.0";
 
@@ -22,6 +23,25 @@ function rpcError(id: JsonRpcId, code: number, message: string, data?: unknown) 
   return { jsonrpc: "2.0", id, error: { code, message, ...(data !== undefined ? { data } : {}) } };
 }
 
+function negotiateProtocolVersion(requested: unknown): string {
+  return SUPPORTED_PROTOCOL_VERSIONS.find((version) => version === requested) ?? PROTOCOL_VERSION;
+}
+
+export function validateProtocolVersionHeader(c: Context) {
+  const version = c.req.header("MCP-Protocol-Version");
+  if (version === undefined || SUPPORTED_PROTOCOL_VERSIONS.some((supported) => supported === version)) {
+    return undefined;
+  }
+
+  return c.json(
+    {
+      error: "unsupported_protocol_version",
+      message: "MCP-Protocol-Version is invalid or unsupported.",
+    },
+    400,
+  );
+}
+
 // Dispatch a single JSON-RPC message. Returns the response object, or `null` for
 // notifications (which get an empty 202/no body).
 function handleMessage(store: Store, baseUrl: string, authUser: AuthUser, msg: JsonRpcRequest): unknown | null {
@@ -31,7 +51,7 @@ function handleMessage(store: Store, baseUrl: string, authUser: AuthUser, msg: J
   switch (method) {
     case "initialize":
       return rpcResult(id, {
-        protocolVersion: PROTOCOL_VERSION,
+        protocolVersion: negotiateProtocolVersion(msg.params?.protocolVersion),
         serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
         capabilities: { tools: { listChanged: false } },
       });
@@ -82,6 +102,9 @@ function sseResponse(body: unknown, c: Context): Response {
 
 // Handle a streamable-HTTP `POST /mcp` request body (already authenticated).
 export async function handleMcpPost(c: Context, store: Store, baseUrl: string, authUser: AuthUser): Promise<Response> {
+  const protocolVersionError = validateProtocolVersionHeader(c);
+  if (protocolVersionError) return protocolVersionError;
+
   const accept = c.req.header("Accept") ?? "";
   const wantsSse = accept.includes("text/event-stream");
 
