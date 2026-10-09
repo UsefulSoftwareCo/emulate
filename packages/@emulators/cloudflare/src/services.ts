@@ -10,6 +10,7 @@ import type {
   TokenMap,
   WebhookDispatcher,
 } from "@emulators/core";
+import { ControlPlaneRejection } from "@emulators/core";
 import {
   getGitHubStore,
   githubPlugin,
@@ -400,7 +401,7 @@ export function issueCloudflareCredential(
   }
   const type = request.type ?? entry.manifest.auth[0]?.type ?? "bearer-token";
   if (type === "bearer-token" || type === "api-key") {
-    if (!tokenMap) throw new Error(`Credential type ${type} is not supported by ${service}`);
+    if (!tokenMap) throw new ControlPlaneRejection(`Credential type ${type} is not supported by ${service}`);
     const login = request.login ?? "admin";
     const scopes = Array.isArray(request.scopes)
       ? request.scopes.filter((s): s is string => typeof s === "string")
@@ -419,13 +420,14 @@ export function issueCloudflareCredential(
     type === "oauth-client-credentials" ||
     type === "dynamic-client-registration"
   ) {
-    if (!entry.seedFromConfig) throw new Error(`Credential type ${type} is not supported by ${service}`);
+    if (!entry.seedFromConfig)
+      throw new ControlPlaneRejection(`Credential type ${type} is not supported by ${service}`);
     const clientId = request.client_id ?? defaultClientId(service);
     const clientSecret = request.client_secret ?? defaultClientSecret(service);
     const redirectUris = normalizeRedirectUris(request.redirect_uris);
     const name = request.name ?? `${entry.manifest.name} Client`;
     const seed = credentialSeed(service, { clientId, clientSecret, redirectUris, name, request });
-    if (!seed) throw new Error(`Credential type ${type} is not supported by ${service}`);
+    if (!seed) throw new ControlPlaneRejection(`Credential type ${type} is not supported by ${service}`);
     entry.seedFromConfig(store, baseUrl, seed);
     return {
       type,
@@ -437,7 +439,7 @@ export function issueCloudflareCredential(
     };
   }
 
-  throw new Error(`Credential type ${type} is not supported by ${service}`);
+  throw new ControlPlaneRejection(`Credential type ${type} is not supported by ${service}`);
 }
 
 function tokenPrefix(service: string, type: string): string {

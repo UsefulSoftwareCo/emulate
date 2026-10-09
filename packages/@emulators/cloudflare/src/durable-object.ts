@@ -9,6 +9,7 @@ import {
   type TokenMap,
 } from "@emulators/core";
 import { SERVICES, issueCloudflareCredential } from "./services.js";
+import { failureResponse, isPlatformFailure, type FailureSink } from "./diagnostics.js";
 
 // Minimal CF runtime types (avoid a hard dep on @cloudflare/workers-types here).
 interface DurableObjectStorage {
@@ -116,7 +117,7 @@ export class EmulatorDurableObject {
 
   constructor(
     private readonly state: DurableObjectState,
-    _env: unknown,
+    private readonly env: { FAILURES?: FailureSink },
   ) {}
 
   private async readPersistedState(): Promise<PersistedState> {
@@ -331,6 +332,7 @@ export class EmulatorDurableObject {
       manifest: entry.manifest,
       instance,
       ledgerPersistent: true,
+      rethrowUnexpectedErrors: true,
       reset: () => resetService(),
       seed: async (seed) => {
         if (seed && entry.seedFromConfig) {
@@ -449,6 +451,31 @@ export class EmulatorDurableObject {
   }
 
   async fetch(request: Request): Promise<Response> {
+    try {
+      return await this.handle(request);
+    } catch (error) {
+      // Nothing may escape this boundary. A thrown error reaches the client as
+      // an opaque Cloudflare 500, and Cloudflare records it as an exception
+      // event with its message, stack and the request URL, any of which can
+      // quote tokens, codes, emails or the instance name. Cloudflare's own
+      // failures (e.g. "object has moved to a different machine") keep their
+      // `.retryable`/`.overloaded` flags in the report and its 503 status.
+      return failureResponse(
+        isPlatformFailure(error) ? "emulator_unavailable" : "emulator_error",
+        error,
+        {
+          service: request.headers.get("x-emulator-service") ?? "",
+          instance: request.headers.get("x-emulator-instance") ?? "default",
+          method: request.method,
+          path: new URL(request.url).pathname,
+          headers: request.headers,
+        },
+        this.env,
+      );
+    }
+  }
+
+  private async handle(request: Request): Promise<Response> {
     const service = request.headers.get("x-emulator-service") ?? "";
     const instance = request.headers.get("x-emulator-instance") ?? "default";
     const baseUrl = request.headers.get("x-emulator-base-url") ?? new URL(request.url).origin;
