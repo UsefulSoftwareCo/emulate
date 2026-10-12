@@ -16,7 +16,7 @@ export { manifest } from "./manifest.js";
 
 export interface WorkosSeedConfig {
   users?: Array<{ email: string; first_name?: string; last_name?: string }>;
-  organizations?: Array<{ name: string; members?: string[] }>;
+  organizations?: Array<{ name: string; members?: string[]; metadata?: Record<string, string> }>;
   /** OAuth-surface controls (emulate-only): set the default access-token TTL; null restores 3600. */
   oauth?: { default_access_token_ttl_seconds?: number | null };
 }
@@ -43,6 +43,7 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: WorkosSee
       workos_id: workosId("org"),
       name: organization.name,
       external_id: null,
+      metadata: { ...organization.metadata },
     });
     for (const email of organization.members ?? []) {
       const member = ensureUserByEmail(ws, email);

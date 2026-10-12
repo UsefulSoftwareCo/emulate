@@ -73,7 +73,7 @@ export function serializeOrganization(
     domains: domains.map(serializeOrganizationDomain),
     stripe_customer_id: null,
     external_id: org.external_id,
-    metadata: {},
+    metadata: org.metadata ?? {},
     created_at: org.created_at,
     updated_at: org.updated_at,
   };
@@ -171,4 +171,34 @@ export function parseStatuses(c: Context): string[] {
   const repeated = c.req.queries("statuses") ?? [];
   const bracketed = c.req.queries("statuses[]") ?? [];
   return [...repeated, ...bracketed].flatMap((value) => value.split(",")).filter(Boolean);
+}
+
+/**
+ * WorkOS metadata rules: at most 10 pairs, ASCII keys up to 40 characters and ASCII string values
+ * up to 600. Updates are partial: a `null` value deletes its key and an empty object clears all.
+ * Returns the merged metadata, or the reason the request is invalid.
+ */
+export function mergeMetadata(
+  existing: Record<string, string>,
+  update: unknown,
+): { ok: true; metadata: Record<string, string> } | { ok: false; reason: string } {
+  if (update === null || typeof update !== "object" || Array.isArray(update))
+    return { ok: false, reason: "metadata must be an object" };
+  const entries = Object.entries(update as Record<string, unknown>);
+  if (entries.length === 0) return { ok: true, metadata: {} };
+  const merged: Record<string, string> = { ...existing };
+  const ascii = /^[\x00-\x7F]*$/;
+  for (const [key, value] of entries) {
+    if (key.length === 0 || key.length > 40 || !ascii.test(key))
+      return { ok: false, reason: "metadata keys must be 1 to 40 ASCII characters" };
+    if (value === null) {
+      delete merged[key];
+      continue;
+    }
+    if (typeof value !== "string" || value.length > 600 || !ascii.test(value))
+      return { ok: false, reason: "metadata values must be ASCII strings of at most 600 characters" };
+    merged[key] = value;
+  }
+  if (Object.keys(merged).length > 10) return { ok: false, reason: "metadata has more than 10 keys" };
+  return { ok: true, metadata: merged };
 }

@@ -3,7 +3,7 @@ import { createServer, serve } from "@emulators/core";
 import { WorkOS } from "@workos-inc/node";
 import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify } from "jose";
 
-import { workosPlugin, seedFromConfig } from "../index.js";
+import { workosPlugin, seedFromConfig, getWorkosStore as getWorkosStoreFor } from "../index.js";
 import { manifest } from "../manifest.js";
 
 // The whole point of this emulator: the REAL @workos-inc/node SDK runs against
@@ -256,6 +256,56 @@ describe("workos emulator with the real @workos-inc/node SDK", () => {
       statuses: ["active", "pending"] as never,
     });
     expect(memberships.data.map((m) => m.organizationId)).not.toContain(org.id);
+  });
+
+  it("updates organization metadata partially, as WorkOS does", async () => {
+    const org = await workos.organizations.createOrganization({
+      name: "Metadata Org",
+      metadata: { tier: "free", region: "eu" },
+    });
+    expect(org.metadata).toEqual({ tier: "free", region: "eu" });
+
+    // Only the keys sent change; the others stay.
+    const updated = await workos.organizations.updateOrganization({
+      organization: org.id,
+      metadata: { tier: "pro", moved: "yes" },
+    });
+    expect(updated.metadata).toEqual({ tier: "pro", region: "eu", moved: "yes" });
+    expect((await workos.organizations.getOrganization(org.id)).metadata).toEqual(updated.metadata);
+
+    // A name-only update keeps the metadata.
+    const renamed = await workos.organizations.updateOrganization({ organization: org.id, name: "Renamed" });
+    expect(renamed.metadata).toEqual(updated.metadata);
+
+    const put = (metadata: unknown) =>
+      fetch(`${BASE}/organizations/${org.id}`, {
+        method: "PUT",
+        headers: { authorization: "Bearer sk_test_emulate", "content-type": "application/json" },
+        body: JSON.stringify({ metadata }),
+      });
+
+    // null deletes one key.
+    const deleted = await put({ moved: null });
+    expect(((await deleted.json()) as { metadata: unknown }).metadata).toEqual({ tier: "pro", region: "eu" });
+
+    // Limits: 10 keys, 40-character keys, 600-character string values.
+    const elevenKeys = Object.fromEntries(Array.from({ length: 9 }, (_, i) => [`k${i}`, "v"]));
+    expect((await put(elevenKeys)).status).toBe(422);
+    expect((await put({ ["k".repeat(41)]: "v" })).status).toBe(422);
+    expect((await put({ long: "v".repeat(601) })).status).toBe(422);
+    expect((await put({ number: 1 })).status).toBe(422);
+    expect((await workos.organizations.getOrganization(org.id)).metadata).toEqual({ tier: "pro", region: "eu" });
+
+    // An empty object clears everything.
+    const cleared = await put({});
+    expect(((await cleared.json()) as { metadata: unknown }).metadata).toEqual({});
+  });
+
+  it("seeds organization metadata", async () => {
+    const { store } = createServer(workosPlugin, { port: PORT + 1, baseUrl: BASE, manifest });
+    seedFromConfig(store, BASE, { organizations: [{ name: "Seeded Metadata Org", metadata: { plan: "free" } }] });
+    const org = getWorkosStoreFor(store).organizations.findOneBy("name", "Seeded Metadata Org");
+    expect(org?.metadata).toEqual({ plan: "free" });
   });
 
   it("creates a pending organization membership when an invitation is sent", async () => {

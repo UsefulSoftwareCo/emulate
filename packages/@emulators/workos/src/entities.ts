@@ -14,6 +14,8 @@ export interface WorkosOrganization extends Entity {
   workos_id: string; // org_...
   name: string;
   external_id: string | null;
+  /** Up to 10 string pairs; absent on organizations stored before metadata was supported. */
+  metadata?: Record<string, string>;
 }
 
 export interface WorkosOrganizationDomain extends Entity {

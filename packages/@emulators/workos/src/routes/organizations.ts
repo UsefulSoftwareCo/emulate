@@ -3,6 +3,7 @@ import type { Context, RouteContext } from "@emulators/core";
 import { getWorkosStore } from "../store.js";
 import {
   listEnvelope,
+  mergeMetadata,
   randomToken,
   serializeOrganization,
   serializeOrganizationDomain,
@@ -18,10 +19,14 @@ export function organizationRoutes(ctx: RouteContext): void {
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
     const name = String(body.name ?? "");
     if (!name) return workosError(c, 422, "invalid_request", "name is required");
+    const metadata =
+      body.metadata === undefined ? { ok: true as const, metadata: {} } : mergeMetadata({}, body.metadata);
+    if (!metadata.ok) return workosError(c, 422, "invalid_request", metadata.reason);
     const organization = ws().organizations.insert({
       workos_id: workosId("org"),
       name,
       external_id: typeof body.external_id === "string" ? body.external_id : null,
+      metadata: metadata.metadata,
     });
     return c.json(
       serializeOrganization(organization, ws().organizationDomains.findBy("organization_id", organization.workos_id)),
@@ -41,8 +46,14 @@ export function organizationRoutes(ctx: RouteContext): void {
     const organization = ws().organizations.findOneBy("workos_id", c.req.param("id"));
     if (!organization) return workosError(c, 404, "entity_not_found", "Organization not found.");
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const metadata =
+      body.metadata === undefined
+        ? { ok: true as const, metadata: organization.metadata ?? {} }
+        : mergeMetadata(organization.metadata ?? {}, body.metadata);
+    if (!metadata.ok) return workosError(c, 422, "invalid_request", metadata.reason);
     const updated = ws().organizations.update(organization.id, {
       name: typeof body.name === "string" && body.name ? body.name : organization.name,
+      metadata: metadata.metadata,
     })!;
     return c.json(
       serializeOrganization(updated, ws().organizationDomains.findBy("organization_id", updated.workos_id)),
