@@ -17,6 +17,11 @@ const bearerErrors = {
 };
 
 const idPathParameter = { name: "id", in: "path", required: true, schema: { type: "string" } };
+const attachmentIdPathParameter = { name: "attachmentId", in: "path", required: true, schema: { type: "string" } };
+const mailJsonBody = {
+  required: true,
+  content: { "application/json": { schema: { type: "object" } } },
+};
 const driveIdPathParameter = { name: "driveId", in: "path", required: true, schema: { type: "string" } };
 const itemIdPathParameter = { name: "itemId", in: "path", required: true, schema: { type: "string" } };
 const drivePathParameter = { name: "path", in: "path", required: true, schema: { type: "string" } };
@@ -110,6 +115,18 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
         get: getOperation("message_List", "List messages", ["Mail.Read"], {
           "200": jsonResponse("Mail message collection."),
         }),
+        post: {
+          ...getOperation(
+            "message_Create",
+            "Create a JSON draft with optional file attachments under 3 MB",
+            ["Mail.ReadWrite"],
+            {
+              "201": jsonResponse("Created draft message."),
+              "400": jsonResponse("Invalid or unsupported draft or attachment input."),
+            },
+          ),
+          requestBody: mailJsonBody,
+        },
       },
       "/v1.0/me/messages/{id}": {
         get: {
@@ -118,6 +135,85 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
             "404": jsonResponse("Message not found."),
           }),
           parameters: [idPathParameter],
+        },
+        patch: {
+          ...getOperation(
+            "message_Update",
+            "Update a draft's subject, body, sender or recipients",
+            ["Mail.ReadWrite"],
+            {
+              "200": jsonResponse("Updated draft message."),
+              "400": jsonResponse("Invalid draft update or message is not a draft."),
+              "404": jsonResponse("Message not found."),
+            },
+          ),
+          parameters: [idPathParameter],
+          requestBody: mailJsonBody,
+        },
+      },
+      "/v1.0/me/messages/{id}/createReply": {
+        post: {
+          ...getOperation(
+            "message_CreateReply",
+            "Create a JSON reply draft in the original conversation",
+            ["Mail.ReadWrite"],
+            {
+              "201": jsonResponse("Created reply draft. Original quoted body is not generated."),
+              "400": jsonResponse("Invalid reply input."),
+              "404": jsonResponse("Message not found."),
+            },
+          ),
+          parameters: [idPathParameter],
+          requestBody: { ...mailJsonBody, required: false },
+        },
+      },
+      "/v1.0/me/messages/{id}/send": {
+        post: {
+          ...getOperation("message_Send", "Send a draft to sent items, retaining its ID", ["Mail.Send"], {
+            "202": emptyResponse("Draft accepted; no external delivery is performed."),
+            "400": jsonResponse("Message is not a draft or has no recipients."),
+            "404": jsonResponse("Message not found."),
+          }),
+          parameters: [idPathParameter],
+        },
+      },
+      "/v1.0/me/messages/{id}/attachments": {
+        get: {
+          ...getOperation("attachment_List", "List file attachments", ["Mail.Read"], {
+            "200": jsonResponse("File attachment collection. OData query options are not implemented."),
+            "404": jsonResponse("Message not found."),
+          }),
+          parameters: [idPathParameter],
+        },
+        post: {
+          ...getOperation("attachment_Create", "Add a file attachment under 3 MB to a draft", ["Mail.ReadWrite"], {
+            "201": jsonResponse("Created file attachment."),
+            "400": jsonResponse("Invalid attachment or message is not a draft."),
+            "404": jsonResponse("Message not found."),
+          }),
+          parameters: [idPathParameter],
+          requestBody: mailJsonBody,
+        },
+      },
+      "/v1.0/me/messages/{id}/attachments/{attachmentId}": {
+        get: {
+          ...getOperation("attachment_Get", "Get a file attachment including base64 contentBytes", ["Mail.Read"], {
+            "200": jsonResponse("File attachment."),
+            "404": jsonResponse("Message or attachment not found."),
+          }),
+          parameters: [idPathParameter, attachmentIdPathParameter],
+        },
+      },
+      "/v1.0/me/messages/{id}/attachments/{attachmentId}/$value": {
+        get: {
+          ...getOperation("attachment_GetContent", "Get raw file attachment bytes", ["Mail.Read"], {
+            "200": {
+              description: "File bytes.",
+              content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } },
+            },
+            "404": jsonResponse("Message or attachment not found."),
+          }),
+          parameters: [idPathParameter, attachmentIdPathParameter],
         },
       },
       "/v1.0/me/sendMail": {
