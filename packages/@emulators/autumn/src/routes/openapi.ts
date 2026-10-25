@@ -117,11 +117,61 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
               customer_id: { type: "string" },
               name: { type: "string" },
               email: { type: "string" },
+              new_customer_id: {
+                type: "string",
+                description: "A new id for the customer. Its subscriptions, Stripe subscription and usage stay.",
+              },
             },
             ["customer_id"],
             "The customer fields to update.",
           ),
-          responses: { "200": ok("The updated customer."), "404": ok("Not found.") },
+          responses: {
+            "200": ok("The updated customer."),
+            "404": ok("Not found."),
+            "409": ok("`new_customer_id` belongs to another customer."),
+          },
+        },
+      },
+      "/v1/customers.delete": {
+        post: {
+          operationId: "customers.delete",
+          tags: ["customers"],
+          summary: "Delete a customer",
+          requestBody: jsonBody({ customer_id: { type: "string" } }, ["customer_id"], "The customer to delete."),
+          responses: { "200": ok("`{ success: true }`."), "404": ok("Not found.") },
+        },
+      },
+      "/v1/billing.preview_attach": {
+        post: {
+          operationId: "billing.preview_attach",
+          tags: ["billing"],
+          summary: "Preview an attach without changing anything",
+          requestBody: jsonBody(
+            {
+              customer_id: { type: "string" },
+              plan_id: { type: "string" },
+              remove_plan_ids: { type: "array", items: { type: "string" } },
+              proration_behavior: { type: "string" },
+              redirect_mode: { type: "string" },
+              version: { type: "number" },
+              customize: { type: "object" },
+            },
+            ["customer_id", "plan_id"],
+            "The same body as `billing.attach`. With `remove_plan_ids` and `proration_behavior: none`, the new plan takes over the removed paid plan's Stripe subscription: `total` is 0 and `next_cycle.starts_at` is that subscription's period end.",
+          ),
+          responses: {
+            "200": ok("The charge now, the next cycle and the plans that change."),
+            "404": ok("Unknown customer or plan."),
+          },
+        },
+      },
+      "/v1/billing.verify": {
+        post: {
+          operationId: "billing.verify",
+          tags: ["billing"],
+          summary: "Compare a customer's Stripe subscriptions with its plans",
+          requestBody: jsonBody({ customer_id: { type: "string" } }, ["customer_id"], "The customer to verify."),
+          responses: { "200": ok("Each paid plan's Stripe subscription, always `correct`."), "404": ok("Not found.") },
         },
       },
       "/v1/balances.track": {

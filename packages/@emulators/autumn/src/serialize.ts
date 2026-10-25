@@ -62,8 +62,43 @@ export function ensureCustomer(as: AutumnStore, id: string, data: { name?: unkno
  *  usage-based item price. A plan that bills nothing has no cycle, which is
  *  what makes it the free tier of its group and what makes an end-of-cycle
  *  cancellation meaningless for it. */
-export function hasBillingCycle(plan: AutumnPlan): boolean {
+export function hasBillingCycle(plan: Pick<AutumnPlan, "price" | "items">): boolean {
   return plan.price != null || (plan.items ?? []).some((item) => item.price != null);
+}
+
+/** What a subscription bills: its plan at the subscription's version (an
+ *  earlier one from the plan's `versions`), with the subscription's own
+ *  `customize` laid over it. Autumn expands this as `subscriptions.plan`. */
+export function billedPlan(
+  as: AutumnStore,
+  sub: AutumnSubscription,
+): { plan: AutumnPlan | undefined; version: number; price: AutumnPlan["price"]; items: AutumnPlanItem[] } {
+  const plan = as.plans.findOneBy("plan_id", sub.plan_id);
+  const version = sub.version ?? plan?.version ?? 1;
+  const earlier = plan?.versions?.find((candidate) => candidate.version === version);
+  const base = earlier ?? { price: plan?.price ?? null, items: plan?.items ?? [] };
+  const customize = sub.customize ?? undefined;
+  return {
+    plan,
+    version,
+    price: customize && "price" in customize ? (customize.price ?? null) : base.price,
+    items: customize?.items ?? base.items,
+  };
+}
+
+/** A paid subscription bills on a Stripe subscription; give a seeded one a
+ *  stable id when it names none. Free plans have none. */
+export function withStripeSubscription(
+  as: AutumnStore,
+  customerId: string,
+  sub: AutumnSubscription,
+): AutumnSubscription {
+  if (sub.stripe_subscription_id !== undefined) return sub;
+  const billed = billedPlan(as, sub);
+  return {
+    ...sub,
+    stripe_subscription_id: hasBillingCycle(billed) ? `sub_emulate_stripe_${customerId}_${sub.plan_id}` : null,
+  };
 }
 
 /** The highest event id issued so far. A subscription records this at
@@ -108,6 +143,14 @@ export function attachPlan(
     if (plan.add_on) return true;
     return (other?.group ?? null) !== plan.group;
   });
+  // A paid plan merges into the Stripe subscription of the paid plan it
+  // replaces, as Autumn does by default; otherwise checkout opened a new one.
+  const replaced = (customer.subscriptions ?? []).find(
+    (existing) => !kept.includes(existing) && existing.stripe_subscription_id,
+  );
+  sub.stripe_subscription_id = paid
+    ? (replaced?.stripe_subscription_id ?? `sub_emulate_stripe_${customer.id}_${plan.plan_id}_${now}`)
+    : null;
   const trialsUsed = trialing
     ? Array.from(new Set([...(customer.trials_used ?? []), plan.plan_id]))
     : (customer.trials_used ?? []);
@@ -259,8 +302,22 @@ function serializeBalanceFeature(as: AutumnStore, featureId: string): Record<str
   };
 }
 
-function serializeSubscription(sub: AutumnSubscription): Record<string, unknown> {
+function serializeSubscription(as: AutumnStore, sub: AutumnSubscription, expandPlan: boolean): Record<string, unknown> {
+  const billed = expandPlan ? billedPlan(as, sub) : undefined;
   return {
+    ...(billed?.plan
+      ? {
+          plan: {
+            ...serializePlan(as, undefined, billed.plan),
+            version: billed.version,
+            version_slug: `v${billed.version}`,
+            price: billed.price
+              ? { amount: billed.price.amount, interval: billed.price.interval, interval_count: 1 }
+              : null,
+            items: billed.items.map(serializePlanItem),
+          },
+        }
+      : {}),
     id: sub.id ?? `sub_emulate_${sub.plan_id}`,
     plan_id: sub.plan_id,
     auto_enable: false,
@@ -317,8 +374,7 @@ interface Granting {
 function balancesFor(as: AutumnStore, customer: AutumnCustomer): Record<string, SerializedBalance> {
   const granting = new Map<string, Granting[]>();
   for (const sub of activeSubscriptions(customer)) {
-    const plan = as.plans.findOneBy("plan_id", sub.plan_id);
-    for (const item of plan?.items ?? []) {
+    for (const item of billedPlan(as, sub).items) {
       const list = granting.get(item.feature_id) ?? [];
       list.push({ sub, item, window: resetWindow(sub, item) });
       granting.set(item.feature_id, list);
@@ -498,7 +554,9 @@ export function serializeCustomer(
     metadata: {},
     send_email_receipts: true,
     billing_controls: {},
-    subscriptions: (customer.subscriptions ?? []).map(serializeSubscription),
+    subscriptions: (customer.subscriptions ?? []).map((sub) =>
+      serializeSubscription(as, sub, options.expand?.includes("subscriptions.plan") === true),
+    ),
     purchases: [],
     licenses: [],
     balances: balancesFor(as, customer),
@@ -556,6 +614,17 @@ function eligibilityFor(as: AutumnStore, customer: AutumnCustomer, plan: AutumnP
   };
 }
 
+function serializePlanItem(it: AutumnPlanItem): Record<string, unknown> {
+  return {
+    feature_id: it.feature_id,
+    included: it.included ?? 0,
+    unlimited: it.unlimited === true,
+    pooled: false,
+    reset: it.reset ?? null,
+    price: it.price ?? null,
+  };
+}
+
 export function serializePlan(
   as: AutumnStore,
   customer: AutumnCustomer | undefined,
@@ -572,14 +641,7 @@ export function serializePlan(
     add_on: plan.add_on,
     auto_enable: plan.auto_enable,
     price: plan.price ? { amount: plan.price.amount, interval: plan.price.interval, interval_count: 1 } : null,
-    items: (plan.items ?? []).map((it) => ({
-      feature_id: it.feature_id,
-      included: it.included ?? 0,
-      unlimited: it.unlimited === true,
-      pooled: false,
-      reset: it.reset ?? null,
-      price: it.price ?? null,
-    })),
+    items: (plan.items ?? []).map(serializePlanItem),
     free_trial: plan.free_trial
       ? {
           duration_length: plan.free_trial.duration_length,

@@ -14,8 +14,11 @@ import {
   compactUsage,
   hasBillingCycle,
   knownFeature,
+  billedPlan,
   type CancelAction,
 } from "../serialize.js";
+import type { AutumnCustomer, AutumnCustomize, AutumnPlan, AutumnSubscription } from "../entities.js";
+import type { AutumnStore } from "../store.js";
 
 /** Autumn's `expand` request param: an array of field names, and (for hand-rolled
  *  HTTP callers) a comma-separated string. Anything else expands nothing. */
@@ -31,6 +34,89 @@ function parseExpand(value: unknown): string[] {
 }
 
 const CANCEL_ACTIONS = new Set(["cancel_immediately", "cancel_end_of_cycle", "uncancel"]);
+
+/** A subscription that bills now. Autumn reports a running trial as active;
+ *  the emulator marks it `trialing`. */
+const isLive = (sub: AutumnSubscription) => sub.status === "active" || sub.status === "trialing";
+
+type Refusal = { status: 400 | 404 | 409; message: string; code: string };
+
+/** What an attach with `remove_plan_ids` does: the new plan takes over the
+ *  Stripe subscription of the first paid plan it removes, keeping its billing
+ *  period and, unless the attach removes it, its trial. With
+ *  `proration_behavior: "none"` nothing is charged now. A cancellation at the
+ *  end of the cycle does not carry over: the new plan renews. Plans scheduled to
+ *  follow stay scheduled. Returns null when the attach takes over no paid
+ *  subscription or prorates, which this emulator routes through checkout. */
+function replacement(
+  store: AutumnStore,
+  customer: AutumnCustomer,
+  plan: AutumnPlan,
+  body: Record<string, unknown>,
+): Refusal | { next: AutumnSubscription[]; sub: AutumnSubscription; removed: AutumnSubscription[] } | null {
+  const removeIds = body.remove_plan_ids;
+  if (!Array.isArray(removeIds) || removeIds.length === 0) return null;
+  const subs = customer.subscriptions ?? [];
+  if (subs.some((sub) => isLive(sub) && sub.plan_id === plan.plan_id)) {
+    return {
+      status: 409,
+      message: `Cannot attach because the customer's current product '${plan.name}' is the same as the product being attached`,
+      code: "plan_already_attached",
+    };
+  }
+  const removed: AutumnSubscription[] = [];
+  for (const id of removeIds) {
+    const sub = subs.find((candidate) => isLive(candidate) && candidate.plan_id === id);
+    if (!sub) {
+      return {
+        status: 404,
+        message: `No active plan '${String(id)}' found on the customer to remove`,
+        code: "product_not_found",
+      };
+    }
+    removed.push(sub);
+  }
+  const taken = removed.find((sub) => sub.stripe_subscription_id);
+  if (!taken || body.proration_behavior !== "none") return null;
+  const customize = (body.customize ?? {}) as Record<string, unknown>;
+  const removesTrial =
+    ("free_trial" in customize && customize.free_trial === null) || ("free_trial" in body && body.free_trial === null);
+  const now = Date.now();
+  const trialing = taken.status === "trialing" || (taken.trial_ends_at ?? 0) > now;
+  if (trialing && removesTrial) {
+    return {
+      status: 400,
+      message: "Cannot set proration_behavior to 'none' when removing a free trial",
+      code: "invalid_request",
+    };
+  }
+  const override: AutumnCustomize = {
+    ...("price" in customize ? { price: (customize.price as AutumnCustomize["price"]) ?? null } : {}),
+    ...(Array.isArray(customize.items) ? { items: customize.items as AutumnCustomize["items"] } : {}),
+  };
+  const sub: AutumnSubscription = {
+    id: `sub_emulate_${customer.id}_${plan.plan_id}`,
+    plan_id: plan.plan_id,
+    status: trialing ? "trialing" : "active",
+    started_at: now,
+    current_period_start: taken.current_period_start ?? null,
+    current_period_end: taken.current_period_end ?? null,
+    trial_ends_at: trialing ? (taken.trial_ends_at ?? null) : null,
+    canceled_at: null,
+    expires_at: null,
+    quantity: 1,
+    usage_epoch: store.events.all().reduce((max, event) => Math.max(max, event.id), 0),
+    stripe_subscription_id: taken.stripe_subscription_id,
+    ...(typeof body.version === "number" ? { version: body.version } : {}),
+    ...(Object.keys(override).length > 0 ? { customize: override } : {}),
+  };
+  const next = [...subs.filter((existing) => !removed.includes(existing)), sub];
+  return { next, sub, removed };
+}
+
+function refuse(c: { json: (body: unknown, status: number) => Response }, refusal: Refusal) {
+  return c.json({ message: refusal.message, code: refusal.code }, refusal.status);
+}
 
 /** Autumn v1 RPC-style API (paths mirror autumn-js: /v1/<group>.<method>). */
 export function autumnApiRoutes(ctx: RouteContext): void {
@@ -98,11 +184,134 @@ export function autumnApiRoutes(ctx: RouteContext): void {
     const store = as();
     const customer = store.customers.findOneBy("customer_id", id);
     if (!customer) return c.json({ message: "Customer not found", code: "not_found" }, 404);
+    // `new_customer_id` gives the customer a new id. Its Stripe customer,
+    // subscriptions and usage stay; an id another customer has is refused.
+    const newId = body.new_customer_id ?? body.newCustomerId;
+    if (typeof newId === "string" && newId !== "" && newId !== id) {
+      if (store.customers.findOneBy("customer_id", newId)) {
+        return c.json(
+          {
+            message: `Customer with ID ${newId} already exists, can't change to this ID`,
+            code: "customer_already_exists",
+          },
+          409,
+        );
+      }
+      for (const collection of [store.events, store.checkouts, store.setups, store.portals] as const) {
+        for (const row of collection.findBy("customer_id", id)) {
+          (collection as typeof store.events).update(row.id, { customer_id: newId });
+        }
+      }
+    }
     const updated = store.customers.update(customer.id, {
       name: typeof body.name === "string" ? body.name : customer.name,
       email: typeof body.email === "string" ? body.email : customer.email,
+      ...(typeof newId === "string" && newId !== "" ? { customer_id: newId } : {}),
     })!;
     return c.json(serializeCustomer(store, updated));
+  });
+
+  // Delete a customer. Its Stripe customer is left alone unless
+  // `delete_in_stripe`, which the emulator has no Stripe to apply to.
+  app.post("/v1/customers.delete", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const id = String(body.customer_id ?? body.customerId ?? "");
+    const store = as();
+    const customer = store.customers.findOneBy("customer_id", id);
+    if (!customer) return c.json({ message: `Customer ${id} not found`, code: "customer_not_found" }, 404);
+    store.customers.delete(customer.id);
+    return c.json({ success: true });
+  });
+
+  // Compare each paid plan's Stripe subscription with Autumn's record. The
+  // emulator's Stripe is its own record, so every subscription is correct.
+  app.post("/v1/billing.verify", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const id = String(body.customer_id ?? body.customerId ?? "");
+    const store = as();
+    const customer = store.customers.findOneBy("customer_id", id);
+    if (!customer) return c.json({ message: `Customer ${id} not found`, code: "customer_not_found" }, 404);
+    const ids = Array.from(
+      new Set(
+        (customer.subscriptions ?? [])
+          .filter((sub) => isLive(sub) && sub.stripe_subscription_id)
+          .map((sub) => sub.stripe_subscription_id as string),
+      ),
+    );
+    return c.json({
+      customer_id: id,
+      customer_mismatches: [],
+      subscriptions: ids.map((stripeId) => ({ stripe_subscription_id: stripeId, status: "correct", mismatches: [] })),
+    });
+  });
+
+  // What an attach would charge and change, changing nothing.
+  app.post("/v1/billing.preview_attach", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const customerId = String(body.customer_id ?? body.customerId ?? "");
+    const planId = String(body.plan_id ?? body.planId ?? "");
+    const store = as();
+    const plan = store.plans.findOneBy("plan_id", planId);
+    if (!plan) return c.json({ message: `Product ${planId} not found`, code: "product_not_found" }, 404);
+    const customer = store.customers.findOneBy("customer_id", customerId);
+    if (!customer) return c.json({ message: `Customer ${customerId} not found`, code: "customer_not_found" }, 404);
+    const change = replacement(store, customer, plan, body);
+    if (change && "status" in change) return refuse(c, change);
+    if (change) {
+      const billed = billedPlan(store, change.sub);
+      return c.json({
+        customer_id: customerId,
+        line_items: [],
+        subtotal: 0,
+        total: 0,
+        currency: "usd",
+        next_cycle: change.sub.current_period_end
+          ? {
+              starts_at: change.sub.current_period_end,
+              subtotal: billed.price?.amount ?? 0,
+              total: billed.price?.amount ?? 0,
+              line_items: [],
+            }
+          : null,
+        incoming: [
+          { plan_id: plan.plan_id, feature_quantities: [], effective_at: null, canceled_at: null, expires_at: null },
+        ],
+        outgoing: change.removed.map((sub) => ({
+          plan_id: sub.plan_id,
+          feature_quantities: [],
+          effective_at: Date.now(),
+          canceled_at: sub.canceled_at ?? null,
+          expires_at: sub.expires_at ?? null,
+        })),
+        redirect_to_checkout: false,
+        checkout_type: null,
+      });
+    }
+    const requiresPayment = plan.price != null || plan.free_trial?.card_required === true;
+    const outgoing = (customer.subscriptions ?? []).filter((sub) => {
+      const other = store.plans.findOneBy("plan_id", sub.plan_id);
+      return isLive(sub) && !plan.add_on && !other?.add_on && (other?.group ?? null) === plan.group;
+    });
+    return c.json({
+      customer_id: customerId,
+      line_items: [],
+      subtotal: plan.price?.amount ?? 0,
+      total: plan.price?.amount ?? 0,
+      currency: "usd",
+      next_cycle: null,
+      incoming: [
+        { plan_id: plan.plan_id, feature_quantities: [], effective_at: null, canceled_at: null, expires_at: null },
+      ],
+      outgoing: outgoing.map((sub) => ({
+        plan_id: sub.plan_id,
+        feature_quantities: [],
+        effective_at: Date.now(),
+        canceled_at: sub.canceled_at ?? null,
+        expires_at: sub.expires_at ?? null,
+      })),
+      redirect_to_checkout: requiresPayment,
+      checkout_type: requiresPayment ? "stripe_checkout" : null,
+    });
   });
 
   app.post("/v1/balances.track", async (c) => {
@@ -259,6 +468,12 @@ export function autumnApiRoutes(ctx: RouteContext): void {
     const plan = store.plans.findOneBy("plan_id", planId);
     if (!plan) return c.json({ message: `Product ${planId} not found`, code: "product_not_found" }, 404);
     const customer = ensureCustomer(store, customerId, body);
+    const change = replacement(store, customer, plan, body);
+    if (change && "status" in change) return refuse(c, change);
+    if (change) {
+      store.customers.update(customer.id, { subscriptions: change.next });
+      return c.json({ customer_id: customerId, payment_url: null });
+    }
     const requiresPayment = plan.price != null || plan.free_trial?.card_required === true;
 
     if (requiresPayment) {

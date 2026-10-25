@@ -4,7 +4,7 @@ export const manifest: ServiceManifest = {
   id: "autumn",
   name: "Autumn",
   description:
-    "Stateful Autumn billing emulator: customers (with auto_enable_plan_id, seedable subscriptions and a seedable feature and plan catalog), usage tracking, atomic check-and-consume, subscription cancellation, plan eligibility, a hosted checkout flow for paid plans and card-required free trials, a hosted setup flow for putting a card on file, and a hosted billing portal for changing it.",
+    "Stateful Autumn billing emulator: customers (with auto_enable_plan_id, seedable subscriptions and a seedable feature and plan catalog), usage tracking, atomic check-and-consume, subscription cancellation, moving a paid customer to another plan on its Stripe subscription (rename, preview and attach with remove_plan_ids), plan eligibility, a hosted checkout flow for paid plans and card-required free trials, a hosted setup flow for putting a card on file, and a hosted billing portal for changing it.",
   docsUrl: "https://docs.emulators.dev/autumn",
   surfaces: [
     { id: "rest", kind: "rest", title: "Autumn v1 API", status: "partial", basePath: "/v1" },
@@ -29,11 +29,19 @@ export const manifest: ServiceManifest = {
         { operationId: "customers.get", method: "POST", path: "/v1/customers.get", status: "hand-authored" },
         { operationId: "customers.list", method: "POST", path: "/v1/customers.list", status: "hand-authored" },
         { operationId: "customers.update", method: "POST", path: "/v1/customers.update", status: "hand-authored" },
+        { operationId: "customers.delete", method: "POST", path: "/v1/customers.delete", status: "hand-authored" },
         { operationId: "balances.track", method: "POST", path: "/v1/balances.track", status: "hand-authored" },
         { operationId: "balances.check", method: "POST", path: "/v1/balances.check", status: "hand-authored" },
         { operationId: "balances.update", method: "POST", path: "/v1/balances.update", status: "hand-authored" },
         { operationId: "plans.list", method: "POST", path: "/v1/plans.list", status: "hand-authored" },
         { operationId: "billing.attach", method: "POST", path: "/v1/billing.attach", status: "hand-authored" },
+        {
+          operationId: "billing.preview_attach",
+          method: "POST",
+          path: "/v1/billing.preview_attach",
+          status: "partial",
+        },
+        { operationId: "billing.verify", method: "POST", path: "/v1/billing.verify", status: "partial" },
         { operationId: "billing.update", method: "POST", path: "/v1/billing.update", status: "partial" },
         {
           operationId: "billing.setup_payment",
