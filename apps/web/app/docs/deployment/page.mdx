@@ -77,7 +77,7 @@ A bare service host such as `https://github.emulators.dev`, with no instance, se
 
 ## Instance model
 
-The `emulate-hosts` worker serves `emulators.dev/*` (the apex catalog) and `*.emulators.dev/*` (service and instance hosts). Each stateful instance is backed by one Cloudflare Durable Object. The `EmulatorDurableObject` class is declared through a wrangler `migrations` entry (`new_classes`), and both the instance state and the request ledger are snapshotted to Durable Object storage, so an instance survives eviction.
+The `emulate-hosts` worker serves `emulators.dev/*` (the apex catalog) and `*.emulators.dev/*` (service and instance hosts). Each stateful instance is backed by one Cloudflare Durable Object. The `EmulatorDurableObject` class is declared through a wrangler `migrations` entry (`new_classes`), and the instance state, the request ledger and armed faults are snapshotted to Durable Object storage, so an instance survives eviction.
 
 ```text
 POST https://github.emulators.dev/_emulate/instances

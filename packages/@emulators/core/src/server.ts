@@ -33,6 +33,8 @@ export interface ServerOptions {
   reset?: () => void | Promise<void>;
   seed?: (seed: unknown) => void | Promise<void>;
   issueCredential?: (request: CredentialRequest) => IssuedCredential | Promise<IssuedCredential>;
+  /** Awaited after a request consumes a fault, before its delay (see `createFaultMiddleware`). */
+  onFaultConsumed?: () => void | Promise<void>;
 }
 
 export function createServer(plugin: ServicePlugin, options: ServerOptions = {}) {
@@ -90,7 +92,10 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
   }
 
   app.use("*", createLedgerMiddleware(ledger, { webhooks }));
-  app.use("*", createFaultMiddleware(faults, options.manifest ?? createDefaultManifest(plugin.name)));
+  app.use(
+    "*",
+    createFaultMiddleware(faults, options.manifest ?? createDefaultManifest(plugin.name), options.onFaultConsumed),
+  );
 
   const rateLimitCounters = new Map<string, { remaining: number; resetAt: number }>();
   let lastPruneAt = Math.floor(Date.now() / 1000);

@@ -598,6 +598,58 @@ describe("cloudflare durable object control plane", () => {
     expect(((await exchange.json()) as { error: string }).error).toBe("invalid_grant");
   });
 
+  // Executor's slow-Autumn e2e arms a delayed fault for three requests, sends one, gives up on
+  // it, and reads the remaining count. Cloudflare can replace the instance at any point of
+  // that, so the count and the ids must outlive it.
+  it("keeps armed faults, their counts and their ids across eviction", async () => {
+    const { storage, state } = makeState();
+    const first = new EmulatorDurableObject(state, {});
+    const arm = (durableObject: EmulatorDurableObject, delayMs: number) =>
+      durableObject
+        .fetch(
+          new Request("https://github.my-run.emulators.dev/_emulate/faults", {
+            method: "POST",
+            headers: idHeaders({ "content-type": "application/json" }),
+            body: JSON.stringify({
+              match: { method: "GET", pathPattern: "/repos/*" },
+              response: { status: 503, body: { message: "synthetic outage" } },
+              times: 3,
+              delayMs,
+            }),
+          }),
+        )
+        .then(async (res) => ((await res.json()) as { fault: { id: string } }).fault.id);
+    const remaining = async (durableObject: EmulatorDurableObject) => {
+      const res = await durableObject.fetch(
+        new Request("https://github.my-run.emulators.dev/_emulate/faults", { headers: idHeaders() }),
+      );
+      const body = (await res.json()) as { faults: Array<{ id: string; remaining: number }> };
+      return new Map(body.faults.map((fault) => [fault.id, fault.remaining]));
+    };
+
+    const delayed = await arm(first, 300);
+    // The caller abandons this request; its consumed count is stored before the delay ends.
+    const pending = first.fetch(
+      new Request("https://github.my-run.emulators.dev/repos/acme/widget", { headers: idHeaders() }),
+    );
+    for (let attempt = 0; attempt < 50; attempt++) {
+      const stored = storage.get("faults") as { faults: Array<{ remaining: number }> } | undefined;
+      if (stored?.faults[0]?.remaining === 2) break;
+      await new Promise((resolve) => setTimeout(resolve, 5));
+    }
+
+    const evicted = new EmulatorDurableObject(state, {});
+    expect((await remaining(evicted)).get(delayed)).toBe(2);
+    const next = await arm(evicted, 0);
+    expect(next).not.toBe(delayed);
+    const faulted = await evicted.fetch(
+      new Request("https://github.my-run.emulators.dev/repos/acme/widget", { headers: idHeaders() }),
+    );
+    expect(faulted.status).toBe(503);
+    expect((await remaining(evicted)).get(delayed)).toBe(1);
+    expect((await pending).status).toBe(503);
+  });
+
   it("reports the real instance id in the manifest", async () => {
     const { state } = makeState();
     const durableObject = new EmulatorDurableObject(state, {});

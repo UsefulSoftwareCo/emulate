@@ -37,9 +37,24 @@ export interface FaultLedgerMarker {
   faultId: string;
 }
 
+/** Every armed fault and the next id, so a host can keep them across a restart. */
+export interface FaultRegistrySnapshot {
+  counter: number;
+  faults: ArmedFault[];
+}
+
 export class FaultRegistry {
   private faults: ArmedFault[] = [];
   private counter = 1;
+
+  serialize(): FaultRegistrySnapshot {
+    return { counter: this.counter, faults: this.faults.map(cloneFault) };
+  }
+
+  restore(snapshot: FaultRegistrySnapshot | undefined): void {
+    this.faults = (snapshot?.faults ?? []).map(cloneFault);
+    this.counter = snapshot?.counter ?? 1;
+  }
 
   arm(input: FaultArmInput): ArmedFault {
     validateFaultInput(input);
@@ -87,7 +102,15 @@ export class FaultRegistry {
   }
 }
 
-export function createFaultMiddleware(faults: FaultRegistry, manifest: ServiceManifest): MiddlewareHandler<AppEnv> {
+export function createFaultMiddleware(
+  faults: FaultRegistry,
+  manifest: ServiceManifest,
+  /**
+   * Awaited after a request consumes a fault and before its delay, so a host that persists
+   * faults stores the new count before a delayed response, which its caller may abandon.
+   */
+  onConsumed?: () => void | Promise<void>,
+): MiddlewareHandler<AppEnv> {
   const operations = manifest.specs.flatMap((spec) => spec.operations ?? []);
 
   return async (c, next) => {
@@ -113,6 +136,7 @@ export function createFaultMiddleware(faults: FaultRegistry, manifest: ServiceMa
     }
 
     c.set("fault", { faulted: true, faultId: fault.id });
+    await onConsumed?.();
     if (fault.delayMs && fault.delayMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, fault.delayMs));
     }

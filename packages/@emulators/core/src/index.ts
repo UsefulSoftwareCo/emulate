@@ -79,6 +79,7 @@ export {
   type FaultArmInput,
   type FaultLedgerMarker,
   type FaultMatch,
+  type FaultRegistrySnapshot,
   type FaultResponse,
 } from "./faults.js";
 export {

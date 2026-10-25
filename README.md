@@ -73,7 +73,7 @@ The request ledger is a core feature, not a debug afterthought. Each entry recor
 
 ### Fault injection
 
-Tests and development harnesses can arm one-shot faults with `POST /_emulate/faults`. A fault matches all provided criteria: `operationId` when the emulator can resolve one from its service manifest, `method`, and `pathPattern`. `pathPattern` uses a simple glob where `*` matches any characters in the request path. Matching requests short-circuit with the configured response, decrement `remaining`, and are removed at zero. Faulted requests are still written to `/_emulate/ledger` with `faulted: true` and `faultId`.
+Tests and development harnesses can arm one-shot faults with `POST /_emulate/faults`. A fault matches all provided criteria: `operationId` when the emulator can resolve one from its service manifest, `method`, and `pathPattern`. `pathPattern` uses a simple glob where `*` matches any characters in the request path. Matching requests short-circuit with the configured response, decrement `remaining`, and are removed at zero. Faulted requests are still written to `/_emulate/ledger` with `faulted: true` and `faultId`. On the hosted Cloudflare surface armed faults, their remaining counts and the next fault id are persisted with the instance, so a fault keeps its count when Cloudflare replaces the instance between arming it and the requests it targets.
 
 ```bash
 curl -s -X POST "$EMULATOR_URL/_emulate/faults" \
@@ -213,7 +213,7 @@ Documentation is a separate site at `https://docs.emulators.dev`. Per-service do
 
 ### Deployment
 
-The emulator worker is named `emulate-hosts`. It serves `emulators.dev/*` (the apex catalog) and `*.emulators.dev/*`, that is every service and instance subdomain. The `EmulatorDurableObject` class is declared through a wrangler `migrations` entry (`new_classes`). Each stateful instance is backed by one `EmulatorDurableObject`; both the store snapshot and the request ledger are persisted to Durable Object storage so instances survive eviction.
+The emulator worker is named `emulate-hosts`. It serves `emulators.dev/*` (the apex catalog) and `*.emulators.dev/*`, that is every service and instance subdomain. The `EmulatorDurableObject` class is declared through a wrangler `migrations` entry (`new_classes`). Each stateful instance is backed by one `EmulatorDurableObject`; the store snapshot, the request ledger and armed faults are persisted to Durable Object storage so instances survive eviction.
 
 The docs site (`apps/web`, worker name `emulate-docs`) serves `docs.emulators.dev`. Because that host is more specific than `*.emulators.dev`, it wins for docs traffic.
 

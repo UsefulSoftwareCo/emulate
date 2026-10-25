@@ -1,6 +1,8 @@
 import {
   createServer,
   type AppKeyResolver,
+  type FaultRegistry,
+  type FaultRegistrySnapshot,
   type LedgerEntry,
   type LedgerSnapshot,
   type RequestLedger,
@@ -51,6 +53,7 @@ interface Live {
   store: Store;
   tokenMap: TokenMap;
   ledger: RequestLedger;
+  faults: FaultRegistry;
   service: string;
   instance: string;
   baseUrl: string;
@@ -65,6 +68,9 @@ const SNAPSHOT_DATA_PREFIX = "snapshot:data:";
 const LEDGER_META_KEY = "ledger:meta";
 const LEDGER_ENTRY_PREFIX = "ledger:entry:";
 const MINTED_PREFIX = "minted:";
+// Armed faults and the next fault id. Cloudflare can replace an instance at any time, even
+// between a test arming a fault and the request it targets, so faults persist with the store.
+const FAULTS_KEY = "faults";
 
 interface SnapshotCollectionMeta {
   autoId: number;
@@ -308,6 +314,7 @@ export class EmulatorDurableObject {
     const strict = persisted.strict ?? true;
     const snapshot = await this.readStoreSnapshot(persisted.snapshot);
     const ledgerSnapshot = await this.readLedger(persisted.ledger);
+    const faultSnapshot = await this.state.storage.get<FaultRegistrySnapshot>(FAULTS_KEY);
     const minted = await this.readMinted(persisted.minted);
     const tokens = this.buildTokens(persisted.seed, strict, minted);
 
@@ -323,7 +330,7 @@ export class EmulatorDurableObject {
       : entry.defaultFallback(persisted.seed?.[service] as Record<string, unknown> | undefined);
 
     let resetService = async () => {};
-    const { app, store, tokenMap, webhooks, ledger } = createServer(entry.plugin, {
+    const { app, store, tokenMap, webhooks, ledger, faults } = createServer(entry.plugin, {
       baseUrl,
       tokens,
       appKeyResolver,
@@ -332,6 +339,7 @@ export class EmulatorDurableObject {
       instance,
       ledgerPersistent: true,
       reset: () => resetService(),
+      onFaultConsumed: () => this.persist(),
       seed: async (seed) => {
         if (seed && entry.seedFromConfig) {
           entry.seedFromConfig(store, baseUrl, seed as Record<string, unknown>);
@@ -360,6 +368,7 @@ export class EmulatorDurableObject {
     if (snapshot) store.restore(snapshot);
     else this.seedInto(store, service, baseUrl, persisted.seed);
     ledger.restore(ledgerSnapshot);
+    faults.restore(faultSnapshot);
     resetService = async () => {
       store.reset();
       webhooks.clear();
@@ -379,7 +388,17 @@ export class EmulatorDurableObject {
       }
     }
 
-    this.live = { app, store, tokenMap: tokenMap as TokenMap, ledger, service, instance, baseUrl, reset: resetService };
+    this.live = {
+      app,
+      store,
+      tokenMap: tokenMap as TokenMap,
+      ledger,
+      faults,
+      service,
+      instance,
+      baseUrl,
+      reset: resetService,
+    };
     if (entry.prepare) {
       // Persist prepared state now: a read-only first request would not persist it,
       // and a rebuild must not replace state a client has already observed.
@@ -408,6 +427,7 @@ export class EmulatorDurableObject {
       counter: ledger.counter,
       ids: ledger.entries.map((entry) => entry.id),
     } satisfies LedgerMeta);
+    entries.set(FAULTS_KEY, live.faults.serialize());
     return entries;
   }
 
@@ -416,7 +436,7 @@ export class EmulatorDurableObject {
     for (const prefix of [SNAPSHOT_ITEM_PREFIX, SNAPSHOT_DATA_PREFIX, LEDGER_ENTRY_PREFIX]) {
       for (const [key, value] of await this.state.storage.list({ prefix })) written.set(key, JSON.stringify(value));
     }
-    for (const key of [SNAPSHOT_META_KEY, LEDGER_META_KEY]) {
+    for (const key of [SNAPSHOT_META_KEY, LEDGER_META_KEY, FAULTS_KEY]) {
       const value = await this.state.storage.get(key);
       if (value !== undefined) written.set(key, JSON.stringify(value));
     }
@@ -469,6 +489,7 @@ export class EmulatorDurableObject {
       await this.clearStoreSnapshot();
       await this.clearLedger();
       await this.clearMinted();
+      await this.state.storage.delete(FAULTS_KEY);
       await this.writeStateMeta({ seed, strict: strict !== false });
       this.live = undefined;
       this.written = undefined;
