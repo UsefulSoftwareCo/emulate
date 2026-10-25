@@ -6,7 +6,7 @@ allowed-tools: Bash(npx emulate:*), Bash(curl:*)
 
 # Autumn Emulator
 
-Stateful Autumn billing emulation: customers (`customers.get_or_create`, including `auto_enable_plan_id`, and the read-only `customers.get`, a 404 `customer_not_found` for an unknown id), a seedable feature and plan catalog with per-customer eligibility (`plans.list`, `features.list`), usage tracking (`balances.track`), balance reconciliation (`balances.update`), feature access checks with atomic check-and-consume (`balances.check`), subscription changes (`billing.update`), `billing.attach` / `billing.setup_payment` / `billing.open_customer_portal`, a hosted checkout flow for paid plans and card-required free trials, a hosted setup flow for putting a card on file, and a hosted billing portal for changing it.
+Stateful Autumn billing emulation: customers (`customers.get_or_create`, including `auto_enable_plan_id`, and the read-only `customers.get`, a 404 `customer_not_found` for an unknown id), a seedable feature and plan catalog with per-customer eligibility (`plans.list`, `features.list`), usage tracking (`balances.track`), balance reconciliation (`balances.update`), feature access checks with atomic check-and-consume (`balances.check`), subscription changes (`billing.update`), `billing.attach` / `billing.preview_attach` / `billing.setup_payment` / `billing.open_customer_portal`, moving a paid customer to another plan on its Stripe subscription (`customers.update` with `new_customer_id`, `remove_plan_ids`, `billing.verify`, `customers.delete`), a hosted checkout flow for paid plans and card-required free trials, a hosted setup flow for putting a card on file, and a hosted billing portal for changing it.
 
 The request and response shapes, status codes and error codes below were taken from the real Autumn sandbox API at `x-api-version: 2.3.0` rather than from the docs, so an application can point at the emulator with no emulator-specific branches.
 
@@ -95,11 +95,11 @@ Because it consumes, a lost response is not evidence that nothing was spent: do 
 
 Three outcomes, matching real Autumn:
 
-| Case | Response |
-| --- | --- |
-| Feature the catalog does not declare | `404 { "code": "feature_not_found" }` |
+| Case                                           | Response                                    |
+| ---------------------------------------------- | ------------------------------------------- |
+| Feature the catalog does not declare           | `404 { "code": "feature_not_found" }`       |
 | Declared feature no active subscription grants | `200 { "allowed": false, "balance": null }` |
-| Granted feature | `200` with the balance after any deduction |
+| Granted feature                                | `200` with the balance after any deduction  |
 
 ## Cancel a subscription
 
@@ -120,6 +120,38 @@ await autumn.billing.update({
 Omit `plan_id` to apply the action to every live subscription. A plan the customer does not hold 404s with `cus_product_not_found`; an update with no action at all is a `400 invalid_inputs`.
 
 Attaching a plan after an immediate cancel issues fresh grants, so usage starts from zero rather than inheriting the cancelled subscription's consumption.
+
+## Move a paid customer to another plan on its Stripe subscription
+
+Two catalogs in one Autumn account (for example an old product's plans and a new product's) can hand a paying customer from one to the other without a new subscription or a charge, as the real sandbox does it:
+
+1. `customers.update` with `new_customer_id` renames the customer. Its subscriptions, Stripe subscription and usage stay; an id another customer has is a `409 customer_already_exists`.
+2. `billing.preview_attach` takes the same body as `billing.attach` and changes nothing.
+3. `billing.attach` with `remove_plan_ids`, `proration_behavior: "none"` and `redirect_mode: "never"` expires the removed plans and puts the new plan on the Stripe subscription of the first paid one it removes: same billing period, nothing charged now (`total: 0`), and a running trial keeps its end. Removing a running trial without proration is a `400`, as in Autumn. A cancellation at the end of the cycle does not carry over, and a plan scheduled to follow stays scheduled. `customize` can set a flat `price` and replace `items` for this subscription; `version` attaches an earlier version of a plan. A plan the customer does not hold 404s with `product_not_found`, and attaching the plan it already has is a `409 plan_already_attached`.
+
+`customers.get` with `expand: ["subscriptions.plan"]` returns each subscription's plan at the version it bills, with its `customize`. `billing.verify` lists the Stripe subscription of each paid plan (always `correct`: the emulator's Stripe is its own record), and `customers.delete` deletes a customer.
+
+Seed a customer on an earlier version, and its Stripe subscription, through the seed config: a plan's `versions` holds earlier versions' `price` and `items`, and a subscription names `version` and optionally `stripe_subscription_id` (a paid one gets a stable id otherwise).
+
+```ts
+await fetch(`${base}/v1/customers.update`, {
+  method: "POST",
+  headers,
+  body: JSON.stringify({ customer_id: "org_123", new_customer_id: "next:org_123" }),
+});
+await fetch(`${base}/v1/billing.attach`, {
+  method: "POST",
+  headers,
+  body: JSON.stringify({
+    customer_id: "next:org_123",
+    plan_id: "next-team",
+    remove_plan_ids: ["team"],
+    proration_behavior: "none",
+    redirect_mode: "never",
+    customize: { free_trial: null },
+  }),
+});
+```
 
 ## Set a balance directly
 

@@ -6,6 +6,7 @@ import { checkoutRoutes } from "./routes/checkout.js";
 import { portalRoutes } from "./routes/portal.js";
 import { openapiRoutes } from "./routes/openapi.js";
 import type { AutumnSubscription, AutumnFeature, AutumnPaymentMethod, AutumnPlan, AutumnPlanItem } from "./entities.js";
+import { withStripeSubscription } from "./serialize.js";
 
 export { getAutumnStore, type AutumnStore } from "./store.js";
 export * from "./entities.js";
@@ -40,6 +41,9 @@ export interface AutumnSeedPlan {
   price?: { amount: number; interval: string } | null;
   free_trial?: { duration_length: number; duration_type: string; card_required: boolean } | null;
   items?: AutumnPlanItem[];
+  /** Earlier versions existing subscriptions still bill. A seeded subscription
+   *  names one with `version`; `billing.attach` can attach one with `version`. */
+  versions?: Array<{ version: number; price?: { amount: number; interval: string } | null; items?: AutumnPlanItem[] }>;
 }
 
 export interface AutumnSeedConfig {
@@ -96,6 +100,11 @@ function seedPlans(as: AutumnStore, plans: AutumnSeedPlan[]): void {
       // Keep a re-seeded plan in its catalog position so seeding twice cannot
       // silently turn an upgrade into a downgrade.
       order: existing?.order ?? index,
+      versions: (plan.versions ?? []).map((version) => ({
+        version: version.version,
+        price: version.price ?? null,
+        items: version.items ?? [],
+      })),
     };
     if (existing) {
       as.plans.update(existing.id, fields);
@@ -124,7 +133,9 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: AutumnSee
       as.customers.update(existing.id, {
         name: customer.name ?? existing.name,
         email: customer.email ?? existing.email,
-        subscriptions: customer.subscriptions ?? existing.subscriptions,
+        subscriptions: customer.subscriptions
+          ? customer.subscriptions.map((sub) => withStripeSubscription(as, customer.id, sub))
+          : existing.subscriptions,
         payment_method: paymentMethod ?? existing.payment_method,
       });
       return;
@@ -133,7 +144,7 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: AutumnSee
       customer_id: customer.id,
       name: customer.name ?? null,
       email: customer.email ?? null,
-      subscriptions: customer.subscriptions ?? [],
+      subscriptions: (customer.subscriptions ?? []).map((sub) => withStripeSubscription(as, customer.id, sub)),
       payment_method: paymentMethod,
     });
   });

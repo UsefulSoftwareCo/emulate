@@ -19,7 +19,23 @@ export interface AutumnSubscription {
    *  plan is attached, so a re-attach after a cancel starts from zero usage
    *  rather than inheriting the previous subscription's consumption. */
   usage_epoch?: number;
+  /** The Stripe subscription that bills this plan. Paid plans attached by
+   *  checkout get one; a plan that replaces another through `remove_plan_ids`
+   *  takes over the removed plan's, as Autumn does. Free plans have none. */
+  stripe_subscription_id?: string | null;
+  /** The plan version this subscription bills. Defaults to the plan's current
+   *  version. Older versions come from the plan's `versions`. */
+  version?: number;
+  /** Per-subscription overrides from an attach's `customize`: a flat base
+   *  price and replaced items, as Autumn records a custom plan. */
+  customize?: AutumnCustomize | null;
   [key: string]: unknown;
+}
+
+/** An attach's `customize`, as far as the emulator models it. */
+export interface AutumnCustomize {
+  price?: { amount: number; interval: string } | null;
+  items?: AutumnPlanItem[];
 }
 
 export interface AutumnCustomer extends Entity {
@@ -84,6 +100,16 @@ export interface AutumnPlan extends Entity {
   items: AutumnPlanItem[];
   /** Rank used to classify an attach as upgrade vs downgrade (low to high). */
   order: number;
+  /** Earlier versions of the plan that existing subscriptions may still bill.
+   *  The plan's own fields are its current `version`. */
+  versions?: AutumnPlanVersion[];
+}
+
+/** One earlier version of a plan: its own price and items. */
+export interface AutumnPlanVersion {
+  version: number;
+  price: { amount: number; interval: string } | null;
+  items: AutumnPlanItem[];
 }
 
 /** A catalog feature. Autumn resolves a `balances.check` feature id against
