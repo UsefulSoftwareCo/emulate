@@ -289,6 +289,11 @@ export class Hono<E = unknown> {
     }
   };
 
+  /** The registered pattern (e.g. `/repos/:owner/:repo`) that would serve this request, if any. */
+  routePattern(method: string, path: string): string | undefined {
+    return this.match(method.toUpperCase(), path).routePattern;
+  }
+
   private match(
     method: string,
     path: string,

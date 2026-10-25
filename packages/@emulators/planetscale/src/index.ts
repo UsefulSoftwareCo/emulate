@@ -9,6 +9,7 @@ import type {
   TokenMap,
   WebhookDispatcher,
 } from "@emulators/core";
+import { ControlPlaneRejection } from "@emulators/core";
 import { generatePublicId } from "./constants.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerClient, registerOAuthRoutes } from "./routes/oauth.js";
@@ -124,7 +125,8 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: PlanetSca
   for (const client of config.oauth_clients ?? []) {
     if (client.client_id && ps.oauthClients.findOneBy("client_id", client.client_id)) continue;
     const result = registerClient(ps, client);
-    if (!result.ok) throw new Error(`Invalid PlanetScale OAuth client seed: ${result.error_description}`);
+    if (!result.ok)
+      throw new ControlPlaneRejection(`Invalid PlanetScale OAuth client seed: ${result.error_description}`);
   }
 }
 
@@ -136,7 +138,7 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: PlanetSca
 export function issueCredential(store: Store, baseUrl: string, request: CredentialRequest): IssuedCredential {
   const type = request.type ?? "dynamic-client-registration";
   if (type !== "dynamic-client-registration" && type !== "oauth-authorization-code") {
-    throw new Error(`Credential type ${type} is not supported by planetscale`);
+    throw new ControlPlaneRejection(`Credential type ${type} is not supported by planetscale`);
   }
   const result = registerClient(getPlanetScaleStore(store), {
     client_name: request.name ?? "PlanetScale Client",
@@ -145,7 +147,7 @@ export function issueCredential(store: Store, baseUrl: string, request: Credenti
     client_id: request.client_id,
     client_secret: request.client_secret,
   });
-  if (!result.ok) throw new Error(result.error_description);
+  if (!result.ok) throw new ControlPlaneRejection(result.error_description);
   return {
     type,
     client_id: result.client.client_id,
