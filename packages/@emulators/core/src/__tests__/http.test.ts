@@ -71,4 +71,12 @@ describe("internal http layer", () => {
     expect(res.headers.get("Access-Control-Allow-Headers")).toBe("x-test");
     expect(res.headers.get("Access-Control-Max-Age")).toBe("60");
   });
+
+  it("names the route pattern a request would match", () => {
+    const app = new Hono();
+    app.get("/domains/:id", (c) => c.text("ok"));
+    expect(app.routePattern("GET", "/domains/pat.synthetic@example.test")).toBe("/domains/:id");
+    expect(app.routePattern("HEAD", "/domains/x")).toBe("/domains/:id");
+    expect(app.routePattern("POST", "/domains/x")).toBeUndefined();
+  });
 });
