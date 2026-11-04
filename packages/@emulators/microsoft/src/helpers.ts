@@ -336,7 +336,8 @@ export function parseMessageInput(
   const bodyValue = message.body && typeof message.body === "object" ? (message.body as Record<string, unknown>) : {};
   const from = parseEmailAddress(message.from) ?? emailAddress(fallbackFrom.email, fallbackFrom.name);
   const sender = parseEmailAddress(message.sender) ?? from;
-  const contentType = bodyValue.contentType === "html" ? "html" : "text";
+  const contentType =
+    typeof bodyValue.contentType === "string" && bodyValue.contentType.toLowerCase() === "html" ? "html" : "text";
   const content = typeof bodyValue.content === "string" ? bodyValue.content : "";
   return {
     user_email: fallbackFrom.email,

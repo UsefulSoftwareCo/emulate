@@ -12,6 +12,7 @@ import {
   emailAddress,
 } from "./helpers.js";
 import { graphRoutes } from "./routes/graph.js";
+import { draftMailRoutes } from "./routes/mail.js";
 import { oauthRoutes } from "./routes/oauth.js";
 import { openapiRoutes } from "./routes/openapi.js";
 
@@ -349,6 +350,7 @@ export const microsoftPlugin: ServicePlugin = {
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     oauthRoutes(ctx);
+    draftMailRoutes(ctx);
     graphRoutes(ctx);
     openapiRoutes(ctx);
   },
