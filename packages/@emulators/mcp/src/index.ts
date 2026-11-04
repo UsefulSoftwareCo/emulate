@@ -5,7 +5,7 @@ import { extractBearer, getMcpAuthConfig, resolveAuthUser, setMcpAuthConfig } fr
 import { setMcpOAuthConfig, type McpOAuthConfig } from "./oauth-config.js";
 import { registerOAuthRoutes } from "./oauth.js";
 import { setMcpScopeConfig } from "./scopes.js";
-import { handleMcpPost } from "./transport.js";
+import { handleMcpPost, validateProtocolVersionHeader } from "./transport.js";
 
 export { TOOL_DEFINITIONS } from "./tools.js";
 export { setMcpAuthConfig } from "./auth.js";
@@ -98,6 +98,8 @@ export const mcpPlugin: ServicePlugin = {
         if (cfg.mode === "oauth") return unauthorized(c, baseUrl);
         return c.json({ message: "Requires authentication", documentation_url: `${baseUrl}/mcp` }, 401);
       }
+      const protocolVersionError = validateProtocolVersionHeader(c);
+      if (protocolVersionError) return protocolVersionError;
       // Streamable HTTP allows a 405 when the server opts out of GET SSE streams.
       return c.json({ error: "method_not_allowed", message: "Use POST for JSON-RPC." }, 405);
     });
