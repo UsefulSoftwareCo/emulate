@@ -650,6 +650,54 @@ describe("cloudflare durable object control plane", () => {
     expect((await pending).status).toBe(503);
   });
 
+  // A caller that lost an arm's answer sends it again with the same key. The original copy can
+  // reach the instance at any later moment, after the instance was replaced, the fault consumed
+  // and the instance reset; it must never arm a second fault.
+  it("keeps fault idempotency keys across eviction, consumption and reset", async () => {
+    const { state } = makeState();
+    const url = "https://github.my-run.emulators.dev";
+    const arm = async (durableObject: EmulatorDurableObject) => {
+      const res = await durableObject.fetch(
+        new Request(`${url}/_emulate/faults`, {
+          method: "POST",
+          headers: idHeaders({ "content-type": "application/json" }),
+          body: JSON.stringify({
+            match: { method: "GET", pathPattern: "/repos/*" },
+            response: { status: 503, body: { message: "synthetic outage" } },
+            idempotencyKey: "arm-7f3a",
+          }),
+        }),
+      );
+      expect(res.status).toBe(200);
+      return (await res.json()) as { fault: { id: string; remaining: number }; replayed: boolean };
+    };
+    const listed = async (durableObject: EmulatorDurableObject) => {
+      const res = await durableObject.fetch(new Request(`${url}/_emulate/faults`, { headers: idHeaders() }));
+      return ((await res.json()) as { faults: Array<{ id: string }> }).faults.map((fault) => fault.id);
+    };
+    const repo = (durableObject: EmulatorDurableObject) =>
+      durableObject.fetch(new Request(`${url}/repos/acme/widget`, { headers: idHeaders() }));
+
+    const retry = await arm(new EmulatorDurableObject(state, {}));
+    expect(retry.replayed).toBe(false);
+    const evicted = new EmulatorDurableObject(state, {});
+    const original = await arm(evicted);
+    expect(original).toMatchObject({ replayed: true, fault: { id: retry.fault.id, remaining: 1 } });
+    expect(await listed(evicted)).toEqual([retry.fault.id]);
+    expect((await repo(evicted)).status).toBe(503);
+
+    const afterConsumed = new EmulatorDurableObject(state, {});
+    expect(await arm(afterConsumed)).toMatchObject({ replayed: true, fault: { id: retry.fault.id, remaining: 0 } });
+    const reset = await afterConsumed.fetch(
+      new Request(`${url}/_emulate/reset`, { method: "POST", headers: idHeaders() }),
+    );
+    expect(reset.status).toBe(200);
+    const afterReset = new EmulatorDurableObject(state, {});
+    expect((await arm(afterReset)).replayed).toBe(true);
+    expect(await listed(afterReset)).toEqual([]);
+    expect((await repo(afterReset)).status).not.toBe(503);
+  });
+
   it("reports the real instance id in the manifest", async () => {
     const { state } = makeState();
     const durableObject = new EmulatorDurableObject(state, {});

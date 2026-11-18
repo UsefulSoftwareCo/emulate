@@ -7,7 +7,7 @@ import type { ConnectionVars, EmulatorInstanceInfo, ResolvedConnection, ServiceM
 import { coverageReport, enrichManifest, resolveConnections } from "./manifest.js";
 import type { TokenMap } from "./middleware/auth.js";
 import { escapeHtml, renderCardPage } from "./ui.js";
-import type { FaultArmInput, FaultRegistry } from "./faults.js";
+import { FaultKeyConflictError, type FaultArmInput, type FaultRegistry } from "./faults.js";
 
 export interface CredentialRequest {
   type?: string;
@@ -160,13 +160,17 @@ export function registerControlPlane(app: Hono<AppEnv>, options: ControlPlaneOpt
     ledger.clear();
     return c.json({ ok: true });
   });
-  app.get("/_emulate/faults", (c) => c.json({ faults: faults.list() }));
+  // `idempotencyKeys` tells a caller this emulator honors `idempotencyKey` on an arm.
+  app.get("/_emulate/faults", (c) => c.json({ faults: faults.list(), idempotencyKeys: true }));
   app.post("/_emulate/faults", async (c) => {
     const body = (await c.req.json().catch(() => undefined)) as FaultArmInput | undefined;
     try {
-      const fault = faults.arm(body as FaultArmInput);
-      return c.json({ fault });
+      const { fault, replayed } = faults.armOnce(body as FaultArmInput);
+      return c.json(body?.idempotencyKey === undefined ? { fault } : { fault, replayed });
     } catch (err) {
+      if (err instanceof FaultKeyConflictError) {
+        return c.json({ error: "idempotency_key_conflict", message: err.message }, 409);
+      }
       return c.json({ error: "invalid_fault", message: err instanceof Error ? err.message : "Invalid fault." }, 400);
     }
   });

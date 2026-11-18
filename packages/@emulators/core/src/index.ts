@@ -73,10 +73,13 @@ export {
   type LedgerWebhookDelivery,
 } from "./ledger.js";
 export {
+  FaultKeyConflictError,
   FaultRegistry,
   createFaultMiddleware,
   type ArmedFault,
   type FaultArmInput,
+  type FaultArmResult,
+  type FaultKeyRecord,
   type FaultLedgerMarker,
   type FaultMatch,
   type FaultRegistrySnapshot,

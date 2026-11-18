@@ -20,6 +20,12 @@ export interface FaultArmInput {
   response: FaultResponse;
   times?: number;
   delayMs?: number;
+  /**
+   * A caller-chosen key. Arming again with the same key and the same fault stores nothing and
+   * returns the fault first stored for it, so a caller that lost an answer can send the same arm
+   * again safely. The same key with a different fault is refused.
+   */
+  idempotencyKey?: string;
 }
 
 export interface ArmedFault {
@@ -30,6 +36,28 @@ export interface ArmedFault {
   remaining: number;
   delayMs?: number;
   createdAt: string;
+  idempotencyKey?: string;
+}
+
+/** The result of an arm: the fault, and whether a key named one stored by an earlier arm. */
+export interface FaultArmResult {
+  fault: ArmedFault;
+  replayed: boolean;
+}
+
+/** An arm whose key was already used for a different fault. */
+export class FaultKeyConflictError extends Error {}
+
+/**
+ * The fault each key armed, kept for as long as the registry's state: through consumption,
+ * removal, clearing and reset. A key forgotten when its fault went away would let a late copy of
+ * its arm store the fault again.
+ */
+export interface FaultKeyRecord {
+  key: string;
+  /** The arm's fault as stored (match normalized, `times` defaulted), in a canonical JSON form. */
+  definition: string;
+  fault: ArmedFault;
 }
 
 export interface FaultLedgerMarker {
@@ -41,25 +69,44 @@ export interface FaultLedgerMarker {
 export interface FaultRegistrySnapshot {
   counter: number;
   faults: ArmedFault[];
+  /** Absent in snapshots stored before keys existed. */
+  keys?: FaultKeyRecord[];
 }
 
 export class FaultRegistry {
   private faults: ArmedFault[] = [];
   private counter = 1;
+  private keys = new Map<string, FaultKeyRecord>();
 
   serialize(): FaultRegistrySnapshot {
-    return { counter: this.counter, faults: this.faults.map(cloneFault) };
+    return {
+      counter: this.counter,
+      faults: this.faults.map(cloneFault),
+      keys: [...this.keys.values()].map((record) => ({ ...record, fault: cloneFault(record.fault) })),
+    };
   }
 
   restore(snapshot: FaultRegistrySnapshot | undefined): void {
     this.faults = (snapshot?.faults ?? []).map(cloneFault);
     this.counter = snapshot?.counter ?? 1;
+    this.keys = new Map(
+      (snapshot?.keys ?? []).map((record) => [record.key, { ...record, fault: cloneFault(record.fault) }]),
+    );
   }
 
   arm(input: FaultArmInput): ArmedFault {
+    return this.armOnce(input).fault;
+  }
+
+  /**
+   * Arm a fault, or with a key already used for the same fault, return that key's fault (as it is
+   * now, or with nothing remaining once it was consumed or removed) and store nothing. Checking
+   * the key and storing happen in one synchronous step, so concurrent arms with a key cannot both
+   * store.
+   */
+  armOnce(input: FaultArmInput): FaultArmResult {
     validateFaultInput(input);
-    const fault: ArmedFault = {
-      id: `fault_${this.counter++}`,
+    const definition: Omit<ArmedFault, "id" | "remaining" | "createdAt"> = {
       match: normalizeMatch(input.match),
       response: {
         status: input.response.status,
@@ -67,12 +114,30 @@ export class FaultRegistry {
         ...(input.response.headers ? { headers: input.response.headers } : {}),
       },
       times: input.times ?? 1,
-      remaining: input.times ?? 1,
       ...(input.delayMs === undefined ? {} : { delayMs: input.delayMs }),
+    };
+    const key = input.idempotencyKey;
+    const canonical = key === undefined ? "" : canonicalJson(definition);
+    if (key !== undefined) {
+      const record = this.keys.get(key);
+      if (record) {
+        if (record.definition !== canonical) {
+          throw new FaultKeyConflictError(`Fault idempotencyKey "${key}" was already used for a different fault.`);
+        }
+        const live = this.faults.find((fault) => fault.id === record.fault.id);
+        return { fault: cloneFault(live ?? { ...record.fault, remaining: 0 }), replayed: true };
+      }
+    }
+    const fault: ArmedFault = {
+      id: `fault_${this.counter++}`,
+      ...definition,
+      remaining: definition.times,
       createdAt: new Date().toISOString(),
+      ...(key === undefined ? {} : { idempotencyKey: key }),
     };
     this.faults.push(fault);
-    return cloneFault(fault);
+    if (key !== undefined) this.keys.set(key, { key, definition: canonical, fault: cloneFault(fault) });
+    return { fault: cloneFault(fault), replayed: false };
   }
 
   list(): ArmedFault[] {
@@ -187,6 +252,21 @@ function validateFaultInput(input: FaultArmInput): void {
   if (input.delayMs !== undefined && (!Number.isInteger(input.delayMs) || input.delayMs < 0)) {
     throw new Error("Fault delayMs must be a non-negative integer.");
   }
+  if (
+    input.idempotencyKey !== undefined &&
+    (typeof input.idempotencyKey !== "string" || input.idempotencyKey.length < 1 || input.idempotencyKey.length > 255)
+  ) {
+    throw new Error("Fault idempotencyKey must be a string of 1 to 255 characters.");
+  }
+}
+
+/** JSON with object keys sorted, so two copies of one fault compare equal. */
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, item: unknown) =>
+    item && typeof item === "object" && !Array.isArray(item)
+      ? Object.fromEntries(Object.entries(item as Record<string, unknown>).sort(([a], [b]) => (a < b ? -1 : 1)))
+      : item,
+  );
 }
 
 function normalizeMatch(match: FaultMatch): FaultMatch {

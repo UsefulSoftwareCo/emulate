@@ -43,7 +43,8 @@ Control plane (under /_emulate on each service):
   GET  /_emulate/mcp          MCP surface (when supported)
   GET  /_emulate/state        current emulator state
   GET  /_emulate/ledger       request ledger (DELETE to clear)
-  GET  /_emulate/faults       armed one-shot faults (POST to arm, DELETE to clear)
+  GET  /_emulate/faults       armed one-shot faults (POST to arm, with an optional
+                              idempotencyKey; DELETE to clear)
   GET  /_emulate/logs         webhook deliveries and recent requests
   POST /_emulate/instances    create an instance (server-generated unguessable
                               name; optional {"instance"} body adds a prefix)

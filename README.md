@@ -81,6 +81,8 @@ curl -s -X POST "$EMULATOR_URL/_emulate/faults" \
   -d '{"match":{"method":"GET","pathPattern":"/v1/*"},"response":{"status":503,"body":{"error":"temporary"}}}'
 ```
 
+An arm may carry an `idempotencyKey` (1 to 255 characters, chosen by the caller). Another arm with the same key and the same fault stores nothing and returns the fault first stored for that key, with `replayed: true`, so a caller that lost an answer can send the arm again safely. The instance remembers each key for as long as its state lives, through consumption, removal by id, clearing and reset, so a late copy of an arm whose fault is already gone returns that fault with `remaining: 0` instead of arming it again. The same key with a different fault is refused with `409` and `idempotency_key_conflict`. Arms without a key are stored as before. `GET /_emulate/faults` answers `idempotencyKeys: true` so a caller can tell an emulator that honors keys.
+
 Credential creation follows each service's real shape. For example, GitHub can mint a bearer token for a user, Spotify creates a client credentials app, Google/Microsoft/Apple/Okta/Clerk create OAuth/OIDC clients, Stripe and Resend create API-key style credentials, and AWS advertises provider-specific SDK credentials instead of pretending to be OAuth.
 
 ### MCP OAuth compliance scenarios

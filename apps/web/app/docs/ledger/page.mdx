@@ -96,6 +96,8 @@ Set `X-Correlation-Id` (or `X-Request-Id`) on a request and the emulator stores 
 
 `POST /_emulate/faults` arms a one-shot or counted response for matching provider requests. Match criteria are combined: `operationId` when the emulator can resolve one from the service manifest, `method`, and `pathPattern`. `pathPattern` is a glob where `*` matches any characters in the request path. A matched request short-circuits with the configured response, decrements the fault's remaining count, and is recorded here with `faulted: true` and `faultId`.
 
+An arm may carry an `idempotencyKey` (1 to 255 characters, chosen by the caller). Another arm with the same key and the same fault stores nothing and returns the fault first stored for that key, with `replayed: true`, so a caller that lost an answer can send the arm again safely. The instance remembers each key for as long as its state lives, through consumption, removal by id, clearing and reset, so a late copy of an arm whose fault is already gone returns that fault with `remaining: 0` instead of arming it again. The same key with a different fault is refused with `409` and `idempotency_key_conflict`. Arms without a key are stored as before. `GET /_emulate/faults` answers `idempotencyKeys: true` so a caller can tell an emulator that honors keys.
+
 ## Persistence
 
 On the hosted Cloudflare surface the ledger is persistent. Each instance is backed by a Durable Object that snapshots state and the ledger to storage, so records survive eviction. Locally and in process the ledger is in memory and is cleared on reset. See [Deployment](/docs/deployment) for the instance model.
