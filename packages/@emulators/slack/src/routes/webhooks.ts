@@ -1,15 +1,17 @@
 import type { RouteContext } from "@emulators/core";
 import { getSlackStore } from "../store.js";
-import { formatSlackMessage, generateTs, hasSlackMessageContent, parseSlackRichMessageFields } from "../helpers.js";
+import {
+  formatSlackMessage,
+  generateTs,
+  hasSlackMessageContent,
+  parseSlackRichMessageFields,
+  findChannelByIdOrName,
+} from "../helpers.js";
 
 export function webhookRoutes(ctx: RouteContext): void {
   const { app, store, webhooks } = ctx;
   const ss = () => getSlackStore(store);
-  const findChannel = (channel: string) =>
-    ss().channels.findOneBy("channel_id", channel) ??
-    ss()
-      .channels.all()
-      .find((ch) => !ch.is_im && !ch.is_mpim && ch.name === channel);
+  const findChannel = (channel: string) => findChannelByIdOrName(ss().channels, channel);
 
   // Incoming Webhooks - POST /services/:teamId/:botId/:token
   // The simplest Slack integration: apps POST JSON to send a message to a channel.
