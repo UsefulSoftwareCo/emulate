@@ -69,6 +69,11 @@ Global catalog:
   Miro emulates the Miro MCP server at / and its OAuth server. Its HS256 ID
   tokens omit nonce like real Miro; seed miro.id_token_nonce: echo to change it.
   Google OIDC tokens use RS256; verify them with the instance /oauth2/v3/certs.
+  Gmail users.watch pushes to Pub/Sub push subscriptions set with the
+  pubsub_push_subscriptions seed field or /_emulate/google/pubsub/subscriptions,
+  with an OIDC token verifiable at /oauth2/v3/certs. POST
+  /_emulate/google/gmail/arrive delivers mail; /_emulate/google/gmail/preview-push
+  returns a push unsent.
   MCP OAuth compliance scenarios are configured under mcp.oauth in seed data;
   see the MCP manifest seed schema for issuer, resource, DCR, and token-auth knobs.
   Microsoft Graph includes OneDrive file content upload/download routes under

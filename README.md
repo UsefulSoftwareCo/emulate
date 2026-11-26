@@ -209,6 +209,8 @@ It returns each service's id, name, description, service host, instance host pat
 
 The apex `https://emulators.dev` is the emulator catalog: a links-out landing page that lists every emulator and links to each one's service host. The console builds it from `GET /_emulate/services`. The apex is not the docs site.
 
+Discovery documents (`/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration`, and any other `/.well-known/` path) are served only by instances, at `<instance base>/.well-known/<type>` or the path-aware `https://emulators.dev/.well-known/<type>/<service>/<instance>`. The apex and service hosts answer them with a JSON 404, never a page, so OAuth discovery clients fall through to the next candidate instead of failing to parse HTML.
+
 ### Docs
 
 Documentation is a separate site at `https://docs.emulators.dev`. Per-service docs live at `https://docs.emulators.dev/<service>`, which is the `docsUrl` convention each manifest advertises.
@@ -905,12 +907,12 @@ Google ID tokens use RS256 signatures. Verify them with the public keys at `/oau
 OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local inbox, calendar, and drive flows.
 
 - `GET /o/oauth2/v2/auth` - authorization endpoint
-- `POST /oauth2/token` - token exchange
+- `POST /oauth2/token` - token exchange; the client authenticates with `client_secret_post` or `client_secret_basic`, as discovery advertises
 - `GET /oauth2/v2/userinfo` - get user info
 - `GET /.well-known/openid-configuration` - OIDC discovery document
 - `GET /oauth2/v3/certs` - JSON Web Key Set (JWKS)
-- `GET /gmail/v1/users/:userId/messages` - list messages with `q`, `labelIds`, `maxResults`, and `pageToken`
-- `GET /gmail/v1/users/:userId/messages/:id` - fetch a Gmail-style message payload in `full`, `metadata`, `minimal`, or `raw` formats
+- `GET /gmail/v1/users/:userId/messages` - list messages with `q` (including `list:`), `labelIds`, `maxResults`, and `pageToken`
+- `GET /gmail/v1/users/:userId/messages/:id` - fetch a Gmail-style message payload in `full` (every header, including `List-Id` and `List-Unsubscribe`), `metadata` (the `metadataHeaders` named), `minimal`, or `raw` formats
 - `GET /gmail/v1/users/:userId/messages/:messageId/attachments/:id` - fetch attachment bodies
 - `POST /gmail/v1/users/:userId/messages/send` - create sent mail from `raw` MIME or structured fields
 - `POST /gmail/v1/users/:userId/messages/import` - import inbox mail
@@ -922,11 +924,31 @@ OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local
 - `POST /gmail/v1/users/:userId/threads/:id/modify` - add/remove labels across a thread
 - `GET /gmail/v1/users/:userId/threads` and `GET /gmail/v1/users/:userId/threads/:id`
 - `GET /gmail/v1/users/:userId/labels`, `POST /gmail/v1/users/:userId/labels`, `PATCH /gmail/v1/users/:userId/labels/:id`, `DELETE /gmail/v1/users/:userId/labels/:id`
+- `GET /gmail/v1/users/:userId/profile` - `emailAddress`, `messagesTotal`, `threadsTotal`, `historyId`
 - `GET /gmail/v1/users/:userId/history`, `POST /gmail/v1/users/:userId/watch`, `POST /gmail/v1/users/:userId/stop`
 - `GET /gmail/v1/users/:userId/settings/filters`, `POST /gmail/v1/users/:userId/settings/filters`, `DELETE /gmail/v1/users/:userId/settings/filters/:id`
 - `GET /gmail/v1/users/:userId/settings/forwardingAddresses`, `GET /gmail/v1/users/:userId/settings/sendAs`
 - `GET /calendar/v3/users/:userId/calendarList`, `GET /calendar/v3/calendars/:calendarId/events`, `POST /calendar/v3/calendars/:calendarId/events`, `DELETE /calendar/v3/calendars/:calendarId/events/:eventId`, `POST /calendar/v3/freeBusy`
 - `GET /drive/v3/files`, `GET /drive/v3/files/:fileId`, `POST /drive/v3/files`, `PATCH /drive/v3/files/:fileId`, `PUT /drive/v3/files/:fileId`, `DELETE /drive/v3/files/:fileId`, `POST /upload/drive/v3/files`
+
+Gmail push: `users.watch` notifies the topic's Cloud Pub/Sub push subscriptions after a matching mailbox change (`labelIds` with `INCLUDE` or `EXCLUDE`), at most once a second per user, as Gmail does. Pub/Sub is not emulated, so configure push subscriptions with the `pubsub_push_subscriptions` seed field or `POST /_emulate/google/pubsub/subscriptions`:
+
+```yaml
+google:
+  pubsub_push_subscriptions:
+    - name: projects/demo/subscriptions/gmail-push
+      topic: projects/demo/topics/gmail
+      push_endpoint: https://app.example.test/push
+      audience: https://app.example.test/push
+```
+
+Each push is the Pub/Sub-wrapped body (`message.data` is base64 `{"emailAddress","historyId"}`, plus `messageId`, `publishTime` and `subscription`) with `Authorization: Bearer <OIDC token>`. The token is RS256, with `aud` (the audience, or the push endpoint), `email` (default `gmail-push@{project}.iam.gserviceaccount.com`), `email_verified`, `sub`, `azp`, `iat` and `exp`. Google signs with its own keys and `iss` `https://accounts.google.com`; the emulator signs with its OIDC key, so point the receiver's verifier at the emulator: JWKS `<base>/oauth2/v3/certs` and issuer `<base>`.
+
+For a test the emulator cannot reach:
+
+- `POST /_emulate/google/gmail/arrive` with `{"to":"user@example.com","from":"a@example.com","subject":"hi","text":"hello","headers":[{"name":"List-Id","value":"..."}]}` delivers mail to the INBOX and notifies the watch.
+- `POST /_emulate/google/gmail/preview-push` with `{"email":"user@example.com"}` returns each push's URL, headers (with the signed token) and body without sending them.
+- `GET /_emulate/google/pubsub/deliveries` lists the pushes made and whether each was acknowledged (102, 200, 201, 202 or 204).
 
 ## Slack API
 
@@ -935,7 +957,7 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 ### Auth & Chat
 
 - `POST /api/auth.test` - test authentication
-- `POST /api/chat.postMessage` - post message with text or rich payload fields (supports threads via `thread_ts` and DM user IDs)
+- `POST /api/chat.postMessage` - post message with text or rich payload fields (supports threads via `thread_ts` and DM user IDs). `channel` is a conversation ID or a channel name, with or without the leading `#` (`general` or `#general`); the same applies to every method that takes `channel` and to an incoming webhook's `channel` override
 - `POST /api/chat.postEphemeral` - post ephemeral message outside channel history
 - `POST /api/chat.update` - update message text and rich payload fields
 - `POST /api/chat.delete` - delete message

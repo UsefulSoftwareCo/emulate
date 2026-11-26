@@ -34,6 +34,8 @@ export interface GoogleMessageInput {
   message_id?: string;
   references?: string | null;
   in_reply_to?: string | null;
+  /** Further top-level headers (for example List-Id, List-Unsubscribe), written into the raw message. */
+  headers?: Array<{ name: string; value: string }>;
 }
 
 export interface GoogleLabelInput {
@@ -96,6 +98,7 @@ type ParsedRawMessage = {
   date_header: string | null;
   body_text: string | null;
   body_html: string | null;
+  extra_headers: MessageHeader[];
   attachments: ParsedAttachment[];
 };
 
@@ -130,6 +133,24 @@ type MessageHeader = {
   name: string;
   value: string;
 };
+
+/** Headers stored as message fields (see buildHeaders); every other top-level header is kept in extra_headers. */
+const FIELD_HEADERS = new Set([
+  "from",
+  "to",
+  "cc",
+  "bcc",
+  "reply-to",
+  "subject",
+  "date",
+  "message-id",
+  "references",
+  "in-reply-to",
+]);
+
+function extraHeadersFrom(headers: MessageHeader[] | undefined): MessageHeader[] {
+  return (headers ?? []).filter((h) => h.name.trim() && !FIELD_HEADERS.has(h.name.trim().toLowerCase()));
+}
 
 const SYSTEM_LABELS: Array<{
   gmail_id: string;
@@ -500,7 +521,11 @@ export function createStoredMessage(
       references: merged.references,
       in_reply_to: merged.in_reply_to,
       date_header: new Date(internalDateMs).toUTCString(),
+      extra_headers: input.headers,
     });
+  // Headers come from the raw message when there is one; otherwise from input.headers,
+  // which were just written into the built raw message.
+  const extraHeaders = merged.raw ? (parsedRaw?.extra_headers ?? []) : parseRawMessage(raw).extra_headers;
 
   const historyId = generateHistoryId();
   const message = gs.messages.insert({
@@ -524,6 +549,7 @@ export function createStoredMessage(
     date_header: new Date(internalDateMs).toUTCString(),
     body_text: merged.body_text,
     body_html: merged.body_html,
+    extra_headers: extraHeaders,
   });
 
   replaceMessageAttachments(gs, message, parsedRaw?.attachments ?? []);
@@ -582,7 +608,13 @@ export function updateStoredMessage(
       references: merged.references,
       in_reply_to: merged.in_reply_to,
       date_header: new Date(internalDateMs).toUTCString(),
+      extra_headers: input.headers ?? message.extra_headers,
     });
+  const extraHeaders = parsedRaw
+    ? parsedRaw.extra_headers
+    : merged.raw
+      ? (message.extra_headers ?? [])
+      : parseRawMessage(raw).extra_headers;
 
   const updated =
     gs.messages.update(message.id, {
@@ -604,6 +636,7 @@ export function updateStoredMessage(
       date_header: new Date(internalDateMs).toUTCString(),
       body_text: merged.body_text,
       body_html: merged.body_html,
+      extra_headers: extraHeaders,
     }) ?? message;
 
   replaceMessageAttachments(gs, updated, parsedRaw?.attachments ?? []);
@@ -940,7 +973,7 @@ export function formatMessageResource(
   const headers = buildHeaders(message);
   const filteredHeaders =
     format === "metadata" && metadataHeaders.length > 0
-      ? headers.filter((header) => metadataHeaders.includes(header.name))
+      ? headers.filter((header) => metadataHeaders.some((name) => name.toLowerCase() === header.name.toLowerCase()))
       : headers;
 
   const base = {
@@ -1113,7 +1146,11 @@ export function buildRawMessage(message: {
   in_reply_to?: string | null;
   date_header?: string | null;
   attachments?: RawAttachmentInput[];
+  extra_headers?: MessageHeader[];
 }): string {
+  const extra = extraHeadersFrom(message.extra_headers).filter(
+    (h) => !["mime-version", "content-type", "content-transfer-encoding"].includes(h.name.toLowerCase()),
+  );
   const headers = [
     `From: ${message.from}`,
     `To: ${message.to}`,
@@ -1125,6 +1162,7 @@ export function buildRawMessage(message: {
     ...(message.references ? [`References: ${message.references}`] : []),
     ...(message.in_reply_to ? [`In-Reply-To: ${message.in_reply_to}`] : []),
     `Date: ${message.date_header ?? new Date().toUTCString()}`,
+    ...extra.map((h) => `${h.name}: ${h.value.replace(/[\r\n]+/g, " ")}`),
     "MIME-Version: 1.0",
   ];
 
@@ -1211,6 +1249,19 @@ function buildQueryPredicates(
   if (lower.startsWith("to:")) {
     const value = cleaned.slice(3).toLowerCase();
     return value ? [(message) => message.to.toLowerCase().includes(value)] : [];
+  }
+
+  // list: matches mailing-list mail by the list's address or id (List-Id, List-Post).
+  if (lower.startsWith("list:")) {
+    const value = cleaned.slice(5).replace(/[<>]/g, "").toLowerCase();
+    return value
+      ? [
+          (message) =>
+            [...headerValues(message, "List-Id"), ...headerValues(message, "List-Post")].some((h) =>
+              h.toLowerCase().includes(value),
+            ),
+        ]
+      : [];
   }
 
   if (lower.startsWith("subject:")) {
@@ -1306,7 +1357,7 @@ function formatHistoryMessageRef(
   };
 }
 
-function compareHistoryIds(left: string, right: string): number {
+export function compareHistoryIds(left: string, right: string): number {
   try {
     const leftValue = BigInt(left);
     const rightValue = BigInt(right);
@@ -1557,7 +1608,15 @@ function buildHeaders(message: GoogleMessage): MessageHeader[] {
     { name: "In-Reply-To", value: message.in_reply_to },
   ];
 
-  return headers.filter((header): header is MessageHeader => Boolean(header.value));
+  return [
+    ...headers.filter((header): header is MessageHeader => Boolean(header.value)),
+    ...(message.extra_headers ?? []),
+  ];
+}
+
+function headerValues(message: GoogleMessage, name: string): string[] {
+  const lower = name.toLowerCase();
+  return (message.extra_headers ?? []).filter((h) => h.name.toLowerCase() === lower).map((h) => h.value);
 }
 
 function buildPayload(gs: GoogleStore, message: GoogleMessage, headers: MessageHeader[], format: GmailMessageFormat) {
@@ -1770,8 +1829,31 @@ function parseRawMessage(raw: string): ParsedRawMessage {
     date_header: root.headers.get("date") ?? null,
     body_text: findFirstTextPart(root, "text/plain"),
     body_html: findFirstTextPart(root, "text/html"),
+    extra_headers: extraHeadersFrom(parseHeaderList(topLevelHeaderText(decoded))),
     attachments,
   };
+}
+
+function topLevelHeaderText(decoded: string): string {
+  const separatorIndex = decoded.indexOf("\n\n");
+  return separatorIndex >= 0 ? decoded.slice(0, separatorIndex) : decoded;
+}
+
+/** Headers in message order with their original names (folded lines unfolded). */
+function parseHeaderList(headerText: string): MessageHeader[] {
+  const headers: MessageHeader[] = [];
+  for (const line of headerText.split("\n")) {
+    if (!line.trim()) continue;
+    const last = headers[headers.length - 1];
+    if ((line.startsWith(" ") || line.startsWith("\t")) && last) {
+      last.value = `${last.value} ${line.trim()}`.trim();
+      continue;
+    }
+    const separator = line.indexOf(":");
+    if (separator < 0) continue;
+    headers.push({ name: line.slice(0, separator).trim(), value: line.slice(separator + 1).trim() });
+  }
+  return headers;
 }
 
 function parseMimeEntity(source: string): ParsedMimeNode {
