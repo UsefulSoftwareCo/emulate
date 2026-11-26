@@ -935,7 +935,7 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 ### Auth & Chat
 
 - `POST /api/auth.test` - test authentication
-- `POST /api/chat.postMessage` - post message with text or rich payload fields (supports threads via `thread_ts` and DM user IDs)
+- `POST /api/chat.postMessage` - post message with text or rich payload fields (supports threads via `thread_ts` and DM user IDs). `channel` is a conversation ID or a channel name, with or without the leading `#` (`general` or `#general`); the same applies to every method that takes `channel` and to an incoming webhook's `channel` override
 - `POST /api/chat.postEphemeral` - post ephemeral message outside channel history
 - `POST /api/chat.update` - update message text and rich payload fields
 - `POST /api/chat.delete` - delete message

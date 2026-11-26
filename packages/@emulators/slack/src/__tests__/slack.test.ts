@@ -95,6 +95,29 @@ describe("Slack plugin - chat.postMessage", () => {
     expect(body.ok).toBe(true);
   });
 
+  it("posts a message by channel name with a leading #, as Slack's SDK examples do", async () => {
+    const ss = getSlackStore(store);
+    const general = ss.channels.all().find((ch) => ch.name === "general")!;
+    for (const channel of ["#general", "#General", " #general"]) {
+      const res = await app.request(`${base}/api/chat.postMessage`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ channel, text: `to ${channel}` }),
+      });
+      const body = (await res.json()) as any;
+      expect(body.ok, channel).toBe(true);
+      expect(body.channel).toBe(general.channel_id);
+    }
+    for (const channel of ["#", "#nonexistent", "##general"]) {
+      const res = await app.request(`${base}/api/chat.postMessage`, {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify({ channel, text: "nope" }),
+      });
+      expect(((await res.json()) as any).error, channel).toBe("channel_not_found");
+    }
+  });
+
   it("returns error for missing channel", async () => {
     const res = await app.request(`${base}/api/chat.postMessage`, {
       method: "POST",
@@ -2798,6 +2821,19 @@ describe("Slack plugin - Incoming Webhooks", () => {
     expect(messages.length).toBe(1);
     expect(messages[0].text).toBe("Deploy succeeded!");
     expect(messages[0].subtype).toBe("bot_message");
+  });
+
+  it("honours an incoming webhook channel override written as #name", async () => {
+    const ss = getSlackStore(store);
+    const webhook = ss.incomingWebhooks.all()[0];
+    const random = ss.channels.all().find((ch) => !ch.is_im && !ch.is_mpim && ch.channel_id !== "C000000001")!;
+    const res = await app.request(`${base}${webhook.url}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "override", channel: `#${random.name}` }),
+    });
+    expect(await res.text()).toBe("ok");
+    expect(ss.messages.findBy("channel_id", random.channel_id).map((m) => m.text)).toContain("override");
   });
 
   it("preserves rich payloads from incoming webhooks", async () => {
