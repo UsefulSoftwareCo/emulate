@@ -573,7 +573,7 @@ function credentialSeed(
 function tokenUrlFor(service: string, baseUrl: string): string | undefined {
   const paths: Record<string, string> = {
     github: "/login/oauth/access_token",
-    google: "/token",
+    google: "/oauth2/token",
     apple: "/auth/token",
     microsoft: "/oauth2/v2.0/token",
     okta: "/oauth2/default/v1/token",

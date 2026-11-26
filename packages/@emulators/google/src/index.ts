@@ -14,13 +14,17 @@ import { calendarRoutes } from "./routes/calendar.js";
 import { draftRoutes } from "./routes/drafts.js";
 import { driveRoutes } from "./routes/drive.js";
 import { historyRoutes } from "./routes/history.js";
+import { profileRoutes } from "./routes/profile.js";
 import { labelRoutes } from "./routes/labels.js";
 import { messageRoutes } from "./routes/messages.js";
 import { ensureSigningKey, oauthRoutes } from "./routes/oauth.js";
 import { settingsRoutes } from "./routes/settings.js";
 import { threadRoutes } from "./routes/threads.js";
 import { getGoogleStore } from "./store.js";
+import { pushRoutes } from "./routes/push-control.js";
+import { upsertPushSubscription, type PushSubscription } from "./push.js";
 
+export type { PushSubscription, PushRecord } from "./push.js";
 export { getGoogleStore, type GoogleStore } from "./store.js";
 export * from "./entities.js";
 export { manifest } from "./manifest.js";
@@ -72,6 +76,8 @@ export interface GoogleSeedMessage {
   message_id?: string;
   references?: string;
   in_reply_to?: string;
+  /** Further headers, for example List-Id or List-Unsubscribe. */
+  headers?: Array<{ name: string; value: string }>;
 }
 
 export interface GoogleSeedCalendar {
@@ -132,6 +138,11 @@ export interface GoogleSeedConfig {
   calendars?: GoogleSeedCalendar[];
   calendar_events?: GoogleSeedCalendarEvent[];
   drive_items?: GoogleSeedDriveItem[];
+  /**
+   * Cloud Pub/Sub push subscriptions that receive Gmail notifications for their
+   * topic. Pub/Sub itself is not emulated; this is its configuration.
+   */
+  pubsub_push_subscriptions?: PushSubscription[];
 }
 
 function seedDefaults(store: Store, _baseUrl: string): void {
@@ -300,6 +311,8 @@ function resolveHd(user: GoogleSeedUser): string | null {
 export function seedFromConfig(store: Store, _baseUrl: string, config: GoogleSeedConfig): void {
   const gs = getGoogleStore(store);
 
+  for (const sub of config.pubsub_push_subscriptions ?? []) upsertPushSubscription(store, sub);
+
   if (config.users) {
     for (const user of config.users) {
       const existing = gs.users.findOneBy("email", user.email);
@@ -416,6 +429,7 @@ function seedMessages(store: Store, messages: GoogleSeedMessage[], fallbackEmail
         message_id: message.message_id,
         references: message.references ?? null,
         in_reply_to: message.in_reply_to ?? null,
+        headers: message.headers,
       },
       {
         createMissingCustomLabels: true,
@@ -499,12 +513,15 @@ export const googlePlugin: ServicePlugin = {
   name: "google",
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
+    // First, so its middleware sees every route's mailbox changes.
+    pushRoutes(ctx);
     oauthRoutes(ctx);
     calendarRoutes(ctx);
     driveRoutes(ctx);
     messageRoutes(ctx);
     draftRoutes(ctx);
     historyRoutes(ctx);
+    profileRoutes(ctx);
     threadRoutes(ctx);
     labelRoutes(ctx);
     settingsRoutes(ctx);

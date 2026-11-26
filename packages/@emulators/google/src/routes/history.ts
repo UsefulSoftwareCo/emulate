@@ -9,15 +9,7 @@ import {
 } from "../helpers.js";
 import { getString, getStringArray, parseGoogleBody, requireGmailUser } from "../route-helpers.js";
 import { getGoogleStore } from "../store.js";
-
-interface GmailWatchState {
-  topicName: string;
-  labelIds: string[];
-  labelFilterBehavior: string | null;
-  expiration: string;
-}
-
-const WATCH_STATE_KEY = "google.gmail.watchStates";
+import { WATCH_STATE_KEY, getWatchStates } from "../push.js";
 
 export function historyRoutes({ app, store }: RouteContext): void {
   const gs = getGoogleStore(store);
@@ -67,27 +59,28 @@ export function historyRoutes({ app, store }: RouteContext): void {
       );
     }
 
-    const expiration = String(Date.now() + 24 * 60 * 60 * 1000);
-    const states = store.getData<Map<string, GmailWatchState>>(WATCH_STATE_KEY) ?? new Map();
+    // A watch must be renewed at least every 7 days (Gmail push guide).
+    const expiration = String(Date.now() + 7 * 24 * 60 * 60 * 1000);
+    const historyId = getCurrentHistoryId(gs, authEmail);
+    const states = getWatchStates(store);
     states.set(authEmail, {
       topicName,
       labelIds,
       labelFilterBehavior: getString(body, "labelFilterBehavior", "labelFilterAction") ?? null,
       expiration,
+      // Notifications cover changes after this historyId.
+      lastNotifiedHistoryId: historyId,
     });
     store.setData(WATCH_STATE_KEY, states);
 
-    return c.json({
-      historyId: getCurrentHistoryId(gs, authEmail),
-      expiration,
-    });
+    return c.json({ historyId, expiration });
   });
 
   app.post("/gmail/v1/users/:userId/stop", (c) => {
     const authEmail = requireGmailUser(c);
     if (authEmail instanceof Response) return authEmail;
 
-    const states = store.getData<Map<string, GmailWatchState>>(WATCH_STATE_KEY) ?? new Map();
+    const states = getWatchStates(store);
     states.delete(authEmail);
     store.setData(WATCH_STATE_KEY, states);
 
