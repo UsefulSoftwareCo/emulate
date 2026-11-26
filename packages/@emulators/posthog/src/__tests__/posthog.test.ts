@@ -4,7 +4,7 @@ import { Hono, Store, WebhookDispatcher, authMiddleware, serve, type TokenMap } 
 
 import { getPostHogStore, posthogPlugin } from "../index.js";
 
-const PORT = 41875;
+const PORT = 41876;
 const BASE = `http://localhost:${PORT}`;
 
 let httpServer: ReturnType<typeof serve>;
