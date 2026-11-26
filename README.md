@@ -36,6 +36,7 @@ All services start with sensible defaults. No config file needed:
 - **Context** on `http://localhost:4019` (company lookup by work email domain)
 - **PlanetScale** on `http://localhost:4020` (Doorkeeper OAuth with DCR, MCP server at `/mcp/planetscale`)
 - **Miro** on `http://localhost:4021` (MCP server at `/`, OAuth with DCR and HS256 ID tokens)
+- **OpenAI** on `http://localhost:4022` (Responses API and Chat Completions for text, API keys, deterministic answers)
 
 Every running service also exposes a public control plane under `/_emulate`:
 
@@ -183,7 +184,7 @@ github:
 
 ## Deployed Instances
 
-All services are available on host-based routing when deployed: `github`, `gitlab`, `mcp`, `vercel`, `google`, `okta`, `microsoft`, `spotify`, `slack`, `apple`, `aws`, `resend`, `stripe`, `mongoatlas`, `clerk`, `x`, `workos`, `autumn`, `context`, `planetscale`, `miro`, and `posthog`. Each one supports three addressing forms:
+All services are available on host-based routing when deployed: `github`, `gitlab`, `mcp`, `vercel`, `google`, `okta`, `microsoft`, `spotify`, `slack`, `apple`, `aws`, `resend`, `stripe`, `mongoatlas`, `clerk`, `x`, `workos`, `autumn`, `context`, `planetscale`, `miro`, `openai`, and `posthog`. Each one supports three addressing forms:
 
 ```text
 https://github.emulators.dev                     # service host (control plane only)
@@ -273,7 +274,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]));
 
 | Option     | Default        | Description                                                                                                                                                                                                                                                                                                                                            |
 | ---------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `service`  | _(required)_   | Service name: `'vercel'`, `'github'`, `'gitlab'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'spotify'`, `'x'`, `'workos'`, `'autumn'`, `'context'`, `'planetscale'`, `'miro'`, or `'posthog'`                                                                            |
+| `service`  | _(required)_   | Service name: `'vercel'`, `'github'`, `'gitlab'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'spotify'`, `'x'`, `'workos'`, `'autumn'`, `'context'`, `'planetscale'`, `'miro'`, `'openai'`, or `'posthog'`                                                                            |
 | `port`     | `4000`         | Port for the HTTP server. `0` picks a free port; `port` and `url` on the instance report the one bound. `createEmulator` resolves once the server is listening and rejects if it cannot bind.                                                                                                                                                          |
 | `hostname` | all interfaces | Address to listen on, e.g. `'127.0.0.1'` or `'::1'`. When given, the default URL names it (`http://127.0.0.1:<port>`) instead of `localhost`                                                                                                                                                                                                           |
 | `seed`     | none           | Inline seed data (same shape as YAML config)                                                                                                                                                                                                                                                                                                           |
@@ -1021,6 +1022,31 @@ Modal opens and pushes require values from `/api/views.generateTriggerId`. Pass 
 Slack scope checks are relaxed by default so local tests can use simple bearer tokens. Set `slack.strict_scopes: true` in seed config to make supported Web API methods return Slack-style `missing_scope` errors with `needed` and `provided` fields. Strict mode checks `chat:write`, `channels:read`, `channels:history`, `channels:join`, `channels:manage`, `channels:write`, `groups:read`, `groups:history`, `groups:write`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`, `mpim:write`, `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, `bookmarks:write`, `reactions:read`, `reactions:write`, and `team:read`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods.
 
 Current Slack limits: Slack Connect, Enterprise Grid admin APIs, Audit Logs API, SCIM, Legal Holds, Socket Mode, slash command and interaction simulation, user groups, reminders, stars, calls, canvases, lists, functions, workflows, chat streaming, legacy `files.upload`, exact rate limiting, and paid-plan behavior are not implemented.
+
+## OpenAI API
+
+When all services run together, OpenAI uses `http://localhost:4022`. Point an SDK at it with `baseURL: "<base>/v1"` and an API key: the default instance has `sk-proj-emulate-default-key`, seed `api_keys`, or create one with `POST /_emulate/openai/keys` or `POST /_emulate/credentials` (type `api-key`). Unknown keys answer `401 invalid_api_key`.
+
+- `POST /v1/responses` - Responses API for text: `input` as a string or message items, `instructions`, `max_output_tokens` (truncates with `status: "incomplete"`), `stream` (the documented events in order, with `sequence_number`)
+- `POST /v1/chat/completions` - `chat.completion` objects, or with `stream: true` chunks ending with `data: [DONE]` and a usage chunk when `stream_options.include_usage` is set
+- `GET /v1/models`, `GET /v1/models/:model` - seeded models; with none seeded, any model id is accepted
+
+Answers are deterministic: queued answers first (`answer_queue`, `POST /_emulate/openai/answers/queue`), then the first matching rule (`answer_rules`), then `Emulated response from <model> to: <last user message>`. An answer can pace its stream:
+
+```yaml
+openai:
+  api_keys:
+    - { name: primary, key: sk-proj-test-primary }
+    - { name: limited, rate_limit: { requests: 0, window_seconds: 60 } }
+  models: [{ id: gpt-5-mini }]
+  answer_rules:
+    - match: { contains: summarise }
+      answer: A short summary.
+    - match: { last_user_equals: slow }
+      answer: { text: "...600 or more characters...", stream: { chunks: 600, interval_ms: 500 } }
+```
+
+A key's `rate_limit` (or `POST /_emulate/openai/keys/:name/rate-limit`) answers `429 rate_limit_exceeded` with `Retry-After` and `x-ratelimit-*-requests` for that key only. Token counts are approximate (one token per four characters) and identical in responses and in `GET /_emulate/openai/usage`, which lists every call with its key, model, tokens, whether it streamed and the request size. Request bodies over 64 KiB are recorded in the ledger by size only. Tools, images, audio, embeddings, stored responses and the Realtime and WebSocket transports are not emulated.
 
 ## Apple Sign In
 
