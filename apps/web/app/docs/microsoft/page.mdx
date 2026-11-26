@@ -14,6 +14,13 @@ Microsoft Entra ID (Azure AD) v2.0 OAuth 2.0 and OpenID Connect emulation with a
 - `GET /v1.0/users` - Microsoft Graph users
 - `GET /v1.0/users/:id` - Microsoft Graph user by ID
 - `GET /v1.0/me/messages` - Outlook mail messages
+- `POST /v1.0/me/messages` - create a JSON draft with optional file attachments
+- `PATCH /v1.0/me/messages/:id` - update a draft's subject, body, sender or recipients
+- `POST /v1.0/me/messages/:id/createReply` - create a reply draft in the original conversation
+- `POST /v1.0/me/messages/:id/send` - send a draft with an empty 202 response
+- `GET/POST /v1.0/me/messages/:id/attachments` - list or add file attachments
+- `GET /v1.0/me/messages/:id/attachments/:attachmentId` - fetch a file attachment
+- `GET /v1.0/me/messages/:id/attachments/:attachmentId/$value` - download raw file bytes
 - `POST /v1.0/me/sendMail` - send mail
 - `GET /v1.0/me/calendars` - calendars
 - `GET /v1.0/me/events` - calendar events
@@ -81,3 +88,15 @@ curl -X PUT "$MICROSOFT_EMULATOR_URL/v1.0/me/drive/root:/notes.txt:/content" \
   -H "Content-Type: text/plain" \
   --data-binary "hello"
 ```
+
+## Drafts, replies, and file attachments
+
+Use a delegated token with `Mail.ReadWrite` to create and update drafts or attach files, `Mail.Send` to send, and `Mail.Read` or `Mail.ReadWrite` to read messages and attachments. Every route is scoped to the signed-in mailbox.
+
+A compose flow is `POST /v1.0/me/messages` followed by `POST /v1.0/me/messages/:id/send`. A reply flow is `POST /v1.0/me/messages/:id/createReply`, `PATCH /v1.0/me/messages/:draftId`, optional attachment POSTs, then send. Draft and attachment creation return 201; PATCH returns 200; send returns 202 with no body. Sending moves the existing draft to `sentitems`, preserving its ID, conversation and attachments. Repeated sends of the same draft fail. No mail leaves the emulator.
+
+JSON drafts support `subject`, `body`, `from`, `sender`, `toRecipients`, `ccRecipients`, `bccRecipients`, `replyTo`, and `attachments`. PATCH supports the same fields except attachments, which must use the attachment endpoint. Reply drafts retain the original `conversationId` and use the original `replyTo`, falling back to `from`. Supply either `comment` or `message.body`, or omit the reply request body and PATCH later. Original attachments and quoted original body are not copied.
+
+Attachments must have `@odata.type: "#microsoft.graph.fileAttachment"`, `name`, and base64 `contentBytes`. Optional fields are `contentType`, `isInline`, and `contentId`. Decoded files must be smaller than 3 MB (3,145,728 bytes). Attachment GET returns base64; `/$value` returns the original bytes. Inline-only attachments do not set `hasAttachments`.
+
+This is a curated JSON subset. MIME, item/reference attachments, upload sessions, `/users` and mail-folder mail routes, attachment OData query options, and provider delivery are not implemented. IDs stay stable even without `Prefer: IdType="ImmutableId"`; the emulator does not model default Outlook ID changes. Use `/_emulate/coverage` to inspect these limits and `/_emulate/ledger` to inspect mutations. A fault armed for `message_Send` fails before the draft changes; it does not simulate delivery followed by a lost response.

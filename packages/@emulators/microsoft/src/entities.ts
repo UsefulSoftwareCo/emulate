@@ -60,6 +60,17 @@ export interface MicrosoftMessage extends Entity {
   has_attachments: boolean;
 }
 
+export interface MicrosoftFileAttachment extends Entity {
+  graph_id: string;
+  message_id: string;
+  name: string;
+  content_type: string;
+  content_bytes: string;
+  size: number;
+  is_inline: boolean;
+  content_id: string | null;
+}
+
 export interface MicrosoftCalendar extends Entity {
   graph_id: string;
   user_email: string;
