@@ -55,6 +55,21 @@ function maxBytes(category: string): number {
   return 512 * MB;
 }
 const MAX_SEGMENT = 8 * MB;
+
+type FixedLengthStreamCtor = new (length: number) => TransformStream<Uint8Array, Uint8Array>;
+
+/**
+ * Workers drop a Content-Length set on a streamed body unless the stream is a
+ * FixedLengthStream (a Workers runtime global); wrap it there so the download
+ * keeps its length. Elsewhere the header is sent as set.
+ */
+function withLength(stream: ReadableStream<Uint8Array>, length: number): ReadableStream<Uint8Array> {
+  const Fixed = (globalThis as { FixedLengthStream?: FixedLengthStreamCtor }).FixedLengthStream;
+  if (!Fixed) return stream;
+  const { readable, writable } = new Fixed(length);
+  void stream.pipeTo(writable).catch(() => {});
+  return readable;
+}
 const UPLOAD_TTL_SECS = 24 * 60 * 60;
 
 interface UploadFields {
@@ -303,7 +318,7 @@ export function mediaRoutes({ app, store }: RouteContext): void {
     }
     c.set("ledgerOmitResponseBody", true);
     recordSideEffect(c, { type: "custom", collection: "x.media", id: media.media_key, summary: `${media.size} bytes` });
-    return new Response(mediaStream(store, media), {
+    return new Response(withLength(mediaStream(store, media), media.size), {
       status: 200,
       headers: {
         // The spec declares the body as application/octet-stream.

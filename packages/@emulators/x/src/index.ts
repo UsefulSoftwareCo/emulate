@@ -189,6 +189,13 @@ export const xPlugin: ServicePlugin = {
   rateLimit: "provider",
   register(app, store, webhooks, baseUrl, tokenMap): void {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
+    // Every X provider request writes a ledger entry and most count against a rate
+    // limit, reads included, so ask a persisting host to save after each one: a
+    // hosted instance evicted between reads must not forget them.
+    app.use("*", async (c, next) => {
+      if (!c.req.path.startsWith("/_emulate")) store.requestPersist();
+      return next();
+    });
     app.use("/2/*", xRateLimitMiddleware(store));
     controlRoutes(ctx);
     dmRoutes(ctx);
