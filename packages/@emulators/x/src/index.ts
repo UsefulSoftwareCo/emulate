@@ -4,10 +4,20 @@ import { oauthRoutes } from "./routes/oauth.js";
 import { usersRoutes } from "./routes/users.js";
 import { tweetsRoutes } from "./routes/tweets.js";
 import { openapiRoutes } from "./routes/openapi.js";
+import { dmRoutes } from "./routes/dm.js";
+import { controlRoutes } from "./routes/control.js";
+import { mediaRoutes } from "./routes/media.js";
+import { webhookRoutes } from "./routes/webhooks.js";
+import { setCrcDeliveryMode, type CrcDeliveryMode } from "./activity.js";
+import { xRateLimitMiddleware, setRateLimitConfig, type RateLimitConfig } from "./rate-limits.js";
+import { seedDmBulk, seedDmConversation, type XSeedDmBulk, type XSeedDmConversation } from "./dm-seed.js";
 
 export { getXStore, lookupAccessToken, type XStore } from "./store.js";
 export { manifest } from "./manifest.js";
 export * from "./entities.js";
+export type { RateLimitConfig, RateWindowSpec } from "./rate-limits.js";
+export type { CrcDeliveryMode } from "./activity.js";
+export type { XSeedDmBulk, XSeedDmConversation, XSeedAttachment } from "./dm-seed.js";
 
 export interface XSeedConfig {
   users?: Array<{
@@ -31,6 +41,8 @@ export interface XSeedConfig {
     client_type?: "confidential" | "public";
     name?: string;
     redirect_uris?: string[];
+    /** Legacy OAuth 1.0a consumer secret; signs `X-Twitter-Webhooks-Signature`. */
+    consumer_secret?: string;
   }>;
   tweets?: Array<{
     text: string;
@@ -44,6 +56,18 @@ export interface XSeedConfig {
     lang?: string;
     created_at?: string;
   }>;
+  /** Direct-message conversations, with explicit messages and/or generated history. */
+  dm_conversations?: XSeedDmConversation[];
+  /** Many generated conversations for one user (partners are created as users). */
+  dm_bulk?: XSeedDmBulk;
+  /** Rate-limit overrides for this instance (see RateLimitConfig). */
+  rate_limits?: RateLimitConfig;
+  /** Webhook configs, created without a CRC (seeded state, as if already validated). */
+  webhooks?: Array<{ url: string; client_id: string; webhook_id?: string; valid?: boolean }>;
+  /** X Activity API subscriptions; `user` is a username or id, `webhook` a webhook id or url. */
+  activity_subscriptions?: Array<{ event_type: string; user: string; webhook: string; tag?: string }>;
+  /** Who delivers CRC challenges: X's `outbound` GET (default) or the emulator's `control` mode. */
+  webhook_crc_delivery?: CrcDeliveryMode;
 }
 
 function resolveAuthor(store: Store, ref: string): string | null {
@@ -88,6 +112,7 @@ export function seedFromConfig(store: Store, baseUrl: string, config: XSeedConfi
       client_type: clientType,
       name: cl.name ?? cl.client_id,
       redirect_uris: cl.redirect_uris ?? ["http://localhost:3000/callback"],
+      consumer_secret: cl.consumer_secret ?? null,
     });
   }
 
@@ -114,12 +139,61 @@ export function seedFromConfig(store: Store, baseUrl: string, config: XSeedConfi
     const author = xs.users.findOneBy("user_id", authorId);
     if (author) xs.users.update(author.id, { tweet_count: author.tweet_count + 1 });
   }
+
+  for (const conv of config.dm_conversations ?? []) seedDmConversation(store, conv);
+  if (config.dm_bulk) {
+    seedDmBulk(store, config.dm_bulk, (username) => seedFromConfig(store, baseUrl, { users: [{ username }] }));
+  }
+  if (config.rate_limits) setRateLimitConfig(store, config.rate_limits);
+  if (config.webhook_crc_delivery) setCrcDeliveryMode(store, config.webhook_crc_delivery);
+
+  for (const w of config.webhooks ?? []) {
+    if (!xs.oauthClients.findOneBy("client_id", w.client_id))
+      throw new Error(`webhooks: unknown client_id ${w.client_id}.`);
+    if (xs.webhooks.findBy("client_id", w.client_id).some((x) => x.url === w.url)) continue;
+    xs.webhooks.insert({
+      webhook_id: w.webhook_id ?? xNumericId(),
+      client_id: w.client_id,
+      url: w.url,
+      valid: w.valid ?? true,
+      created_at_x: new Date().toISOString(),
+    });
+  }
+  for (const s of config.activity_subscriptions ?? []) {
+    const userId = resolveAuthor(store, s.user);
+    if (!userId) throw new Error(`activity_subscriptions: unknown user ${s.user}.`);
+    const webhook =
+      xs.webhooks.findOneBy("webhook_id", s.webhook) ?? xs.webhooks.all().find((w) => w.url === s.webhook);
+    if (!webhook) throw new Error(`activity_subscriptions: unknown webhook ${s.webhook}.`);
+    if (!["dm.sent", "dm.received", "dm.read", "dm.indicate_typing"].includes(s.event_type)) {
+      throw new Error(`activity_subscriptions: unsupported event_type ${s.event_type}.`);
+    }
+    const now = new Date().toISOString();
+    xs.activitySubscriptions.insert({
+      subscription_id: xNumericId(),
+      client_id: webhook.client_id,
+      event_type: s.event_type,
+      user_id: userId,
+      webhook_id: webhook.webhook_id,
+      tag: s.tag ?? null,
+      created_at_x: now,
+      updated_at_x: now,
+      expires_at_x: null,
+    });
+  }
 }
 
 export const xPlugin: ServicePlugin = {
   name: "x",
+  // X's own limiter (x-rate-limit-* headers, 429) replaces the shared GitHub-shaped one.
+  rateLimit: "provider",
   register(app, store, webhooks, baseUrl, tokenMap): void {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
+    app.use("/2/*", xRateLimitMiddleware(store));
+    controlRoutes(ctx);
+    dmRoutes(ctx);
+    mediaRoutes(ctx);
+    webhookRoutes(ctx);
     oauthRoutes(ctx);
     usersRoutes(ctx);
     tweetsRoutes(ctx);

@@ -13,6 +13,13 @@ export interface RouteContext {
 
 export interface ServicePlugin {
   name: string;
+  /**
+   * Which rate limiter applies to this service's provider routes. Absent or
+   * `"github"` keeps the shared GitHub-shaped limiter (`X-RateLimit-*`, 5000 an
+   * hour per token, 403 when spent). `"provider"` turns the shared limiter off
+   * for this service because the plugin installs its own provider-shaped one.
+   */
+  rateLimit?: "github" | "provider";
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void;
   seed?(store: Store, baseUrl: string): void;
 }

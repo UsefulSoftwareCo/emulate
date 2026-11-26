@@ -20,6 +20,30 @@ export interface WebhookDelivery {
   delivered_at: string;
   duration: number | null;
   success: boolean;
+  /** Provider-side id of the receiving hook when it is not a small integer (set by `deliver`). */
+  hook_ref?: string;
+  /** Address the delivery was sent to (set by `deliver`). */
+  url?: string;
+}
+
+/**
+ * A fully built delivery for a provider whose webhook format is not GitHub's:
+ * the plugin chooses the address, headers (including its own signature) and
+ * the exact body bytes, and the dispatcher sends it and records the result.
+ */
+export interface RawWebhookDelivery {
+  /** Numeric hook id for the delivery history; 0 when the provider id is not numeric-safe. */
+  hookId?: number;
+  hookRef?: string;
+  event: string;
+  action?: string;
+  url: string;
+  method?: string;
+  headers: Record<string, string>;
+  body: string;
+  /** The parsed payload kept in the delivery history; defaults to the parsed body. */
+  payload?: unknown;
+  timeoutMs?: number;
 }
 
 const MAX_DELIVERIES = 1000;
@@ -135,6 +159,55 @@ export class WebhookDispatcher {
         this.deliveries.splice(0, this.deliveries.length - MAX_DELIVERIES);
       }
     }
+  }
+
+  /**
+   * Send one prebuilt delivery and record it in the same history `dispatch`
+   * writes, so the ledger and `/_emulate/logs` show it. Never throws: a network
+   * failure is recorded as an unsuccessful delivery with no status code.
+   */
+  async deliver(raw: RawWebhookDelivery): Promise<WebhookDelivery> {
+    let payload = raw.payload;
+    if (payload === undefined) {
+      try {
+        payload = JSON.parse(raw.body);
+      } catch {
+        payload = raw.body;
+      }
+    }
+    const delivery: WebhookDelivery = {
+      id: this.deliveryIdCounter++,
+      hook_id: raw.hookId ?? 0,
+      event: raw.event,
+      action: raw.action,
+      payload,
+      status_code: null,
+      delivered_at: new Date().toISOString(),
+      duration: null,
+      success: false,
+      hook_ref: raw.hookRef,
+      url: raw.url,
+    };
+    const start = Date.now();
+    try {
+      const response = await fetch(raw.url, {
+        method: raw.method ?? "POST",
+        headers: raw.headers,
+        body: raw.body,
+        signal: AbortSignal.timeout(raw.timeoutMs ?? 10000),
+      });
+      delivery.status_code = response.status;
+      delivery.success = response.ok;
+      await response.body?.cancel().catch(() => {});
+    } catch {
+      delivery.success = false;
+    }
+    delivery.duration = Date.now() - start;
+    this.deliveries.push(delivery);
+    if (this.deliveries.length > MAX_DELIVERIES) {
+      this.deliveries.splice(0, this.deliveries.length - MAX_DELIVERIES);
+    }
+    return delivery;
   }
 
   getDeliveries(hookId?: number): WebhookDelivery[] {

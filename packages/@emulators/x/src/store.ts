@@ -1,5 +1,20 @@
 import { Store, type Collection } from "@emulators/core";
-import type { XUser, XTweet, XOAuthClient, XAuthCode, XAccessToken, XRefreshToken } from "./entities.js";
+import type {
+  XUser,
+  XTweet,
+  XOAuthClient,
+  XAuthCode,
+  XAccessToken,
+  XRefreshToken,
+  XDmConversation,
+  XDmEvent,
+  XMedia,
+  XMediaChunk,
+  XWebhook,
+  XActivitySubscription,
+  XPendingChallenge,
+  XRateWindow,
+} from "./entities.js";
 
 export interface XStore {
   users: Collection<XUser>;
@@ -8,6 +23,14 @@ export interface XStore {
   authCodes: Collection<XAuthCode>;
   accessTokens: Collection<XAccessToken>;
   refreshTokens: Collection<XRefreshToken>;
+  dmConversations: Collection<XDmConversation>;
+  dmEvents: Collection<XDmEvent>;
+  media: Collection<XMedia>;
+  mediaChunks: Collection<XMediaChunk>;
+  webhooks: Collection<XWebhook>;
+  activitySubscriptions: Collection<XActivitySubscription>;
+  pendingChallenges: Collection<XPendingChallenge>;
+  rateWindows: Collection<XRateWindow>;
 }
 
 export function getXStore(store: Store): XStore {
@@ -18,6 +41,18 @@ export function getXStore(store: Store): XStore {
     authCodes: store.collection<XAuthCode>("x.auth_codes", ["code", "client_id"]),
     accessTokens: store.collection<XAccessToken>("x.access_tokens", ["token", "client_id"]),
     refreshTokens: store.collection<XRefreshToken>("x.refresh_tokens", ["token", "client_id"]),
+    dmConversations: store.collection<XDmConversation>("x.dm_conversations", ["conversation_id", "ordinal"]),
+    dmEvents: store.collection<XDmEvent>("x.dm_events", ["event_id", "dm_conversation_id"]),
+    media: store.collection<XMedia>("x.media", ["media_id", "media_key"]),
+    mediaChunks: store.collection<XMediaChunk>("x.media_chunks", ["media_id"]),
+    webhooks: store.collection<XWebhook>("x.webhooks", ["webhook_id", "client_id"]),
+    activitySubscriptions: store.collection<XActivitySubscription>("x.activity_subscriptions", [
+      "subscription_id",
+      "webhook_id",
+      "user_id",
+    ]),
+    pendingChallenges: store.collection<XPendingChallenge>("x.pending_challenges", ["webhook_id"]),
+    rateWindows: store.collection<XRateWindow>("x.rate_windows", ["key"]),
   };
 }
 
