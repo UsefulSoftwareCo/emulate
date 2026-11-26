@@ -1,8 +1,29 @@
 # Changelog
 
-## 0.14.2
+## 0.15.0
 
 <!-- release:start -->
+
+### New Features
+
+- **Listen on a free loopback port** — `createEmulator` takes a `hostname` (for example `'127.0.0.1'` or `'::1'`) and accepts `port: 0`. It now resolves only once the server is listening, rejects when the port cannot be bound (instead of resolving and failing later), and the instance reports the bound `port`. When no base URL is configured, `url` names the listen address and the bound port (`http://127.0.0.1:<port>`, IPv6 in brackets), so every seeded URL, OAuth redirect and issuer uses a reachable address. Without a `hostname`, URLs still use `localhost`. Callers that pass a fixed port see no change beyond the earlier, clearer error.
+- **`onRequest` on local emulators** — `emulator.onRequest(fn)` calls `fn` with each provider request's ledger entry as it is recorded, after the handler has finished and its state is visible, and returns a function that stops it. A test can wait for "the application under test has sent this email" without polling.
+- **Context company lookup emulator** — a new `context` service serving brand retrieval by work email address or domain over seeded brands. Free and disposable mailbox domains are rejected the way the real resolver does.
+- **PlanetScale OAuth and MCP emulator** — authorization server metadata, dynamic client registration with the real `pscale_app_` id and secret formats, consent, a token endpoint with Doorkeeper's literal HTTP Basic comparison (form-url-encoded Basic credentials fail, as they do upstream), refresh rotation, revocation, and a read-only MCP server at `/mcp/planetscale`.
+- **Miro MCP OAuth emulator** — both discovery documents as served by `mcp.miro.com`, protected resource metadata, dynamic client registration, S256 PKCE consent, `client_secret_post` and `client_secret_basic`, refresh rotation, revocation, and the MCP server behind Miro's gateway 401. ID tokens drop the nonce by default, as Miro does; seed `id_token_nonce: echo` to compare.
+- **Autumn** — `customers.get` (read-only, 404 `customer_not_found` without creating), moving a paid customer to another plan on its Stripe subscription, `auto_enable_plan_id`, atomic check-and-consume, `billing.update` cancellation, a feature and plan catalog seeded by id, and usage events rolled up per feature.
+- **WorkOS organization metadata** — organizations support `metadata`.
+
+### Changes
+
+- **Google ID tokens are signed with RS256** and the signing key is published at the JWKS endpoint, so relying parties that verify Google tokens (and refuse HS256) accept them. Hosted instances keep their signing key across Durable Object eviction.
+- **Hosted instances persist only changed state**, and keep armed faults (with their remaining counts) across Durable Object eviction.
+- **`openid-client` is no longer a dependency.** Nothing imported it, but it pulled in `jose ^6.2.18`, which forced a second copy of `jose` (and of packages that take `jose` as a peer) into applications on an older `jose`.
+
+<!-- release:end -->
+
+## 0.14.2
+
 
 ### New Features
 
@@ -10,7 +31,6 @@
 - **Autumn hosted billing portal** — `POST /v1/billing.open_customer_portal` now returns a URL that actually serves a page. `GET /checkout/portal/:customerId` shows the customer's current plan, the card on file (or "No payment method"), a form to update it, and a link back to the `return_url` the portal session was opened with (recorded in the new `autumn.portals` collection). `POST /checkout/portal/:customerId/payment-method` changes the card IMMEDIATELY, with no settle step, because real Stripe swaps the default inside the portal and Autumn reads the card live on every expand. This is how an application under test changes a card. Unknown customers 404.
 - **Autumn `payment_method` expand** — `customers.get_or_create` honours `expand: ["payment_method"]`, returning the Stripe PaymentMethod (`id`, `type`, `card.brand`, `card.last4`, `card.exp_month`, `card.exp_year`), and omitting the field entirely when there is no card or when `expand` does not ask for it. Settling a paid checkout also leaves a visa 4242 on file when the customer had no card, and customers can be seeded with a `payment_method`.
 
-<!-- release:end -->
 
 ## 0.14.1
 
