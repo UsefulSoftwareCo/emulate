@@ -209,6 +209,8 @@ It returns each service's id, name, description, service host, instance host pat
 
 The apex `https://emulators.dev` is the emulator catalog: a links-out landing page that lists every emulator and links to each one's service host. The console builds it from `GET /_emulate/services`. The apex is not the docs site.
 
+Discovery documents (`/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration`, and any other `/.well-known/` path) are served only by instances, at `<instance base>/.well-known/<type>` or the path-aware `https://emulators.dev/.well-known/<type>/<service>/<instance>`. The apex and service hosts answer them with a JSON 404, never a page, so OAuth discovery clients fall through to the next candidate instead of failing to parse HTML.
+
 ### Docs
 
 Documentation is a separate site at `https://docs.emulators.dev`. Per-service docs live at `https://docs.emulators.dev/<service>`, which is the `docsUrl` convention each manifest advertises.

@@ -56,6 +56,21 @@ const html = (body: string): Response =>
 // Browsers send Sec-Fetch-Mode: navigate on a top-level navigation. Agents and
 // raw fetches (curl, server-side fetch) do not, so they get the server-rendered,
 // no-JS response instead of the interactive SPA.
+/**
+ * A discovery document (RFC 8414, RFC 9728, OpenID Connect Discovery) that this
+ * host cannot serve. Discovery clients parse whatever answers 200, so a missing
+ * document must be a 404 and never an HTML page. Instances serve their own.
+ */
+function wellKnownNotFound(type: string | undefined, hint: string): Response {
+  return Response.json(
+    {
+      error: "not_found",
+      message: `No ${type ? `/.well-known/${type}` : "/.well-known"} document here. ${hint}`,
+    },
+    { status: 404 },
+  );
+}
+
 const isBrowserNavigation = (request: Request): boolean => request.headers.get("sec-fetch-mode") === "navigate";
 const wantsJson = (request: Request): boolean => {
   const a = request.headers.get("accept") ?? "";
@@ -110,6 +125,7 @@ export default {
       .filter((s) => s.length > 0);
     const hostRoute = parseHostRoute(url.hostname, suffix);
     const apexOrigin = hostRoute ? `${url.protocol}//${suffix}` : url.origin;
+    const isWellKnown = segments[0] === ".well-known";
 
     // Official provider brand icons, served from any host (falls back to a
     // monogram client-side if missing).
@@ -155,6 +171,14 @@ export default {
             pathOrigin: apexOrigin,
             hostSuffix: suffix,
           }),
+        );
+      }
+
+      // Discovery documents belong to instances; the service host has none.
+      if (isWellKnown) {
+        return wellKnownNotFound(
+          segments[1],
+          `${service}.${suffix} is a service host with no shared instance. Discovery documents are served by an instance: create one with POST ${url.protocol}//${service}.${suffix}/_emulate/instances and use its providerBaseUrl.`,
         );
       }
 
@@ -230,6 +254,12 @@ export default {
     // Apex root or bare `/<service>` → the catalog. Browser → SPA; agent → a
     // server-rendered list of emulators (readable without running JS).
     if (!service || !instance) {
+      if (isWellKnown) {
+        return wellKnownNotFound(
+          wellKnownType,
+          `Discovery documents are served per instance, at ${apexOrigin}/.well-known/<type>/<service>/<instance> or ${apexOrigin}/<service>/<instance>/.well-known/<type>.`,
+        );
+      }
       if (isBrowserNavigation(request))
         return serveCatalogConsole({ origin: apexOrigin, protocol: url.protocol, hostSuffix: suffix });
       if (wantsJson(request)) {
