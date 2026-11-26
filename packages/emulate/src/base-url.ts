@@ -1,6 +1,8 @@
 export interface ResolveBaseUrlOptions {
   service: string;
   port: number;
+  /** Address the server listens on; names the default URL when given. */
+  hostname?: string;
   baseUrl?: string;
   seedBaseUrl?: string;
 }
@@ -11,7 +13,7 @@ export interface ResolveBaseUrlOptions {
  * 2. Explicit baseUrl (CLI flag or programmatic option)
  * 3. EMULATE_BASE_URL env var (with {service} interpolation)
  * 4. PORTLESS_URL env var (with {service} interpolation)
- * 5. http://localhost:<port>
+ * 5. http://<hostname>:<port> when a listen address was given, else http://localhost:<port>
  */
 export function resolveBaseUrl(opts: ResolveBaseUrlOptions): string {
   if (opts.seedBaseUrl) {
@@ -28,5 +30,13 @@ export function resolveBaseUrl(opts: ResolveBaseUrlOptions): string {
   if (portlessUrl) {
     return portlessUrl.replace(/\{service\}/g, opts.service);
   }
+  if (opts.hostname && !isAnyAddress(opts.hostname)) {
+    const host = opts.hostname.includes(":") ? `[${opts.hostname}]` : opts.hostname;
+    return `http://${host}:${opts.port}`;
+  }
   return `http://localhost:${opts.port}`;
+}
+
+function isAnyAddress(hostname: string): boolean {
+  return hostname === "0.0.0.0" || hostname === "::" || hostname === "[::]";
 }

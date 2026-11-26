@@ -89,6 +89,7 @@ const SENSITIVE_KEYS = /token|secret|password|authorization|api[_-]?key|client[_
 export class RequestLedger {
   private entries: LedgerEntry[] = [];
   private counter = 1;
+  private readonly listeners = new Set<(entry: LedgerEntry) => void>();
 
   constructor(private readonly options: LedgerOptions = {}) {}
 
@@ -99,7 +100,20 @@ export class RequestLedger {
     if (this.entries.length > max) {
       this.entries.splice(0, this.entries.length - max);
     }
+    for (const listener of this.listeners) listener(saved);
     return saved;
+  }
+
+  /**
+   * Call listener with every entry as it is recorded, which happens once the
+   * handler has returned and its state changes are visible. Returns a function
+   * that stops the listener. In-process only: nothing is persisted.
+   */
+  subscribe(listener: (entry: LedgerEntry) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
   }
 
   list(limit?: number): LedgerEntry[] {

@@ -39,29 +39,29 @@ All services start with sensible defaults. No config file needed:
 
 Every running service also exposes a public control plane under `/_emulate`:
 
-| Route                        | Purpose                                                                                                                             |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /_emulate`              | Human-readable landing page for the service instance                                                                                |
-| `GET /_emulate/manifest`     | Machine-readable service manifest, including supported surfaces, auth capabilities, spec coverage, and resolved connection snippets |
-| `GET /_emulate/quickstart`   | Plain-text instructions for humans and agents                                                                                       |
-| `GET /_emulate/specs`        | Advertised specs and protocol surfaces                                                                                              |
-| `GET /_emulate/coverage`     | Per-operation coverage report with a summary grouped by status (generated, hand-authored, partial, unsupported)                     |
-| `GET /_emulate/connections`  | Copyable SDK, CLI, env, and curl snippets resolved against this instance (optional `?token=`, `?client_id=`, `?client_secret=`)     |
-| `GET /_emulate/openapi`      | Redirect to the advertised OpenAPI document when one exists                                                                         |
-| `GET /_emulate/graphql`      | Return the GraphQL endpoint when the service exposes one                                                                            |
-| `GET /_emulate/mcp`          | Return the MCP endpoint when the service exposes one                                                                                |
-| `GET /_emulate/ledger`       | Recent API calls with sensitive fields redacted                                                                                     |
-| `DELETE /_emulate/ledger`    | Clear the request ledger                                                                                                            |
-| `POST /_emulate/faults`      | Arm a one-shot or counted fault against matching provider requests                                                                  |
-| `GET /_emulate/faults`       | List armed faults with remaining counts                                                                                             |
-| `DELETE /_emulate/faults`    | Clear all armed faults                                                                                                               |
-| `DELETE /_emulate/faults/:id` | Clear one armed fault                                                                                                                |
-| `GET /_emulate/logs`         | Webhook deliveries plus recent requests                                                                                             |
-| `GET /_emulate/state`        | Current emulator store snapshot                                                                                                     |
-| `POST /_emulate/reset`       | Reset state, webhooks, and request logs, then replay seed data                                                                      |
-| `POST /_emulate/seed`        | Add runtime seed data using the service seed schema                                                                                 |
-| `POST /_emulate/credentials` | Create bearer tokens, API keys, OAuth clients, or client-credentials apps where supported                                           |
-| `POST /_emulate/instances`   | Return URLs for a lazily created hosted instance with a server-generated, unguessable name                                          |
+| Route                         | Purpose                                                                                                                             |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /_emulate`               | Human-readable landing page for the service instance                                                                                |
+| `GET /_emulate/manifest`      | Machine-readable service manifest, including supported surfaces, auth capabilities, spec coverage, and resolved connection snippets |
+| `GET /_emulate/quickstart`    | Plain-text instructions for humans and agents                                                                                       |
+| `GET /_emulate/specs`         | Advertised specs and protocol surfaces                                                                                              |
+| `GET /_emulate/coverage`      | Per-operation coverage report with a summary grouped by status (generated, hand-authored, partial, unsupported)                     |
+| `GET /_emulate/connections`   | Copyable SDK, CLI, env, and curl snippets resolved against this instance (optional `?token=`, `?client_id=`, `?client_secret=`)     |
+| `GET /_emulate/openapi`       | Redirect to the advertised OpenAPI document when one exists                                                                         |
+| `GET /_emulate/graphql`       | Return the GraphQL endpoint when the service exposes one                                                                            |
+| `GET /_emulate/mcp`           | Return the MCP endpoint when the service exposes one                                                                                |
+| `GET /_emulate/ledger`        | Recent API calls with sensitive fields redacted                                                                                     |
+| `DELETE /_emulate/ledger`     | Clear the request ledger                                                                                                            |
+| `POST /_emulate/faults`       | Arm a one-shot or counted fault against matching provider requests                                                                  |
+| `GET /_emulate/faults`        | List armed faults with remaining counts                                                                                             |
+| `DELETE /_emulate/faults`     | Clear all armed faults                                                                                                              |
+| `DELETE /_emulate/faults/:id` | Clear one armed fault                                                                                                               |
+| `GET /_emulate/logs`          | Webhook deliveries plus recent requests                                                                                             |
+| `GET /_emulate/state`         | Current emulator store snapshot                                                                                                     |
+| `POST /_emulate/reset`        | Reset state, webhooks, and request logs, then replay seed data                                                                      |
+| `POST /_emulate/seed`         | Add runtime seed data using the service seed schema                                                                                 |
+| `POST /_emulate/credentials`  | Create bearer tokens, API keys, OAuth clients, or client-credentials apps where supported                                           |
+| `POST /_emulate/instances`    | Return URLs for a lazily created hosted instance with a server-generated, unguessable name                                          |
 
 Stripe exposes the same hand-authored OpenAPI subset at `GET /openapi.json` and `GET /openapi.yaml`.
 
@@ -265,23 +265,26 @@ afterAll(() => Promise.all([github.close(), vercel.close()]));
 
 ### Options
 
-| Option    | Default      | Description                                                                                                                                                                                                                                                                                       |
-| --------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `service` | _(required)_ | Service name: `'vercel'`, `'github'`, `'gitlab'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'spotify'`, `'x'`, `'workos'`, `'autumn'`, `'context'`, `'planetscale'`, `'miro'`, or `'posthog'`                                                               |
-| `port`    | `4000`       | Port for the HTTP server                                                                                                                                                                                                                                                                          |
-| `seed`    | none         | Inline seed data (same shape as YAML config)                                                                                                                                                                                                                                                      |
-| `baseUrl` | none         | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
+| Option     | Default        | Description                                                                                                                                                                                                                                                                                                                                            |
+| ---------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `service`  | _(required)_   | Service name: `'vercel'`, `'github'`, `'gitlab'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'spotify'`, `'x'`, `'workos'`, `'autumn'`, `'context'`, `'planetscale'`, `'miro'`, or `'posthog'`                                                                            |
+| `port`     | `4000`         | Port for the HTTP server. `0` picks a free port; `port` and `url` on the instance report the one bound. `createEmulator` resolves once the server is listening and rejects if it cannot bind.                                                                                                                                                          |
+| `hostname` | all interfaces | Address to listen on, e.g. `'127.0.0.1'` or `'::1'`. When given, the default URL names it (`http://127.0.0.1:<port>`) instead of `localhost`                                                                                                                                                                                                           |
+| `seed`     | none           | Inline seed data (same shape as YAML config)                                                                                                                                                                                                                                                                                                           |
+| `baseUrl`  | none           | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://<hostname>:<port>` (or `http://localhost:<port>` without a `hostname`). |
 
 ### Instance methods
 
-| Method            | Description                                  |
-| ----------------- | -------------------------------------------- |
-| `url`             | Base URL of the running server               |
-| `reset()`         | Wipe the store and replay seed data          |
-| `close()`         | Shut down the HTTP server, returns a Promise |
-| `faults.arm()`    | Arm a one-shot or counted fault              |
-| `faults.list()`   | List armed faults with remaining counts      |
-| `faults.clear()`  | Clear one fault by id, or all faults         |
+| Method           | Description                                                                                                                       |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `url`            | Base URL of the running server                                                                                                    |
+| `port`           | Port the server is listening on                                                                                                   |
+| `onRequest(fn)`  | Call `fn` with each provider request's ledger entry once it is handled and its state is visible; returns a function that stops it |
+| `reset()`        | Wipe the store and replay seed data                                                                                               |
+| `close()`        | Shut down the HTTP server, returns a Promise                                                                                      |
+| `faults.arm()`   | Arm a one-shot or counted fault                                                                                                   |
+| `faults.list()`  | List armed faults with remaining counts                                                                                           |
+| `faults.clear()` | Clear one fault by id, or all faults                                                                                              |
 
 ## Configuration
 

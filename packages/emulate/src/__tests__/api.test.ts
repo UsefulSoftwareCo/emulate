@@ -293,6 +293,105 @@ describe("createEmulator", () => {
     await aws.close();
   });
 
+  it("listens on a free loopback port and reports it", async () => {
+    const [first, second] = await Promise.all([
+      createEmulator({ service: "github", port: 0, hostname: "127.0.0.1" }),
+      createEmulator({ service: "github", port: 0, hostname: "127.0.0.1" }),
+    ]);
+
+    expect(first.port).toBeGreaterThan(0);
+    expect(first.port).not.toBe(second.port);
+    expect(first.url).toBe(`http://127.0.0.1:${first.port}`);
+
+    // Listening as soon as createEmulator resolves, with no retry.
+    const res = await fetch(`${first.url}/user`, { headers: { Authorization: "token test_token_admin" } });
+    expect(res.status).toBe(200);
+
+    // Seeded URLs use the bound port, not 0.
+    const metadata = await fetch(`${first.url}/.well-known/oauth-authorization-server`);
+    expect(((await metadata.json()) as { issuer: string }).issuer).toBe(first.url);
+
+    await Promise.all([first.close(), second.close()]);
+  });
+
+  it("names an IPv6 listen address in brackets", async () => {
+    const github = await createEmulator({ service: "github", port: 0, hostname: "::1" });
+    expect(github.url).toBe(`http://[::1]:${github.port}`);
+    const res = await fetch(`${github.url}/user`, { headers: { Authorization: "token test_token_admin" } });
+    expect(res.status).toBe(200);
+    await github.close();
+  });
+
+  it("keeps localhost in the URL when listening on every interface", async () => {
+    const github = await createEmulator({ service: "github", port: 0, hostname: "0.0.0.0" });
+    expect(github.url).toBe(`http://localhost:${github.port}`);
+    await github.close();
+  });
+
+  it("binds only the address asked for", async () => {
+    const github = await createEmulator({ service: "github", port: 0, hostname: "127.0.0.1" });
+    await expect(fetch(`http://[::1]:${github.port}/user`)).rejects.toThrow();
+    await github.close();
+  });
+
+  it("keeps an explicit baseUrl with port 0", async () => {
+    const github = await createEmulator({ service: "github", port: 0, baseUrl: "https://github.example.test" });
+    expect(github.url).toBe("https://github.example.test");
+    expect(github.port).toBeGreaterThan(0);
+    await github.close();
+  });
+
+  it("rejects when the port is taken, instead of failing after it resolves", async () => {
+    const held = await createEmulator({ service: "github", port: 0, hostname: "127.0.0.1" });
+    await expect(createEmulator({ service: "github", port: held.port, hostname: "127.0.0.1" })).rejects.toThrow(
+      /EADDRINUSE/,
+    );
+    await held.close();
+  });
+
+  it("releases the port when setup fails", async () => {
+    const probe = await createEmulator({ service: "github", port: 0, hostname: "127.0.0.1" });
+    const port = probe.port;
+    await probe.close();
+    await expect(
+      createEmulator({
+        service: "github",
+        port,
+        hostname: "127.0.0.1",
+        seed: { github: { users: 5 } },
+      }),
+    ).rejects.toThrow();
+    const again = await createEmulator({ service: "github", port, hostname: "127.0.0.1" });
+    await again.close();
+  });
+
+  it("tells in-process listeners about each handled provider request", async () => {
+    const resend = await createEmulator({ service: "resend", port: 0, hostname: "127.0.0.1" });
+    const seen: Array<{ method: string; path: string; status: number }> = [];
+    const stop = resend.onRequest((entry) =>
+      seen.push({ method: entry.method, path: entry.path, status: entry.response.status }),
+    );
+
+    const sent = await fetch(`${resend.url}/emails`, {
+      method: "POST",
+      headers: { Authorization: "Bearer re_test", "Content-Type": "application/json" },
+      body: JSON.stringify({ from: "a@example.com", to: ["b@example.com"], subject: "Hi", text: "Hello" }),
+    });
+    expect(sent.status).toBe(200);
+    expect(seen).toEqual([{ method: "POST", path: "/emails", status: 200 }]);
+
+    // State is visible by the time the listener runs; control-plane calls are not reported.
+    const state = (await resend.state()) as { collections: Record<string, { items: unknown[] }> };
+    expect(state.collections["resend.emails"]?.items).toHaveLength(1);
+    expect(seen).toHaveLength(1);
+
+    stop();
+    await fetch(`${resend.url}/emails`, { headers: { Authorization: "Bearer re_test" } });
+    expect(seen).toHaveLength(1);
+
+    await resend.close();
+  });
+
   it("throws on unknown service", async () => {
     // @ts-expect-error testing invalid service name
     await expect(createEmulator({ service: "unknown-svc" })).rejects.toThrow("Unknown service");

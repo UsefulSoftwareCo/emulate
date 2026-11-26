@@ -185,8 +185,13 @@ const vercel = await createEmulator({ service: 'vercel', port: 4002 })
 github.url   // 'http://localhost:4001'
 vercel.url   // 'http://localhost:4002'
 
+// Any free port on loopback only; url reports the port bound
+const resend = await createEmulator({ service: 'resend', port: 0, hostname: '127.0.0.1' })
+resend.url   // 'http://127.0.0.1:<bound port>'
+
 await github.close()
 await vercel.close()
+await resend.close()
 ```
 
 ### Options
@@ -194,15 +199,18 @@ await vercel.close()
 | Option | Default | Description |
 |--------|---------|-------------|
 | `service` | *(required)* | `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, or `'spotify'` |
-| `port` | `4000` | Port for the HTTP server |
+| `port` | `4000` | Port for the HTTP server. `0` picks a free port; the instance's `port` and `url` report the one bound. Resolves once listening; rejects if it cannot bind. |
+| `hostname` | all interfaces | Address to listen on, e.g. `'127.0.0.1'`. When given, the default URL names it instead of `localhost` |
 | `seed` | none | Inline seed data (same shape as YAML config) |
-| `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://localhost:<port>`. |
+| `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://<hostname>:<port>` (or `http://localhost:<port>` without a `hostname`). |
 
 ### Instance Methods
 
 | Method | Description |
 |--------|-------------|
 | `url` | Base URL of the running server |
+| `port` | Port the server is listening on |
+| `onRequest(fn)` | Call `fn` with each provider request's ledger entry once handled and its state is visible; returns a stop function |
 | `reset()` | Wipe the store and replay seed data |
 | `close()` | Shut down the HTTP server, returns a Promise |
 
