@@ -8,6 +8,7 @@ import {
   renderErrorPage,
   renderFormPostPage,
   renderUserButton,
+  renderDenyButton,
   matchesRedirectUri,
   bodyStr,
   debug,
@@ -214,7 +215,10 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       })
       .join("\n");
 
-    const body = users.length === 0 ? '<p class="empty">No users in the emulator store.</p>' : userButtons;
+    const body =
+      users.length === 0
+        ? '<p class="empty">No users in the emulator store.</p>'
+        : `${userButtons}\n${renderDenyButton({ redirectUri: redirect_uri, state: state, responseMode: response_mode === "form_post" || response_mode === "fragment" ? response_mode : "query" })}`;
 
     return c.html(renderCardPage("Sign in with Apple", subtitleText, body, SERVICE_LABEL));
   });

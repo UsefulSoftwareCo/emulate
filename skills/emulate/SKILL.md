@@ -203,6 +203,7 @@ await resend.close()
 | `hostname` | all interfaces | Address to listen on, e.g. `'127.0.0.1'`. When given, the default URL names it instead of `localhost` |
 | `seed` | none | Inline seed data (same shape as YAML config) |
 | `baseUrl` | none | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://<hostname>:<port>` (or `http://localhost:<port>` without a `hostname`). |
+| `strict` | `false` | Only seeded or minted tokens authenticate; an unknown or revoked token gets the real API's unauthorized answer. When `false`, an unknown token acts as the service's default user. |
 
 ### Instance Methods
 
@@ -483,3 +484,7 @@ packages/
 ```
 
 The core provides a generic `Store` with typed `Collection<T>` instances supporting CRUD, indexing, filtering, and pagination. Each service plugin registers routes with the shared internal app and uses the store for state.
+
+## Declining a sign-in
+
+Every OAuth consent page that lists users to approve as also has a Deny button. It sends the person back to the client's redirect URI with `error=access_denied` and the request's `state`, in the response mode the request asked for, and issues no code. The MCP service also accepts `auth: none` in its seed block: `/mcp` then needs no sign-in and acts as the first seeded user.

@@ -13,6 +13,7 @@ import {
   renderErrorPage,
   renderFormPostPage,
   renderUserButton,
+  renderDenyButton,
 } from "@emulators/core";
 import type { OktaOAuthClient, OktaUser } from "../entities.js";
 import {
@@ -649,7 +650,13 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       renderCardPage(
         "Sign in with Okta",
         subtitle,
-        users.length > 0 ? buttons : '<p class="empty">No users in the emulator store.</p>',
+        users.length > 0
+          ? `${buttons}\n${renderDenyButton({
+              redirectUri,
+              state,
+              responseMode: responseMode === "form_post" || responseMode === "fragment" ? responseMode : "query",
+            })}`
+          : '<p class="empty">No users in the emulator store.</p>',
         SERVICE_LABEL,
       ),
     );

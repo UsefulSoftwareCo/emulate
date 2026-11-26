@@ -116,6 +116,19 @@ afterAll(() => Promise.all([github.close(), vercel.close()]));
         <code>hostname</code>).
       </td>
     </tr>
+    <tr>
+      <td>
+        <code>strict</code>
+      </td>
+      <td>
+        <code>false</code>
+      </td>
+      <td>
+        Only seeded or minted tokens authenticate; an unknown or revoked token gets the real API&apos;s unauthorized
+        answer. When <code>false</code>, an unknown token acts as the service&apos;s default user. Hosted strict
+        instances behave the same.
+      </td>
+    </tr>
   </tbody>
 </table>
 

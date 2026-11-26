@@ -72,7 +72,8 @@ export const manifest: ServiceManifest = {
       {
         key: "auth",
         title: "Auth mode",
-        description: "One of oauth, bearer, or query. Defaults to oauth.",
+        description:
+          "One of oauth, bearer, query, or none (no sign-in; requests act as the first seeded user). Defaults to oauth.",
         example: "oauth",
       },
       {

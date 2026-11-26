@@ -51,6 +51,12 @@ export interface EmulatorOptions {
   hostname?: string;
   seed?: SeedConfig;
   baseUrl?: string;
+  /**
+   * Only seeded or minted tokens authenticate; an unknown or revoked token gets the
+   * real API's unauthorized answer. Default false: an unknown token acts as the
+   * service's default user, as before. The hosted surface's strict instances behave the same.
+   */
+  strict?: boolean;
 }
 
 /**
@@ -167,7 +173,7 @@ export async function createEmulator(options: EmulatorOptions): Promise<Emulator
       ? (appId) => cachedResolver!(appId)
       : undefined;
 
-    const fallbackUser = entry.defaultFallback(svcSeedConfig);
+    const fallbackUser = options.strict === true ? undefined : entry.defaultFallback(svcSeedConfig);
 
     let resetService = () => {};
     let applyRuntimeSeed = (_seed: unknown) => {};

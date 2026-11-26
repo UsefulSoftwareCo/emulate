@@ -1,5 +1,5 @@
 import type { Context } from "@emulators/core";
-import { renderCardPage, renderUserButton, escapeHtml, type RouteContext } from "@emulators/core";
+import { renderCardPage, renderUserButton, renderDenyButton, escapeHtml, type RouteContext } from "@emulators/core";
 
 import { getWorkosStore, type WorkosStore } from "../store.js";
 import type { WorkosUser } from "../entities.js";
@@ -109,7 +109,7 @@ export function userManagementRoutes(ctx: RouteContext): void {
       renderCardPage(
         "Sign in with AuthKit",
         "Pick an existing emulator user or continue as a new one.",
-        `${buttons}${newUserForm}`,
+        `${buttons}${newUserForm}${renderDenyButton({ redirectUri, state })}`,
       ),
       200,
     );

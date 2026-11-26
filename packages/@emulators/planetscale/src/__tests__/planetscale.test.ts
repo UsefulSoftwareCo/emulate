@@ -434,3 +434,55 @@ describe("MCP server", () => {
     expect(stale.status).toBe(401);
   });
 });
+
+describe("consent page", () => {
+  // What a browser sends: exactly the fields inside the chosen user's form.
+  function firstUserForm(html: string): { action: string; fields: URLSearchParams } {
+    const form = /<form class="user-form" method="post" action="([^"]+)">([\s\S]*?)<\/form>/.exec(html);
+    expect(form).not.toBeNull();
+    const fields = new URLSearchParams();
+    for (const input of form![2].matchAll(/<input type="hidden" name="([^"]+)" value="([^"]*)"\/>/g))
+      fields.set(input[1], input[2].replaceAll("&amp;", "&").replaceAll("&quot;", '"'));
+    return { action: form![1], fields };
+  }
+
+  it("approving as a user submits that user", async () => {
+    const client = await register({ redirect_uris: [REDIRECT] });
+    const params = new URLSearchParams({
+      client_id: client.client_id,
+      redirect_uri: REDIRECT,
+      response_type: "code",
+      state: "chosen-user",
+    });
+    const html = await (await fetch(`${BASE}/oauth/authorize?${params}`)).text();
+    const { action, fields } = firstUserForm(html);
+    expect(fields.get("login")).toBe("planetscale-user");
+    const approve = await fetch(action, {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: fields,
+      redirect: "manual",
+    });
+    expect(approve.status).toBe(302);
+    const returned = new URL(approve.headers.get("location")!);
+    expect(returned.searchParams.get("code")).toBeTruthy();
+    expect(returned.searchParams.get("state")).toBe("chosen-user");
+  });
+
+  it("Deny returns access_denied with the state and the issuer", async () => {
+    const client = await register({ redirect_uris: [REDIRECT] });
+    const params = new URLSearchParams({
+      client_id: client.client_id,
+      redirect_uri: REDIRECT,
+      response_type: "code",
+      state: "declined",
+    });
+    const html = await (await fetch(`${BASE}/oauth/authorize?${params}`)).text();
+    const href = /class="deny-btn" href="([^"]+)"/.exec(html)?.[1]?.replaceAll("&amp;", "&");
+    const denied = new URL(href!);
+    expect(denied.searchParams.get("error")).toBe("access_denied");
+    expect(denied.searchParams.get("state")).toBe("declined");
+    expect(denied.searchParams.get("iss")).toBe(BASE);
+    expect(denied.searchParams.has("code")).toBe(false);
+  });
+});

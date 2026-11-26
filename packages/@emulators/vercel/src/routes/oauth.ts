@@ -6,6 +6,7 @@ import {
   renderCardPage,
   renderErrorPage,
   renderUserButton,
+  renderDenyButton,
   matchesRedirectUri,
   constantTimeSecretEqual,
   bodyStr,
@@ -108,7 +109,10 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       })
       .join("\n");
 
-    const body = users.length === 0 ? '<p class="empty">No users in the emulator store.</p>' : userButtons;
+    const body =
+      users.length === 0
+        ? '<p class="empty">No users in the emulator store.</p>'
+        : `${userButtons}\n${renderDenyButton({ redirectUri: redirect_uri, state: state })}`;
 
     return c.html(renderCardPage("Sign in to Vercel", subtitleText, body, SERVICE_LABEL));
   });

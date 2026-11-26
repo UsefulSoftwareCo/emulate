@@ -2,6 +2,8 @@
 
 Tokens are configured in the seed config and map to users. Pass them as `Authorization: Bearer <token>` or `Authorization: token <token>`.
 
+Every OAuth consent page that lists users to approve as also has a Deny button. It sends the person back to the client's registered redirect URI with `error=access_denied` and the request's `state`, in the response mode the request asked for, and issues no code.
+
 ## Vercel
 
 All endpoints accept `teamId` or `slug` query params for team scoping. Pagination uses cursor-based `limit`/`since`/`until` with `pagination` response objects.

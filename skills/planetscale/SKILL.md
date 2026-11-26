@@ -64,6 +64,7 @@ Read it from `GET /_emulate/ledger`. Secrets are never recorded.
 
 - Browser automation: click the button whose name contains the login, for example `page.getByRole("button", { name: /planetscale-user/ }).click()`.
 - Without a browser: POST the authorize query parameters plus `login=planetscale-user` as `application/x-www-form-urlencoded` to `/oauth/authorize` and read the `Location` header.
+- To decline, follow the page's Deny link: it goes to the client's `redirect_uri` with `error=access_denied`, `state` and `iss`, and no code.
 
 ## Seed
 

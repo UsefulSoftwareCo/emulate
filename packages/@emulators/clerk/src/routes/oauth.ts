@@ -11,6 +11,7 @@ import {
   renderCardPage,
   renderErrorPage,
   renderUserButton,
+  renderDenyButton,
 } from "@emulators/core";
 import type { ClerkUser } from "../entities.js";
 import { userDisplayName } from "../helpers.js";
@@ -206,7 +207,9 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       renderCardPage(
         "Sign in with Clerk",
         subtitle,
-        users.length > 0 ? buttons : '<p class="empty">No users in the emulator store.</p>',
+        users.length > 0
+          ? `${buttons}\n${renderDenyButton({ redirectUri, state })}`
+          : '<p class="empty">No users in the emulator store.</p>',
         SERVICE_LABEL,
       ),
     );

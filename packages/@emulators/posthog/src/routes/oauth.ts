@@ -6,6 +6,7 @@ import {
   matchesRedirectUri,
   renderCardPage,
   renderUserButton,
+  renderDenyButton,
 } from "@emulators/core";
 
 import type { OAuthClientMetadata, PendingOAuthCode, RegisteredOAuthClient } from "../entities.js";
@@ -238,7 +239,9 @@ export function oauthRoutes(ctx: RouteContext): void {
       renderCardPage(
         "Authorize PostHog",
         `Authorize <strong>${clientName}</strong> to access PostHog as a seeded user.`,
-        users.length > 0 ? buttons : '<p class="empty">No users in the emulator store.</p>',
+        users.length > 0
+          ? `${buttons}\n${renderDenyButton({ redirectUri, state })}`
+          : '<p class="empty">No users in the emulator store.</p>',
         SERVICE_LABEL,
       ),
     );

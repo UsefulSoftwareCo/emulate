@@ -72,6 +72,14 @@ body{
   font:inherit;transition:border-color .15s;
 }
 .user-btn:hover{border-color:#33ff00;}
+.deny-form{margin-top:12px;}
+.deny-btn{
+  width:100%;display:flex;align-items:center;justify-content:center;
+  padding:10px 12px;border:1px solid #330a0a;border-radius:8px;
+  background:#000;color:#ff4444;cursor:pointer;font:inherit;text-decoration:none;
+  transition:border-color .15s;
+}
+.deny-btn:hover{border-color:#ff4444;}
 .avatar{
   width:36px;height:36px;border-radius:50%;
   background:#0a3300;color:#33ff00;font-weight:600;font-size:.875rem;
@@ -533,4 +541,54 @@ ${hiddens}
   </span>
 </button>
 </form>`;
+}
+
+export type OAuthResponseMode = "query" | "fragment" | "form_post";
+
+export interface DenyButtonOptions {
+  /** The client's redirect URI, already validated against its registration. */
+  redirectUri: string;
+  state?: string;
+  responseMode?: OAuthResponseMode;
+  /** Extra response parameters the provider sends with every authorization response, such as `iss`. */
+  extra?: Record<string, string>;
+}
+
+/**
+ * The person declines the authorization request. The client receives an error
+ * response with `error=access_denied` and the request's state (RFC 6749 section 4.1.2.1),
+ * in the same response mode a successful answer would use.
+ */
+export function oauthDenialParams(opts: DenyButtonOptions): Record<string, string> {
+  return {
+    error: "access_denied",
+    error_description: "The resource owner denied the request.",
+    ...(opts.state ? { state: opts.state } : {}),
+    ...opts.extra,
+  };
+}
+
+export function oauthDenialUrl(opts: DenyButtonOptions): string {
+  const params = new URLSearchParams(oauthDenialParams(opts));
+  const url = new URL(opts.redirectUri);
+  if (opts.responseMode === "fragment") {
+    url.hash = params.toString();
+    return url.toString();
+  }
+  for (const [key, value] of params) url.searchParams.set(key, value);
+  return url.toString();
+}
+
+export function renderDenyButton(opts: DenyButtonOptions): string {
+  if (!URL.canParse(opts.redirectUri)) return "";
+  if (opts.responseMode === "form_post") {
+    const hiddens = Object.entries(oauthDenialParams(opts))
+      .map(([k, v]) => `<input type="hidden" name="${escapeAttr(k)}" value="${escapeAttr(v)}"/>`)
+      .join("");
+    return `<form class="deny-form" method="post" action="${escapeAttr(opts.redirectUri)}">
+${hiddens}
+<button type="submit" class="deny-btn">Deny</button>
+</form>`;
+  }
+  return `<div class="deny-form"><a class="deny-btn" href="${escapeAttr(oauthDenialUrl(opts))}">Deny</a></div>`;
 }

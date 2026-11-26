@@ -99,6 +99,12 @@ mcp:
 
 Set `tokenEndpointAuthMethods` to `omit` to leave `token_endpoint_auth_methods_supported` out of authorization-server metadata. A `client_secret_basic` DCR override returns and stores that method, mints a secret, and requires HTTP Basic authentication at `/token`; `client_secret_post` continues to require form-body credentials.
 
+The `/mcp` endpoint authenticates in one of four modes, set with `auth` in the `mcp` seed block: `oauth` (the default: MCP OAuth with dynamic client registration), `bearer` (`Authorization: Bearer <seeded token>`), `query` (`?token=<seeded token>`, or the name given in `queryParam`), or `none` (no sign-in; every request acts as the first seeded user, as a public or locally trusted MCP server does).
+
+### Declining a sign-in
+
+Every OAuth consent page that lists users to approve as also has a Deny button. It sends the person back to the client's registered redirect URI with `error=access_denied` and the request's `state` (RFC 6749 section 4.1.2.1), in the response mode the request asked for (`query`, `fragment` or `form_post`), and issues no code.
+
 ## CLI
 
 ```bash
@@ -272,6 +278,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]));
 | `hostname` | all interfaces | Address to listen on, e.g. `'127.0.0.1'` or `'::1'`. When given, the default URL names it (`http://127.0.0.1:<port>`) instead of `localhost`                                                                                                                                                                                                           |
 | `seed`     | none           | Inline seed data (same shape as YAML config)                                                                                                                                                                                                                                                                                                           |
 | `baseUrl`  | none           | Override advertised base URL. Per-service `baseUrl` in seed config takes highest priority, then this option, then `EMULATE_BASE_URL` env var (supports `{service}`), then `PORTLESS_URL` (supports `{service}`, automatically set by the `portless` CLI wrapper), then `http://<hostname>:<port>` (or `http://localhost:<port>` without a `hostname`). |
+| `strict`   | `false`        | Only seeded or minted tokens authenticate; an unknown or revoked token gets the real API's unauthorized answer. When `false`, an unknown token acts as the service's default user. Hosted strict instances behave the same. |
 
 ### Instance methods
 

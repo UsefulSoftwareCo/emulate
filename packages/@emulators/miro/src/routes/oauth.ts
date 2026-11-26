@@ -9,6 +9,7 @@ import {
   renderCardPage,
   renderErrorPage,
   renderUserButton,
+  renderDenyButton,
 } from "@emulators/core";
 import {
   ACCESS_TOKEN_TTL_SECONDS,
@@ -425,7 +426,10 @@ export function registerOAuthRoutes(ctx: RouteContext): void {
     const subtitle = `Allow <strong>${escapeHtml(clientLabel)}</strong> to access your Miro boards (${escapeHtml(
       check.scope,
     )}). Choose the user to sign in as.`;
-    return c.html(renderCardPage("Install Miro MCP", subtitle, users.length ? buttons : empty, SERVICE_LABEL));
+    const deny = renderDenyButton({ redirectUri: check.redirectUri, state: p.state });
+    return c.html(
+      renderCardPage("Install Miro MCP", subtitle, users.length ? `${buttons}\n${deny}` : empty, SERVICE_LABEL),
+    );
   });
 
   // The consent page's user buttons POST here. Issues a code and redirects.

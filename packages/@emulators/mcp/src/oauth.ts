@@ -1,6 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "crypto";
 import type { RouteContext, Store, TokenMap } from "@emulators/core";
-import { bodyStr, matchesRedirectUri, renderCardPage, renderUserButton } from "@emulators/core";
+import { bodyStr, matchesRedirectUri, renderCardPage, renderUserButton, renderDenyButton } from "@emulators/core";
 import { getGitHubStore, seedFromConfig as seedGitHub } from "@emulators/github";
 import { createRemoteJWKSet, decodeProtectedHeader, decodeJwt, jwtVerify, type JWTPayload } from "jose";
 import { getMcpOAuthConfig } from "./oauth-config.js";
@@ -59,7 +59,7 @@ function userButtonsHtml(store: Store, baseUrl: string, hidden: ConsentFields): 
         name: u.name ?? undefined,
         email: u.email ?? undefined,
         formAction: `${baseUrl}/authorize/approve`,
-        hiddenFields: hidden,
+        hiddenFields: { ...hidden, login: u.login },
       }),
     )
     .join("\n");
@@ -244,6 +244,7 @@ export function registerOAuthRoutes(ctx: RouteContext): void {
           // when served under CF's /mcp/<id>.
           formAction: `${baseUrl}/authorize/approve`,
           hiddenFields: {
+            login: user.login,
             client_id: clientId,
             redirect_uri: redirectUri,
             state,
@@ -260,7 +261,7 @@ export function registerOAuthRoutes(ctx: RouteContext): void {
     const body =
       users.length === 0
         ? `<p class="empty">No users seeded in this instance yet.</p>${seedHintHtml(baseUrl, "")}`
-        : userButtons + footer;
+        : `${userButtons}\n${renderDenyButton({ redirectUri, state })}${footer}`;
     const subtitle = `Authorize <strong>${escapeBasic(clientName)}</strong> to access GitHub as a seeded user.`;
     return c.html(renderCardPage("Authorize MCP client", subtitle, body, SERVICE_LABEL));
   });
@@ -300,7 +301,7 @@ export function registerOAuthRoutes(ctx: RouteContext): void {
       const buttons = userButtonsHtml(store, baseUrl, hidden);
       const subtitle = `<strong>${escapeBasic(login || "(no login)")}</strong> isn't a seeded user in this instance.`;
       const pick = buttons
-        ? `<p class="empty" style="margin-bottom:8px">Authorize as an available user instead:</p>${buttons}`
+        ? `<p class="empty" style="margin-bottom:8px">Authorize as an available user instead:</p>${buttons}\n${renderDenyButton({ redirectUri, state })}`
         : "";
       return c.html(
         renderCardPage("User not found", subtitle, pick + seedHintHtml(baseUrl, login), SERVICE_LABEL),

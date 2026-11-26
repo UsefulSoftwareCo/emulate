@@ -263,7 +263,7 @@ function authorizationUrlFor(service: ServiceName, baseUrl: string): string | un
     microsoft: "/oauth2/v2.0/authorize",
     okta: "/oauth2/default/v1/authorize",
     slack: "/oauth/v2/authorize",
-    vercel: "/integrations/oauth/authorize",
+    vercel: "/oauth/authorize",
     clerk: "/oauth/authorize",
     x: "/2/oauth2/authorize",
     posthog: "/oauth/authorize/",

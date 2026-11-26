@@ -4,7 +4,9 @@ import type { AuthUser, Store, TokenMap } from "@emulators/core";
 //  - "oauth":  full MCP-OAuth (DCR + authorize + token) → access_token in tokenMap.
 //  - "bearer": Authorization: Bearer <seeded-token>.
 //  - "query":  ?token=<seeded-token> (or a configured query param name).
-export type McpAuthMode = "oauth" | "bearer" | "query";
+//  - "none":   no sign-in; every request acts as the first seeded user, as a
+//              public or locally trusted MCP server does.
+export type McpAuthMode = "oauth" | "bearer" | "query" | "none";
 
 export interface McpAuthConfig {
   mode: McpAuthMode;
@@ -16,7 +18,7 @@ const DEFAULT_QUERY_PARAM = "token";
 
 export function setMcpAuthConfig(store: Store, raw: unknown): void {
   const cfg = (raw ?? {}) as { auth?: string; queryParam?: string };
-  const mode: McpAuthMode = cfg.auth === "bearer" || cfg.auth === "query" ? cfg.auth : "oauth";
+  const mode: McpAuthMode = cfg.auth === "bearer" || cfg.auth === "query" || cfg.auth === "none" ? cfg.auth : "oauth";
   store.setData<McpAuthConfig>(DATA_KEY, {
     mode,
     queryParam: typeof cfg.queryParam === "string" && cfg.queryParam.length > 0 ? cfg.queryParam : DEFAULT_QUERY_PARAM,

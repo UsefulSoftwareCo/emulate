@@ -7,6 +7,7 @@ import {
   renderCardPage,
   renderErrorPage,
   renderUserButton,
+  renderDenyButton,
 } from "@emulators/core";
 import {
   ACCESS_TOKEN_TTL_SECONDS,
@@ -366,7 +367,7 @@ export function registerOAuthRoutes(ctx: RouteContext): void {
           name: user.name ?? undefined,
           email: user.email ?? undefined,
           formAction: `${baseUrl}/oauth/authorize`,
-          hiddenFields: hidden,
+          hiddenFields: { ...hidden, login: user.login },
         }),
       )
       .join("\n");
@@ -374,7 +375,10 @@ export function registerOAuthRoutes(ctx: RouteContext): void {
       baseUrl,
     )}/_emulate/seed</code> and <code>{"users":[{"login":"..."}]}</code>.</p>`;
     const subtitle = `Authorize <strong>${escapeHtml(check.client.client_name)}</strong> to use your PlanetScale account. Choose the user to sign in as.`;
-    return c.html(renderCardPage("Authorize application", subtitle, users.length ? buttons : empty, SERVICE_LABEL));
+    const deny = renderDenyButton({ redirectUri: p.redirect_uri, state: p.state, extra: { iss: baseUrl } });
+    return c.html(
+      renderCardPage("Authorize application", subtitle, users.length ? `${buttons}\n${deny}` : empty, SERVICE_LABEL),
+    );
   });
 
   // Approval: the consent page's user buttons POST here (Doorkeeper approves on

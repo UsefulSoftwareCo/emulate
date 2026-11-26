@@ -1,4 +1,4 @@
-import { renderCardPage, renderUserButton, escapeHtml, type RouteContext } from "@emulators/core";
+import { renderCardPage, renderUserButton, renderDenyButton, escapeHtml, type RouteContext } from "@emulators/core";
 
 import { getWorkosStore } from "../store.js";
 import { ensureUserByEmail } from "./user-management.js";
@@ -128,7 +128,11 @@ export function oauthRoutes(ctx: RouteContext): void {
         <button type="submit" class="checkout-pay-btn">Continue as new user</button>
       </form>`;
     return c.html(
-      renderCardPage("Authorize MCP client", "Sign in to connect this MCP client.", `${buttons}${newUserForm}`),
+      renderCardPage(
+        "Authorize MCP client",
+        "Sign in to connect this MCP client.",
+        `${buttons}${newUserForm}${renderDenyButton({ redirectUri, state })}`,
+      ),
       200,
     );
   });

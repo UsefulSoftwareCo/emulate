@@ -5,6 +5,7 @@ import {
   renderCardPage,
   renderErrorPage,
   renderUserButton,
+  renderDenyButton,
   matchesRedirectUri,
   constantTimeSecretEqual,
   bodyStr,
@@ -101,7 +102,10 @@ export function oauthRoutes({ app, store, tokenMap }: RouteContext): void {
       })
       .join("\n");
 
-    const body = users.length === 0 ? '<p class="empty">No users in the emulator store.</p>' : userButtons;
+    const body =
+      users.length === 0
+        ? '<p class="empty">No users in the emulator store.</p>'
+        : `${userButtons}\n${renderDenyButton({ redirectUri: redirect_uri, state: state })}`;
 
     return c.html(renderCardPage("Sign in to Slack", subtitleText, body, SERVICE_LABEL));
   });

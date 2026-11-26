@@ -1,7 +1,7 @@
 import type { Context, Hono } from "@emulators/core";
 import type { AppEnv, RouteContext, ServicePlugin, Store, TokenMap, WebhookDispatcher } from "@emulators/core";
-import { githubPlugin, seedFromConfig as githubSeed, type GitHubSeedConfig } from "@emulators/github";
-import { extractBearer, getMcpAuthConfig, resolveAuthUser, setMcpAuthConfig } from "./auth.js";
+import { getGitHubStore, githubPlugin, seedFromConfig as githubSeed, type GitHubSeedConfig } from "@emulators/github";
+import { extractBearer, getMcpAuthConfig, resolveAuthUser, setMcpAuthConfig, type McpAuthMode } from "./auth.js";
 import { setMcpOAuthConfig, type McpOAuthConfig } from "./oauth-config.js";
 import { registerOAuthRoutes } from "./oauth.js";
 import { setMcpScopeConfig } from "./scopes.js";
@@ -21,7 +21,7 @@ export { manifest } from "./manifest.js";
 // object. The shared bearer/query `tokens` stay top-level on the seed (the DO's
 // token map owns those).
 export interface McpSeedConfig extends GitHubSeedConfig {
-  auth?: "oauth" | "bearer" | "query";
+  auth?: McpAuthMode;
   queryParam?: string;
   // OAuth scopes this MCP server advertises for discovery (RFC 9728 / RFC 8414),
   // and WHERE it advertises them. A client that declares no scopes of its own
@@ -69,6 +69,12 @@ export const mcpPlugin: ServicePlugin = {
 
     const authenticate = (c: Context<AppEnv>) => {
       const cfg = getMcpAuthConfig(store);
+      if (cfg.mode === "none") {
+        const user = getGitHubStore(store)
+          .users.all()
+          .find((candidate) => candidate.login !== "ghost");
+        return user === undefined ? undefined : { login: user.login, id: user.id, scopes: [] };
+      }
       if (cfg.mode === "query") {
         const token = c.req.query(cfg.queryParam);
         return resolveAuthUser(tokenMap, token ?? undefined);
