@@ -1,6 +1,6 @@
 ---
 name: emulate
-description: Local drop-in API emulator for Vercel, GitHub, Google, Slack, Apple, Microsoft, Okta, AWS, Resend, Stripe, MongoDB Atlas, Clerk, and Spotify. Use when the user needs to start emulated services, configure seed data, write tests against local APIs, set up CI without network access, or work with the emulate CLI or programmatic API. Triggers include "start the emulator", "emulate services", "mock API locally", "create emulator config", "test against local API", "npx emulate", or any task requiring local service emulation.
+description: Local drop-in API emulator for Vercel, GitHub, Google, Slack, Apple, Microsoft, Okta, AWS, Resend, Stripe, MongoDB Atlas, Clerk, Spotify, and Zapier MCP. Use when the user needs to start emulated services, configure seed data, write tests against local APIs, set up CI without network access, or work with the emulate CLI or programmatic API. Triggers include "start the emulator", "emulate services", "mock API locally", "create emulator config", "test against local API", "npx emulate", or any task requiring local service emulation.
 allowed-tools: Bash(npx emulate:*), Bash(emulate:*)
 ---
 
@@ -31,6 +31,7 @@ All services start with sensible defaults:
 | MongoDB Atlas | 4010   |
 | Clerk     | 4011        |
 | Spotify   | 4012        |
+| Zapier    | 4022        |
 
 ## Control Plane
 
@@ -114,7 +115,7 @@ Use `POST /_emulate/faults` to arm a one-shot or counted response for matching p
 ## Host-Based Routing (Deployed Emulators)
 
 Hosted emulators are reachable on `*.emulators.dev`. All services are available:
-`vercel`, `github`, `google`, `slack`, `apple`, `microsoft`, `okta`, `aws`, `resend`, `stripe`, `mongoatlas`, `clerk`, `spotify`.
+`vercel`, `github`, `google`, `slack`, `apple`, `microsoft`, `okta`, `aws`, `resend`, `stripe`, `mongoatlas`, `clerk`, `spotify`, `zapier`.
 
 | Form | Example | Notes |
 |------|---------|-------|
@@ -198,7 +199,7 @@ await resend.close()
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `service` | *(required)* | `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, or `'spotify'` |
+| `service` | *(required)* | `'vercel'`, `'github'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'spotify'`, or `'zapier'` |
 | `port` | `4000` | Port for the HTTP server. `0` picks a free port; the instance's `port` and `url` report the one bound. Resolves once listening; rejects if it cannot bind. |
 | `hostname` | all interfaces | Address to listen on, e.g. `'127.0.0.1'`. When given, the default URL names it instead of `localhost` |
 | `seed` | none | Inline seed data (same shape as YAML config) |
@@ -426,6 +427,7 @@ STRIPE_EMULATOR_URL=http://localhost:4009
 MONGOATLAS_EMULATOR_URL=http://localhost:4010
 CLERK_EMULATOR_URL=http://localhost:4011
 SPOTIFY_EMULATOR_URL=http://localhost:4012
+ZAPIER_EMULATOR_URL=http://localhost:4022
 ```
 
 Then use these in your app to construct API and OAuth URLs. See each service's skill for SDK-specific override instructions.
@@ -481,6 +483,7 @@ packages/
     mongoatlas/      # MongoDB Atlas Admin API + Data API plugin
     clerk/           # Clerk auth, users, orgs, OAuth/OIDC plugin
     spotify/         # Spotify Web API + Client Credentials OAuth plugin
+    zapier/          # Zapier MCP (managed mode): per-account tools, OAuth, both MCP protocol eras
 ```
 
 The core provides a generic `Store` with typed `Collection<T>` instances supporting CRUD, indexing, filtering, and pagination. Each service plugin registers routes with the shared internal app and uses the store for state.

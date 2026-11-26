@@ -50,7 +50,8 @@
     "@emulators/autumn": "workspace:*",
     "@emulators/context": "workspace:*",
     "@emulators/planetscale": "workspace:*",
-    "@emulators/miro": "workspace:*"
+    "@emulators/miro": "workspace:*",
+    "@emulators/zapier": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8",

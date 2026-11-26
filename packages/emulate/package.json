@@ -82,6 +82,7 @@
     "@emulators/context": "workspace:*",
     "@emulators/planetscale": "workspace:*",
     "@emulators/miro": "workspace:*",
+    "@emulators/zapier": "workspace:*",
     "@emulators/workos": "workspace:*"
   }
 }

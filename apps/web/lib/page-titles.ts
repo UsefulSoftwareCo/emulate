@@ -20,6 +20,7 @@ export const PAGE_TITLES: Record<string, string> = {
   spotify: "Spotify",
   planetscale: "PlanetScale",
   miro: "Miro",
+  zapier: "Zapier MCP",
   posthog: "PostHog",
   authentication: "Authentication",
   manifest: "Service Manifest",

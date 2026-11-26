@@ -63,9 +63,13 @@ Global catalog:
   Hosted services:
   Available services include vercel, github, gitlab, google, slack, apple,
   microsoft, okta, aws, resend, stripe, mongoatlas, clerk, spotify, x, workos,
-  autumn, context, planetscale, miro, posthog, and mcp.
+  autumn, context, planetscale, miro, zapier, posthog, and mcp.
   PlanetScale emulates the Doorkeeper OAuth server (DCR, literal HTTP Basic
   client auth) and the hosted MCP server at /mcp/planetscale.
+  Zapier emulates Zapier's managed-mode MCP server at /api/v1/connect for
+  protocol 2026-07-28 and the 2025 handshake era, with OAuth per person and a
+  deterministic tool list per account; change one with
+  POST /_emulate/zapier/accounts/:email/tools.
   Miro emulates the Miro MCP server at / and its OAuth server. Its HS256 ID
   tokens omit nonce like real Miro; seed miro.id_token_nonce: echo to change it.
   Google OIDC tokens use RS256; verify them with the instance /oauth2/v3/certs.

@@ -63,6 +63,7 @@ const SERVICE_NAME_LIST = [
   "context",
   "planetscale",
   "miro",
+  "zapier",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -1064,6 +1065,33 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
         users: [{ email: "user@example.com", name: "Miro User" }],
         boards: [{ name: "Product Roadmap", items: [{ type: "sticky_note", content: "Ship OAuth for MCP" }] }],
         id_token_nonce: "omit",
+      },
+    },
+  },
+  zapier: {
+    label: "Zapier MCP emulator (managed mode)",
+    endpoints:
+      "Streamable HTTP MCP at /api/v1/connect (2026-07-28, 2025-11-25, 2025-06-18), OAuth with dynamic registration and S256 PKCE, per-account tool lists of any size",
+    async load() {
+      const mod = await import("@emulators/zapier");
+      return {
+        plugin: mod.zapierPlugin,
+        manifest: mod.manifest,
+        seedFromConfig: mod.seedFromConfig,
+        issueCredential(store: Store, baseUrl: string, _tokenMap: TokenMap, request: CredentialRequest) {
+          return mod.issueCredential(store, baseUrl, request);
+        },
+      };
+    },
+    defaultFallback() {
+      return { login: "user@example.com", id: 1, scopes: [] };
+    },
+    initConfig: {
+      zapier: {
+        accounts: [
+          { email: "ada@example.com", name: "Ada", tools: { count: 3000 } },
+          { email: "bob@example.com", name: "Bob", tools: { count: 40 } },
+        ],
       },
     },
   },

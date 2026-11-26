@@ -77,6 +77,12 @@ import {
   miroPlugin,
   seedFromConfig as miroSeed,
 } from "@emulators/miro";
+import {
+  issueCredential as zapierIssueCredential,
+  manifest as zapierManifest,
+  seedFromConfig as zapierSeed,
+  zapierPlugin,
+} from "@emulators/zapier";
 
 // GitHub exposes three surfaces over ONE store: REST + GraphQL (githubPlugin) and
 // an MCP server (mcpPlugin's transport + OAuth/DCR routes). They compose cleanly —
@@ -398,6 +404,13 @@ export const SERVICES: Record<string, ServiceEntry> = {
     seedFromConfig: miroSeed,
     defaultFallback: () => ({ login: "user@example.com", id: 1, scopes: [] }),
     issueCredential: miroIssueCredential,
+  },
+  zapier: {
+    plugin: zapierPlugin,
+    manifest: zapierManifest,
+    seedFromConfig: zapierSeed,
+    defaultFallback: () => ({ login: "user@example.com", id: 1, scopes: [] }),
+    issueCredential: zapierIssueCredential,
   },
 };
 

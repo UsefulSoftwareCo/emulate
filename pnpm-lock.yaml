@@ -565,6 +565,9 @@ importers:
       '@emulators/x':
         specifier: workspace:*
         version: link:../x
+      '@emulators/zapier':
+        specifier: workspace:*
+        version: link:../zapier
     devDependencies:
       tsup:
         specifier: ^8
@@ -1025,6 +1028,9 @@ importers:
       '@emulators/x':
         specifier: workspace:*
         version: link:../@emulators/x
+      '@emulators/zapier':
+        specifier: workspace:*
+        version: link:../@emulators/zapier
       tsup:
         specifier: ^8
         version: 8.5.1(jiti@2.6.1)(postcss@8.5.8)(typescript@5.9.3)(yaml@2.8.3)
