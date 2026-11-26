@@ -1,0 +1,85 @@
+# X API
+
+X API v2 emulation: OAuth 2.0 (Authorization Code with PKCE and app-only Bearer tokens), users, Posts, direct messages, DM media, webhooks with X Activity API DM events, and X's per-endpoint rate limits.
+
+## Authentication
+
+Run the real OAuth 2.0 flow against `/2/oauth2/authorize` and `/2/oauth2/token`, or mint an app-only Bearer token with `grant_type=client_credentials` and HTTP Basic client auth. Direct messages need a user-context token:
+
+| Routes | Scopes |
+| --- | --- |
+| DM reads | `dm.read`, `tweet.read`, `users.read` |
+| DM sends | `dm.write`, `tweet.read`, `users.read` |
+| DM delete | `dm.read`, `dm.write` |
+| Media upload | `media.write` |
+| DM media download | `dm.read` |
+
+## Direct messages
+
+- `GET /2/dm_events` — all of the user's DM events
+- `GET /2/dm_conversations/with/:participant_id/dm_events` — the one-to-one conversation
+- `GET /2/dm_conversations/:id/dm_events` — a conversation by id (one-to-one ids are `smaller-larger`)
+- `GET /2/dm_events/:event_id`, `DELETE /2/dm_events/:event_id`
+- `POST /2/dm_conversations/with/:participant_id/messages`, `POST /2/dm_conversations/:dm_conversation_id/messages` — `201` with `dm_conversation_id` and `dm_event_id`
+- `POST /2/dm_conversations` — a group conversation with a first message
+
+Reads take `max_results` (1 to 100), `pagination_token`, `event_types`, `dm_event.fields`, `expansions` (`sender_id`, `participant_ids`, `attachments.media_keys`), `user.fields` and `media.fields`. Events come newest first, from the last 30 days, as X documents.
+
+### Seeding a history
+
+```yaml
+x:
+  users:
+    - username: developer
+    - username: alice
+  dm_conversations:
+    - participants: [developer, alice]
+      messages:
+        - from: alice
+          text: Hi!
+          attachment: { bytes: 4194304, media_type: image/jpeg }
+      generate: { count: 2000, interval_seconds: 60, attachment_every: 50 }
+  dm_bulk: { user: developer, conversations: 50, events_per_conversation: 1000 }
+```
+
+`generate` events are computed from their position when read and never stored, so thousands cost nothing to seed or persist.
+
+## Media
+
+- `POST /2/media/upload` — the whole file, base64 in JSON or raw in multipart
+- `POST /2/media/upload/initialize`, `POST /2/media/upload/:id/append`, `POST /2/media/upload/:id/finalize` — chunked, segments up to 8 MB
+- `GET /2/media/upload?command=STATUS&media_id=...`
+- `GET /2/dm_conversations/media/:dm_id/:media_key/:media_id` — the attachment's bytes for a participant, streamed with `content-length`
+
+Seeded attachments are deterministic placeholder bytes of the declared size. No transcoding happens; video reports `succeeded` at once.
+
+## Webhooks and the X Activity API
+
+- `POST /2/webhooks`, `GET /2/webhooks`, `PUT /2/webhooks/:webhook_id` (runs the CRC), `DELETE /2/webhooks/:webhook_id`
+- `POST`, `GET /2/activity/subscriptions`, `PUT` and `DELETE /2/activity/subscriptions/:subscription_id` for `dm.sent` and `dm.received`
+
+Creating a webhook sends `GET <url>?crc_token=...`; the answer must be `sha256=` and the base64 HMAC-SHA256 of the token under the app's client secret. A DM sent or arrived is delivered to each subscription as X's envelope, signed over the raw body in `X-Twitter-Webhooks-Signature-OAuth2`. When a `consumer_secret` is seeded on the client, the legacy `X-Twitter-Webhooks-Signature` is added too. The deprecated Account Activity API is not emulated.
+
+### Tests the emulator cannot reach
+
+- `POST /_emulate/x/webhooks/crc-delivery` with `{"mode":"control"}` switches the instance to an emulator mode: webhook creation sends no challenge, `GET /_emulate/x/webhooks/:id/challenge` returns the request X would make, and `POST /_emulate/x/webhooks/:id/challenge` with the app's `response_token` checks it as X would.
+- `POST /_emulate/x/dm/arrive` with `{"to":"developer","from":"alice","text":"hi"}` makes a message arrive: stored, readable, and delivered to subscribers.
+- `POST /_emulate/x/dm/preview-delivery` with `{"dm_event_id":"..."}` returns each delivery's URL, headers and body without sending it; the bytes match a real delivery.
+
+## Rate limits
+
+Limited responses carry `x-rate-limit-limit`, `x-rate-limit-remaining` and `x-rate-limit-reset` (epoch seconds). A spent window answers `429` with `{"errors":[{"code":88,"message":"Rate limit exceeded"}]}`. Windows follow X's published table: per user for user tokens, per app for app-only tokens, and an app-wide cap on user-only endpoints such as DM sends.
+
+Set a limit and window for an instance through the seed or the control plane:
+
+```bash
+curl -X POST http://localhost:4013/_emulate/x/rate-limits \
+  -H "Content-Type: application/json" \
+  -d '{"endpoints":{"getDirectMessagesEvents":{"limit":3,"window_seconds":5}}}'
+```
+
+`GET /_emulate/x/rate-limits` shows the configuration and the open windows.
+
+## Validation
+
+Every DM, media and webhook request, including each `429`, is in `/_emulate/ledger` with its operation id, status, and the authenticated user (`identity.user.externalId` is the X user id). Webhook deliveries appear in `/_emulate/logs` and on the ledger entry of the request that caused them.

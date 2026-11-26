@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "crypto";
 import { describe, expect, it } from "vitest";
 import { createServer } from "@emulators/core";
-import { xPlugin, seedFromConfig, getXStore, type XSeedConfig } from "../index.js";
+import { xPlugin, seedFromConfig, getXStore, manifest, type XSeedConfig } from "../index.js";
 
 const base = "http://localhost:4000";
 const DEV = "1000000000000000001";
@@ -52,7 +52,7 @@ function setup(extra: Partial<XSeedConfig> = {}) {
   return { ...server, xs, mint, call };
 }
 
-type Json = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
+type Json = Record<string, any>;
 
 describe("X direct messages: scopes", () => {
   it("authorize accepts dm.read, dm.write and media.write and the token carries them", async () => {
@@ -488,5 +488,36 @@ describe("X request ledger", () => {
     expect(entries[2]!.response.headers["x-rate-limit-remaining"]).toBe("0");
     const reads = entries.filter((e) => e.operationId === "getDirectMessagesEvents" && e.response.status === 200);
     expect(reads).toHaveLength(2);
+  });
+});
+
+describe("X service description", () => {
+  it("lists the DM, media and webhook operations in the OpenAPI document and the manifest", async () => {
+    const { app } = setup();
+    const spec = (await (await app.request(`${base}/2/openapi.json`)).json()) as Json;
+    const ops = Object.values(spec.paths as Record<string, Record<string, Json>>).flatMap((p) =>
+      Object.values(p).map((o) => o.operationId),
+    );
+    for (const id of [
+      "getDirectMessagesEvents",
+      "getDirectMessagesEventsByParticipantId",
+      "getDirectMessagesEventsByConversationId",
+      "createDirectMessagesByParticipantId",
+      "createDirectMessagesByConversationId",
+      "dmConversationsMediaDownload",
+      "mediaUpload",
+      "initializeMediaUpload",
+      "createWebhooks",
+      "createActivitySubscription",
+    ]) {
+      expect(ops, id).toContain(id);
+    }
+    expect(spec.components.securitySchemes.OAuth2UserToken.flows.authorizationCode.scopes).toHaveProperty("dm.read");
+    const surfaces = Object.fromEntries(manifest.surfaces.map((s) => [s.id, s.status]));
+    expect(surfaces).toMatchObject({
+      webhooks: "partial",
+      "account-activity": "unsupported",
+      "rate-limits": "supported",
+    });
   });
 });
