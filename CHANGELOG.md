@@ -1,8 +1,17 @@
 # Changelog
 
-## 0.15.0
+## 0.15.1
 
 <!-- release:start -->
+
+### Changes
+
+- **The package installs only what it runs.** `@executor-js/emulate` now depends on `commander`, `graphql`, `picocolors` and `yaml`, the four packages its bundle imports. The seventeen vendor SDKs it used to declare (`googleapis`, `@aws-sdk/client-s3`, `@aws-sdk/client-sqs`, `@azure/msal-node`, `@clerk/backend`, `@octokit/rest`, `@okta/okta-auth-js`, `@slack/web-api`, `@vercel/sdk`, `@workos-inc/node`, `atlas-api-client`, `autumn-js`, `graphql-request`, `resend`, `spotify-web-api-node`, `stripe`, `twitter-api-v2`) appear only in copyable snippets, so they no longer come along. A clean install is now five packages. Nothing about how the emulators behave changes.
+
+<!-- release:end -->
+
+## 0.15.0
+
 
 ### New Features
 
@@ -20,7 +29,6 @@
 - **Hosted instances persist only changed state**, and keep armed faults (with their remaining counts) across Durable Object eviction.
 - **`openid-client` is no longer a dependency.** Nothing imported it, but it pulled in `jose ^6.2.18`, which forced a second copy of `jose` (and of packages that take `jose` as a peer) into applications on an older `jose`.
 
-<!-- release:end -->
 
 ## 0.14.2
 
