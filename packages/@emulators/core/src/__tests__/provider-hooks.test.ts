@@ -98,3 +98,14 @@ describe("WebhookDispatcher.deliver", () => {
     expect(delivery).toMatchObject({ success: false, status_code: null, payload: "x" });
   });
 });
+
+describe("Store.requestPersist", () => {
+  it("is off until a plugin asks, and each request is taken once", async () => {
+    const { Store } = await import("../store.js");
+    const store = new Store();
+    expect(store.takePersistRequest()).toBe(false);
+    store.requestPersist();
+    expect(store.takePersistRequest()).toBe(true);
+    expect(store.takePersistRequest()).toBe(false);
+  });
+});
