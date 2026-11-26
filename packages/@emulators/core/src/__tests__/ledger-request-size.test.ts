@@ -17,7 +17,7 @@ const plugin: ServicePlugin = {
 describe("ledger request body recording", () => {
   it("records request bodies as before unless the handler asks for size only", async () => {
     const { app, ledger } = createServer(plugin);
-    const body = JSON.stringify({ secretless: "content" });
+    const body = JSON.stringify({ note: "content" });
     await app.request("http://localhost:4000/plain", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -29,7 +29,7 @@ describe("ledger request body recording", () => {
       body,
     });
     const [sized, plain] = ledger.list();
-    expect(plain!.request.body).toEqual({ secretless: "content" });
+    expect(plain!.request.body).toEqual({ note: "content" });
     expect(plain!.request.bodyBytes).toBeUndefined();
     expect(sized!.request.body).toBe(`<request body omitted: ${body.length} bytes>`);
     expect(sized!.request.bodyBytes).toBe(body.length);
