@@ -127,6 +127,22 @@ async function createIdToken(
   return builder.sign(privateKey);
 }
 
+function parseBasicClientAuth(header: string | undefined): { clientId: string; clientSecret: string } | null {
+  const m = /^Basic\s+([A-Za-z0-9+/=_-]+)\s*$/i.exec(header ?? "");
+  if (!m) return null;
+  const decoded = Buffer.from(m[1]!, "base64").toString("utf8");
+  const separator = decoded.indexOf(":");
+  if (separator < 0) return null;
+  const decode = (v: string) => {
+    try {
+      return decodeURIComponent(v.replace(/\+/g, " "));
+    } catch {
+      return v;
+    }
+  };
+  return { clientId: decode(decoded.slice(0, separator)), clientSecret: decode(decoded.slice(separator + 1)) };
+}
+
 export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): void {
   const gs = getGoogleStore(store);
 
@@ -326,8 +342,21 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const redirect_uri = typeof body.redirect_uri === "string" ? body.redirect_uri : "";
     const grant_type = typeof body.grant_type === "string" ? body.grant_type : "";
     const code_verifier = typeof body.code_verifier === "string" ? body.code_verifier : undefined;
-    const bodyClientId = typeof body.client_id === "string" ? body.client_id : "";
-    const bodyClientSecret = typeof body.client_secret === "string" ? body.client_secret : "";
+    // The discovery document advertises client_secret_post and client_secret_basic.
+    // With Basic, the id and secret are form-urlencoded, then base64 encoded (RFC 6749 2.3.1).
+    const basic = parseBasicClientAuth(c.req.header("Authorization"));
+    const postedClientId = typeof body.client_id === "string" ? body.client_id : "";
+    if (basic && postedClientId && postedClientId !== basic.clientId) {
+      return c.json(
+        {
+          error: "invalid_request",
+          error_description: "The client_id in the body does not match the Authorization header.",
+        },
+        400,
+      );
+    }
+    const bodyClientId = basic?.clientId ?? postedClientId;
+    const bodyClientSecret = basic?.clientSecret ?? (typeof body.client_secret === "string" ? body.client_secret : "");
 
     const clientsConfigured = gs.oauthClients.all().length > 0;
     if (clientsConfigured) {

@@ -18,6 +18,14 @@ export const manifest: ServiceManifest = {
     { id: "rest", kind: "rest", title: "REST API", status: "partial", basePath: "/" },
     { id: "oauth", kind: "oauth", title: "OAuth 2.0 flow", status: "supported", basePath: "/o/oauth2/v2" },
     { id: "oidc", kind: "oidc", title: "OpenID Connect", status: "supported", basePath: "/.well-known" },
+    {
+      id: "gmail-push",
+      kind: "webhooks",
+      title: "Gmail push notifications (Cloud Pub/Sub push)",
+      status: "partial",
+      notes:
+        "users.watch notifies the topic's push subscriptions with the Pub/Sub-wrapped body and an RS256 OIDC token in Authorization. Pub/Sub itself is not emulated: push subscriptions are configured with the pubsub_push_subscriptions seed field or POST /_emulate/google/pubsub/subscriptions. The token is signed with the emulator's key (verify with <base>/oauth2/v3/certs, issuer <base>), not Google's. One notification per second per user; faster ones are dropped, as Gmail drops them. No redelivery of unacknowledged pushes.",
+    },
   ],
   auth: [
     { id: "oauth-code", title: "OAuth authorization code", type: "oauth-authorization-code", status: "supported" },
@@ -155,6 +163,20 @@ export const manifest: ServiceManifest = {
           method: "POST",
           path: "/gmail/v1/users/:userId/watch",
           status: "partial",
+          summary:
+            "Notifies Pub/Sub push subscriptions on the topic after matching mailbox changes (labelIds with INCLUDE or EXCLUDE). Expires after 7 days. Topic permissions (gmail-api-push@system.gserviceaccount.com) are not checked.",
+        },
+        {
+          operationId: "gmail.users.stop",
+          method: "POST",
+          path: "/gmail/v1/users/:userId/stop",
+          status: "hand-authored",
+        },
+        {
+          operationId: "gmail.users.getProfile",
+          method: "GET",
+          path: "/gmail/v1/users/:userId/profile",
+          status: "hand-authored",
         },
       ],
     },
@@ -179,7 +201,8 @@ export const manifest: ServiceManifest = {
           operationId: "calendar.events.insert",
           method: "POST",
           path: "/calendar/v3/calendars/:calendarId/events",
-          status: "hand-authored",
+          status: "partial",
+          summary: "sendUpdates is accepted and ignored; no invitations are sent.",
         },
         {
           operationId: "calendar.events.delete",
@@ -191,7 +214,21 @@ export const manifest: ServiceManifest = {
           operationId: "calendar.freebusy.query",
           method: "POST",
           path: "/calendar/v3/freeBusy",
-          status: "hand-authored",
+          status: "partial",
+          summary:
+            "Calendars are resolved by stored id (including primary) only: a calendar named by its owner's address is omitted from the response without an error.",
+        },
+        {
+          operationId: "calendar.events.get",
+          method: "GET",
+          path: "/calendar/v3/calendars/:calendarId/events/:eventId",
+          status: "unsupported",
+        },
+        {
+          operationId: "calendar.events.patch",
+          method: "PATCH",
+          path: "/calendar/v3/calendars/:calendarId/events/:eventId",
+          status: "unsupported",
         },
       ],
     },
@@ -229,6 +266,19 @@ export const manifest: ServiceManifest = {
   seedSchema: {
     description: "Seed Google users, OAuth clients, Gmail labels and messages, calendars, events, and Drive items.",
     fields: [
+      {
+        key: "pubsub_push_subscriptions",
+        title: "Pub/Sub push subscriptions",
+        description:
+          "Where Gmail notifications for a topic are pushed. audience defaults to the push endpoint; service_account_email (default gmail-push@{project}.iam.gserviceaccount.com) is the OIDC token's email, or null for no token.",
+        example: [
+          {
+            name: "projects/demo/subscriptions/gmail-push",
+            topic: "projects/demo/topics/gmail",
+            push_endpoint: "https://app.example.test/push",
+          },
+        ],
+      },
       {
         key: "users",
         title: "Users",

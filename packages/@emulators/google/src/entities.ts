@@ -40,6 +40,13 @@ export interface GoogleMessage extends Entity {
   date_header: string;
   body_text: string | null;
   body_html: string | null;
+  /**
+   * Top-level headers beyond the ones stored as fields above (for example
+   * List-Id, List-Unsubscribe, MIME-Version), in message order with their
+   * original names. Gmail returns every header in `full` and the requested ones
+   * in `metadata`. Absent on messages stored before this field existed.
+   */
+  extra_headers?: Array<{ name: string; value: string }>;
 }
 
 export interface GoogleDraft extends Entity {
