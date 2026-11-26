@@ -1,14 +1,28 @@
 # Changelog
 
-## 0.15.1
+## 0.16.0
 
 <!-- release:start -->
+
+### New Features
+
+- **Deny on every OAuth consent page.** Each consent page that lists users to approve as (Apple, Clerk, GitHub, Google, MCP, Microsoft, Miro, Okta, PlanetScale, PostHog, Slack, Vercel, WorkOS, X) now has a Deny button. It sends the person back to the client's registered redirect URI with `error=access_denied` and the request's `state` (RFC 6749 section 4.1.2.1), in the response mode the request asked for (`query`, `fragment` or `form_post`, with `iss` where the provider sends it), and issues no code. It comes from one shared `renderDenyButton` in `@emulators/core`.
+- **`strict` on `createEmulator`.** With `strict: true`, only seeded or minted tokens authenticate and an unknown or revoked token gets the real API's unauthorized answer, as hosted strict instances already do. The default is unchanged: an unknown token still acts as the service's default user.
+- **An MCP server that needs no sign-in.** The `mcp` service accepts `auth: none`: every request to `/mcp` acts as the first seeded user, as a public or locally trusted MCP server does.
+
+### Fixes
+
+- **Approving on the MCP and PlanetScale consent pages works from a browser.** Their user buttons did not post the chosen user, so approving always answered "Unknown user". Tests that posted `login` themselves never saw it.
+- **Vercel's minted OAuth client names its real authorize page.** `credentials.mint` for Vercel returned `/integrations/oauth/authorize`, which does not exist; it now returns `/oauth/authorize`, where the consent page is.
+
+<!-- release:end -->
+
+## 0.15.1
+
 
 ### Changes
 
 - **The package installs only what it runs.** `@executor-js/emulate` now depends on `commander`, `graphql`, `picocolors` and `yaml`, the four packages its bundle imports. The seventeen vendor SDKs it used to declare (`googleapis`, `@aws-sdk/client-s3`, `@aws-sdk/client-sqs`, `@azure/msal-node`, `@clerk/backend`, `@octokit/rest`, `@okta/okta-auth-js`, `@slack/web-api`, `@vercel/sdk`, `@workos-inc/node`, `atlas-api-client`, `autumn-js`, `graphql-request`, `resend`, `spotify-web-api-node`, `stripe`, `twitter-api-v2`) appear only in copyable snippets, so they no longer come along. A clean install is now five packages. Nothing about how the emulators behave changes.
-
-<!-- release:end -->
 
 ## 0.15.0
 
