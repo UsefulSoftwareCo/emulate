@@ -4,6 +4,8 @@ import { createEmulator, type Emulator, type ServiceName } from "../api.js";
 
 const REDIRECT = "http://127.0.0.1:9/callback";
 const STATE = "state-from-the-client";
+// Each service's first start imports its plugin, which can take several seconds on a CI runner.
+const coldStart = { timeout: 15000 };
 
 // Every service whose OAuth consent page lists users to approve as.
 const consentPages: ReadonlyArray<{ service: ServiceName; scope: string; path?: string }> = [
@@ -60,7 +62,7 @@ function consentQuery(clientId: string, scope: string): URLSearchParams {
 
 describe("OAuth consent pages", () => {
   for (const { service, scope } of consentPages) {
-    it(`${service}: Deny sends the person back with access_denied and the state, and no code`, async () => {
+    it(`${service}: Deny sends the person back with access_denied and the state, and no code`, coldStart, async () => {
       const emulator = await createEmulator({ service, port: 0, hostname: "127.0.0.1" });
       try {
         const { clientId, authorize } = await clientFor(emulator, service);
@@ -79,7 +81,7 @@ describe("OAuth consent pages", () => {
     });
   }
 
-  it("Deny answers in form_post when the request asked for it", async () => {
+  it("Deny answers in form_post when the request asked for it", coldStart, async () => {
     const emulator = await createEmulator({ service: "apple", port: 0, hostname: "127.0.0.1" });
     try {
       const { clientId, authorize } = await clientFor(emulator, "apple");
@@ -96,7 +98,7 @@ describe("OAuth consent pages", () => {
 });
 
 describe("strict", () => {
-  it("refuses a token the emulator never issued, and keeps the default permissive", async () => {
+  it("refuses a token the emulator never issued, and keeps the default permissive", coldStart, async () => {
     const strict = await createEmulator({ service: "github", port: 0, hostname: "127.0.0.1", strict: true });
     const permissive = await createEmulator({ service: "github", port: 0, hostname: "127.0.0.1" });
     try {
