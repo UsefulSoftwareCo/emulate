@@ -45,6 +45,8 @@ export interface LedgerEntry {
     headers: Record<string, string>;
     body?: unknown;
     bodyTruncated?: boolean;
+    /** Size of a request body recorded by size only (see `ledgerRequestBodyBytes`). */
+    bodyBytes?: number;
   };
   identity: LedgerIdentity;
   response: {
@@ -162,7 +164,9 @@ export function createLedgerMiddleware(ledger: RequestLedger, options: LedgerOpt
     c.set("ledgerEffects", []);
     c.header("X-Correlation-Id", correlationId);
 
-    const requestBody = await readBody(c.req.raw.clone(), maxBodyChars);
+    // Cloned now, read once the handler has run, so a handler can ask for the
+    // body to be recorded by size only.
+    const requestClone = c.req.raw.clone();
     const requestHeaders = redactHeaders(rawHeaders);
 
     // Snapshot existing webhook delivery ids so we can correlate the ones this
@@ -171,6 +175,14 @@ export function createLedgerMiddleware(ledger: RequestLedger, options: LedgerOpt
     const beforeDeliveryIds = webhooks ? new Set(webhooks.getDeliveries().map((d) => d.id)) : undefined;
 
     const response = await next();
+    const omittedRequestBytes = c.get("ledgerRequestBodyBytes");
+    let requestBody: { body?: unknown; bodyTruncated?: boolean; bodyBytes?: number };
+    if (typeof omittedRequestBytes === "number") {
+      await requestClone.body?.cancel().catch(() => {});
+      requestBody = { body: `<request body omitted: ${omittedRequestBytes} bytes>`, bodyBytes: omittedRequestBytes };
+    } else {
+      requestBody = await readBody(requestClone, maxBodyChars);
+    }
     if (!response) return;
 
     const responseBody = isStreamingContentType(response.headers.get("content-type") ?? "")

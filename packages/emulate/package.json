@@ -82,6 +82,7 @@
     "@emulators/context": "workspace:*",
     "@emulators/planetscale": "workspace:*",
     "@emulators/miro": "workspace:*",
+    "@emulators/openai": "workspace:*",
     "@emulators/workos": "workspace:*"
   }
 }

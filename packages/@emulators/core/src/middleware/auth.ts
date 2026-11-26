@@ -68,6 +68,12 @@ export type AppEnv = {
     fault?: import("../faults.js").FaultLedgerMarker;
     /** Side effects a handler records onto the active request's ledger entry. */
     ledgerEffects?: import("../ledger.js").LedgerSideEffect[];
+    /**
+     * Set by a handler to have the ledger record the request body's size in
+     * bytes instead of its content (for example a request of several megabytes).
+     * Unset by default, so every other request is recorded as before.
+     */
+    ledgerRequestBodyBytes?: number;
   };
 };
 

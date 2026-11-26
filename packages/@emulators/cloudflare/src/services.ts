@@ -77,6 +77,12 @@ import {
   miroPlugin,
   seedFromConfig as miroSeed,
 } from "@emulators/miro";
+import {
+  issueCredential as openaiIssueCredential,
+  manifest as openaiManifest,
+  openaiPlugin,
+  seedFromConfig as openaiSeed,
+} from "@emulators/openai";
 
 // GitHub exposes three surfaces over ONE store: REST + GraphQL (githubPlugin) and
 // an MCP server (mcpPlugin's transport + OAuth/DCR routes). They compose cleanly —
@@ -398,6 +404,13 @@ export const SERVICES: Record<string, ServiceEntry> = {
     seedFromConfig: miroSeed,
     defaultFallback: () => ({ login: "user@example.com", id: 1, scopes: [] }),
     issueCredential: miroIssueCredential,
+  },
+  openai: {
+    plugin: openaiPlugin,
+    manifest: openaiManifest,
+    seedFromConfig: openaiSeed,
+    defaultFallback: () => ({ login: "default", id: 1, scopes: [] }),
+    issueCredential: openaiIssueCredential,
   },
 };
 
