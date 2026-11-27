@@ -14,7 +14,7 @@ Zapier's remote MCP server in managed mode at `<base>/api/v1/connect`, with OAut
 npx emulate --service zapier
 ```
 
-When all services run together, Zapier uses `http://localhost:4022`.
+When all services run together, Zapier uses `http://localhost:4023`.
 
 ## Connect
 

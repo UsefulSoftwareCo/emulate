@@ -523,7 +523,10 @@ export class EmulatorDurableObject {
 
     const live = await this.ensure(service, instance, baseUrl, preset);
     const res = await live.app.fetch(request);
-    if (MUTATES(request.method)) await this.persist();
+    // A plugin can ask for a save after a read that changed state (X counts GETs
+    // against its rate limits and records them in the ledger). Others never do.
+    const persistRequested = live.store.takePersistRequest();
+    if (MUTATES(request.method) || persistRequested) await this.persist();
     return res;
   }
 }

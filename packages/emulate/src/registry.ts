@@ -63,6 +63,7 @@ const SERVICE_NAME_LIST = [
   "context",
   "planetscale",
   "miro",
+  "openai",
   "zapier",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
@@ -241,7 +242,7 @@ function credentialSeed(
 function tokenUrlFor(service: ServiceName, baseUrl: string): string | undefined {
   const paths: Partial<Record<ServiceName, string>> = {
     github: "/login/oauth/access_token",
-    google: "/token",
+    google: "/oauth2/token",
     apple: "/auth/token",
     microsoft: "/oauth2/v2.0/token",
     okta: "/oauth2/default/v1/token",
@@ -905,7 +906,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   x: {
     label: "X (Twitter) API v2 emulator",
     endpoints:
-      "OAuth 2.0 authorize/token/revoke (Authorization Code with PKCE + app-only client credentials), users, tweets",
+      "OAuth 2.0 authorize/token/revoke (Authorization Code with PKCE + app-only client credentials), users, tweets, direct messages, DM media upload/download, webhooks with X Activity API DM events, X rate limits",
     async load() {
       const mod = await import("@emulators/x");
       return {
@@ -1065,6 +1066,32 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
         users: [{ email: "user@example.com", name: "Miro User" }],
         boards: [{ name: "Product Roadmap", items: [{ type: "sticky_note", content: "Ship OAuth for MCP" }] }],
         id_token_nonce: "omit",
+      },
+    },
+  },
+  openai: {
+    label: "OpenAI API emulator",
+    endpoints:
+      "Responses API and Chat Completions (text, streamed or not), models, API keys with per-key request limits, deterministic seeded answers",
+    async load() {
+      const mod = await import("@emulators/openai");
+      return {
+        plugin: mod.openaiPlugin,
+        manifest: mod.manifest,
+        seedFromConfig: mod.seedFromConfig,
+        issueCredential(store: Store, baseUrl: string, _tokenMap: TokenMap, request: CredentialRequest) {
+          return mod.issueCredential(store, baseUrl, request);
+        },
+      };
+    },
+    defaultFallback() {
+      return { login: "default", id: 1, scopes: [] };
+    },
+    initConfig: {
+      openai: {
+        api_keys: [{ name: "primary", key: "sk-proj-emulate-primary" }],
+        models: [{ id: "gpt-5-mini" }],
+        answer_rules: [{ match: { contains: "hello" }, answer: "Hello from the OpenAI emulator." }],
       },
     },
   },

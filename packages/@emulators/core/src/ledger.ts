@@ -4,7 +4,7 @@ import type { WebhookDispatcher } from "./webhooks.js";
 import { faultLedgerFields } from "./faults.js";
 
 export interface LedgerIdentity {
-  user?: Pick<AuthUser, "login" | "id" | "scopes">;
+  user?: Pick<AuthUser, "login" | "id" | "scopes" | "externalId">;
   app?: Pick<AuthApp, "appId" | "slug" | "name">;
 }
 
@@ -45,6 +45,8 @@ export interface LedgerEntry {
     headers: Record<string, string>;
     body?: unknown;
     bodyTruncated?: boolean;
+    /** Size of a request body recorded by size only (see `ledgerRequestBodyBytes`). */
+    bodyBytes?: number;
   };
   identity: LedgerIdentity;
   response: {
@@ -76,6 +78,7 @@ const DEFAULT_MAX_ENTRIES = 1000;
 const DEFAULT_MAX_BODY_CHARS = 20000;
 const REDACTED = "[redacted]";
 const STREAMING_BODY_OMITTED = "<streaming body omitted>";
+const BINARY_BODY_OMITTED = "<binary body omitted>";
 const SENSITIVE_HEADERS = new Set([
   "authorization",
   "cookie",
@@ -162,7 +165,9 @@ export function createLedgerMiddleware(ledger: RequestLedger, options: LedgerOpt
     c.set("ledgerEffects", []);
     c.header("X-Correlation-Id", correlationId);
 
-    const requestBody = await readBody(c.req.raw.clone(), maxBodyChars);
+    // Cloned now, read once the handler has run, so a handler can ask for the
+    // body to be recorded by size only.
+    const requestClone = c.req.raw.clone();
     const requestHeaders = redactHeaders(rawHeaders);
 
     // Snapshot existing webhook delivery ids so we can correlate the ones this
@@ -171,11 +176,21 @@ export function createLedgerMiddleware(ledger: RequestLedger, options: LedgerOpt
     const beforeDeliveryIds = webhooks ? new Set(webhooks.getDeliveries().map((d) => d.id)) : undefined;
 
     const response = await next();
+    const omittedRequestBytes = c.get("ledgerRequestBodyBytes");
+    let requestBody: { body?: unknown; bodyTruncated?: boolean; bodyBytes?: number };
+    if (typeof omittedRequestBytes === "number") {
+      await requestClone.body?.cancel().catch(() => {});
+      requestBody = { body: `<request body omitted: ${omittedRequestBytes} bytes>`, bodyBytes: omittedRequestBytes };
+    } else {
+      requestBody = await readBody(requestClone, maxBodyChars);
+    }
     if (!response) return;
 
-    const responseBody = isStreamingContentType(response.headers.get("content-type") ?? "")
-      ? { body: STREAMING_BODY_OMITTED }
-      : await readBody(response.clone(), maxBodyChars);
+    const responseBody = c.get("ledgerOmitResponseBody")
+      ? { body: BINARY_BODY_OMITTED }
+      : isStreamingContentType(response.headers.get("content-type") ?? "")
+        ? { body: STREAMING_BODY_OMITTED }
+        : await readBody(response.clone(), maxBodyChars);
     const route = c.req.routePath;
     const operationId = c.get("operationId");
     const sideEffects = (c.get("ledgerEffects") as LedgerSideEffect[] | undefined) ?? [];

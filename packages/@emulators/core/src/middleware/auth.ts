@@ -12,6 +12,12 @@ export interface AuthUser {
    * strict token validation (e.g. Microsoft Graph) can reject these.
    */
   fallback?: boolean;
+  /**
+   * The provider's own identifier for the user when it is not a small integer
+   * (for example X's 19-digit user ids, which a JavaScript number cannot hold).
+   * Recorded on ledger entries next to `id`.
+   */
+  externalId?: string;
 }
 
 export interface AuthApp {
@@ -68,6 +74,17 @@ export type AppEnv = {
     fault?: import("../faults.js").FaultLedgerMarker;
     /** Side effects a handler records onto the active request's ledger entry. */
     ledgerEffects?: import("../ledger.js").LedgerSideEffect[];
+    /**
+     * Set by a handler that streams a large binary body so the ledger records a
+     * placeholder instead of reading the body. Unset by default.
+     */
+    ledgerOmitResponseBody?: boolean;
+    /**
+     * Set by a handler to have the ledger record the request body's size in
+     * bytes instead of its content (for example a request of several megabytes).
+     * Unset by default, so every other request is recorded as before.
+     */
+    ledgerRequestBodyBytes?: number;
   };
 };
 

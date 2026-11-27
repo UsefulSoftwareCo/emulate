@@ -50,6 +50,12 @@ export interface XOAuthClient extends Entity {
   client_type: "confidential" | "public";
   name: string;
   redirect_uris: string[];
+  /**
+   * The app's legacy OAuth 1.0a consumer secret (API Secret Key), when seeded.
+   * X signs webhook deliveries with it in `X-Twitter-Webhooks-Signature` and
+   * accepts a CRC response computed with it.
+   */
+  consumer_secret?: string | null;
 }
 
 /**
@@ -89,4 +95,124 @@ export interface XRefreshToken extends Entity {
   client_id: string;
   user_id: string;
   scopes: string[];
+}
+
+/**
+ * Synthetic history attached to a conversation by the seed. Events are computed
+ * from their index on demand (never stored), so a seed can describe thousands of
+ * events cheaply. Event `i` (0 is the oldest) is sent at `start_ms + i * interval_ms`
+ * by `participant_ids[i % participant_ids.length]`.
+ */
+export interface XDmGeneratedHistory {
+  count: number;
+  start_ms: number;
+  interval_ms: number;
+  /** Every Nth event (counting from 1) carries one photo attachment; 0 for none. */
+  attachment_every: number;
+  attachment_bytes: number;
+  attachment_media_type: string;
+  text_prefix: string;
+  /** Indexes of generated events deleted through DELETE /2/dm_events/:id. */
+  deleted: number[];
+}
+
+/**
+ * A direct-message conversation. One-to-one ids are `{smaller_id}-{larger_id}`;
+ * group ids are numeric. `ordinal` (1 to 1022) is embedded in the ids of its
+ * generated events so an event id leads back to its conversation.
+ */
+export interface XDmConversation extends Entity {
+  conversation_id: string;
+  conversation_type: "OneToOne" | "Group";
+  participant_ids: string[];
+  ordinal: number;
+  generated: XDmGeneratedHistory | null;
+}
+
+/** A stored DM event (sent, arrived, or seeded explicitly). */
+export interface XDmEvent extends Entity {
+  event_id: string;
+  dm_conversation_id: string;
+  event_type: "MessageCreate" | "ParticipantsJoin" | "ParticipantsLeave";
+  sender_id: string | null;
+  text: string | null;
+  participant_ids: string[] | null;
+  media_keys: string[];
+  created_at_ms: number;
+}
+
+/**
+ * Uploaded media. Bytes live in `x.media_chunks` (each part kept small enough
+ * for a Durable Object value); seeded media has no chunks and is served as
+ * deterministic placeholder bytes of `size` length.
+ */
+export interface XMedia extends Entity {
+  media_id: string;
+  media_key: string;
+  owner_id: string;
+  additional_owners: string[];
+  media_category: string;
+  media_type: string;
+  /** Declared size for a chunked upload, or the stored size once complete. */
+  size: number;
+  state: "uploading" | "succeeded";
+  source: "uploaded" | "seeded";
+  width: number | null;
+  height: number | null;
+  created_at_ms: number;
+  expires_at_ms: number;
+}
+
+/** One stored part of an uploaded media file, ordered by (segment_index, part). */
+export interface XMediaChunk extends Entity {
+  media_id: string;
+  segment_index: number;
+  part: number;
+  data_b64: string;
+  byte_length: number;
+}
+
+/** A registered Account Activity webhook (POST /2/webhooks), owned by an app. */
+export interface XWebhook extends Entity {
+  webhook_id: string;
+  client_id: string;
+  url: string;
+  valid: boolean;
+  created_at_x: string;
+}
+
+/**
+ * An X Activity API subscription (POST /2/activity/subscriptions): events of
+ * `event_type` for `filter.user_id`, delivered to `webhook_id`.
+ */
+export interface XActivitySubscription extends Entity {
+  subscription_id: string;
+  client_id: string;
+  event_type: string;
+  user_id: string;
+  webhook_id: string;
+  tag: string | null;
+  created_at_x: string;
+  updated_at_x: string;
+  expires_at_x: string | null;
+}
+
+/**
+ * A CRC challenge the emulator holds for a test to deliver itself (instances in
+ * the emulator's `control` CRC delivery mode, never X's default behaviour).
+ */
+export interface XPendingChallenge extends Entity {
+  webhook_id: string;
+  crc_token: string;
+  created_at_ms: number;
+  answered: boolean;
+  valid: boolean | null;
+}
+
+/** One fixed rate-limit window counter, keyed by scope, endpoint and window. */
+export interface XRateWindow extends Entity {
+  key: string;
+  limit: number;
+  used: number;
+  reset_at: number;
 }

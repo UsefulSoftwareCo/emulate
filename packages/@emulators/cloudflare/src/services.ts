@@ -78,6 +78,12 @@ import {
   seedFromConfig as miroSeed,
 } from "@emulators/miro";
 import {
+  issueCredential as openaiIssueCredential,
+  manifest as openaiManifest,
+  openaiPlugin,
+  seedFromConfig as openaiSeed,
+} from "@emulators/openai";
+import {
   issueCredential as zapierIssueCredential,
   manifest as zapierManifest,
   seedFromConfig as zapierSeed,
@@ -405,6 +411,13 @@ export const SERVICES: Record<string, ServiceEntry> = {
     defaultFallback: () => ({ login: "user@example.com", id: 1, scopes: [] }),
     issueCredential: miroIssueCredential,
   },
+  openai: {
+    plugin: openaiPlugin,
+    manifest: openaiManifest,
+    seedFromConfig: openaiSeed,
+    defaultFallback: () => ({ login: "default", id: 1, scopes: [] }),
+    issueCredential: openaiIssueCredential,
+  },
   zapier: {
     plugin: zapierPlugin,
     manifest: zapierManifest,
@@ -586,7 +599,7 @@ function credentialSeed(
 function tokenUrlFor(service: string, baseUrl: string): string | undefined {
   const paths: Record<string, string> = {
     github: "/login/oauth/access_token",
-    google: "/token",
+    google: "/oauth2/token",
     apple: "/auth/token",
     microsoft: "/oauth2/v2.0/token",
     okta: "/oauth2/default/v1/token",

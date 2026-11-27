@@ -50,8 +50,28 @@ OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local
 ## Gmail History & Push
 
 - `GET /gmail/v1/users/:userId/history` - list history changes
-- `POST /gmail/v1/users/:userId/watch` - set up push notifications
+- `GET /gmail/v1/users/:userId/profile` - mailbox address, totals and current history id
+- `POST /gmail/v1/users/:userId/watch` - push notifications to the topic's Pub/Sub push subscriptions (expires after 7 days)
 - `POST /gmail/v1/users/:userId/stop` - stop push notifications
+
+Gmail push: `users.watch` notifies the topic's Cloud Pub/Sub push subscriptions after a matching mailbox change (`labelIds` with `INCLUDE` or `EXCLUDE`), at most once a second per user, as Gmail does. Pub/Sub is not emulated, so configure push subscriptions with the `pubsub_push_subscriptions` seed field or `POST /_emulate/google/pubsub/subscriptions`:
+
+```yaml
+google:
+  pubsub_push_subscriptions:
+    - name: projects/demo/subscriptions/gmail-push
+      topic: projects/demo/topics/gmail
+      push_endpoint: https://app.example.test/push
+      audience: https://app.example.test/push
+```
+
+Each push is the Pub/Sub-wrapped body (`message.data` is base64 `{"emailAddress","historyId"}`, plus `messageId`, `publishTime` and `subscription`) with `Authorization: Bearer <OIDC token>`. The token is RS256, with `aud` (the audience, or the push endpoint), `email` (default `gmail-push@{project}.iam.gserviceaccount.com`), `email_verified`, `sub`, `azp`, `iat` and `exp`. Google signs with its own keys and `iss` `https://accounts.google.com`; the emulator signs with its OIDC key, so point the receiver's verifier at the emulator: JWKS `<base>/oauth2/v3/certs` and issuer `<base>`.
+
+For a test the emulator cannot reach:
+
+- `POST /_emulate/google/gmail/arrive` with `{"to":"user@example.com","from":"a@example.com","subject":"hi","text":"hello","headers":[{"name":"List-Id","value":"..."}]}` delivers mail to the INBOX and notifies the watch.
+- `POST /_emulate/google/gmail/preview-push` with `{"email":"user@example.com"}` returns each push's URL, headers (with the signed token) and body without sending them.
+- `GET /_emulate/google/pubsub/deliveries` lists the pushes made and whether each was acknowledged (102, 200, 201, 202 or 204).
 
 ## Gmail Settings
 

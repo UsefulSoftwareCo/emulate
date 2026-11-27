@@ -63,20 +63,33 @@ Global catalog:
   Hosted services:
   Available services include vercel, github, gitlab, google, slack, apple,
   microsoft, okta, aws, resend, stripe, mongoatlas, clerk, spotify, x, workos,
-  autumn, context, planetscale, miro, zapier, posthog, and mcp.
+  autumn, context, planetscale, miro, openai, zapier, posthog, and mcp.
   PlanetScale emulates the Doorkeeper OAuth server (DCR, literal HTTP Basic
   client auth) and the hosted MCP server at /mcp/planetscale.
   Zapier emulates Zapier's managed-mode MCP server at /api/v1/connect for
   protocol 2026-07-28 and the 2025 handshake era, with OAuth per person and a
   deterministic tool list per account; change one with
   POST /_emulate/zapier/accounts/:email/tools.
+  OpenAI emulates the Responses API and Chat Completions for text at /v1, with
+  API keys, per-key request limits, deterministic seeded answers, paced streams,
+  and a usage record at /_emulate/openai/usage.
   Miro emulates the Miro MCP server at / and its OAuth server. Its HS256 ID
   tokens omit nonce like real Miro; seed miro.id_token_nonce: echo to change it.
   Google OIDC tokens use RS256; verify them with the instance /oauth2/v3/certs.
+  Gmail users.watch pushes to Pub/Sub push subscriptions set with the
+  pubsub_push_subscriptions seed field or /_emulate/google/pubsub/subscriptions,
+  with an OIDC token verifiable at /oauth2/v3/certs. POST
+  /_emulate/google/gmail/arrive delivers mail; /_emulate/google/gmail/preview-push
+  returns a push unsent.
   MCP OAuth compliance scenarios are configured under mcp.oauth in seed data;
   see the MCP manifest seed schema for issuer, resource, DCR, and token-auth knobs.
   Microsoft Graph includes OneDrive file content upload/download routes under
   /v1.0/me/drive and /v1.0/drives/:driveId.
+  X emulates v2 direct messages, DM media, webhooks with X Activity API DM
+  events, and X's rate limits (x-rate-limit-* headers, 429). Seed rate_limits
+  or POST /_emulate/x/rate-limits to set a limit and window per instance;
+  POST /_emulate/x/dm/arrive makes a message arrive, and
+  POST /_emulate/x/dm/preview-delivery returns a signed delivery unsent.
   Service host:    <service>.emulators.dev (control plane only, no shared
                    instance; create one via POST /_emulate/instances)
   Instance host:   <service>.<instance>.emulators.dev

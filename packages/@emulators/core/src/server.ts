@@ -101,6 +101,10 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
   let lastPruneAt = Math.floor(Date.now() / 1000);
 
   app.use("*", async (c, next) => {
+    if (plugin.rateLimit === "provider") {
+      await next();
+      return;
+    }
     const token = c.get("authToken") ?? "__anonymous__";
     const now = Math.floor(Date.now() / 1000);
 

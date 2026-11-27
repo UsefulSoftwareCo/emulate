@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "crypto";
-import { createServer as createNet, type AddressInfo } from "net";
+import type { AddressInfo } from "net";
 import { afterEach, describe, expect, it } from "vitest";
 import { Client as LegacyClient } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport as LegacyTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -22,20 +22,18 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map((s) => new Promise<void>((r) => s.close(() => r()))));
 });
 
-async function freePort(): Promise<number> {
-  const s = createNet();
-  await new Promise<void>((r) => s.listen(0, "127.0.0.1", r));
-  const port = (s.address() as AddressInfo).port;
-  await new Promise<void>((r) => s.close(() => r()));
-  return port;
-}
-
 const ADA = "ada@example.com";
 const BOB = "bob@example.com";
 
 async function start(seed: ZapierSeedConfig = {}) {
-  const port = await freePort();
-  const base = `http://127.0.0.1:${port}`;
+  // Bind port 0 and keep it for the whole test, so no other test can take the
+  // port between choosing it and listening; the emulator is built once the
+  // address is known and served through the same socket.
+  let handler: (request: Request) => Response | Promise<Response> = () => new Response(null, { status: 503 });
+  const http = serve({ fetch: (request: Request) => handler(request), port: 0 });
+  servers.push(http);
+  await new Promise<void>((r) => (http.listening ? r() : http.once("listening", () => r())));
+  const base = `http://127.0.0.1:${(http.address() as AddressInfo).port}`;
   const emulator = createServer(zapierPlugin, { baseUrl: base });
   seedFromConfig(emulator.store, base, {
     accounts: [
@@ -44,9 +42,7 @@ async function start(seed: ZapierSeedConfig = {}) {
     ],
     ...seed,
   });
-  const http = serve({ fetch: emulator.app.fetch, port });
-  servers.push(http);
-  await new Promise<void>((r) => (http.listening ? r() : http.once("listening", () => r())));
+  handler = (request) => emulator.app.fetch(request);
   const url = new URL(`${base}/api/v1/connect`);
   // One connection token per account: regenerating one revokes the last, as Zapier documents.
   const tokens = new Map<string, string>();

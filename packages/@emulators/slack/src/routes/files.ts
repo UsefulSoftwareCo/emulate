@@ -18,6 +18,7 @@ import {
   requireSlackScopes,
   slackError,
   slackOk,
+  findChannelByIdOrName,
 } from "../helpers.js";
 
 export function filesRoutes(ctx: RouteContext): void {
@@ -69,11 +70,7 @@ export function filesRoutes(ctx: RouteContext): void {
     const authUserId = authSlackUser?.user_id ?? authUser.login;
     return file.user === authUserId || authSlackUser?.is_admin === true;
   };
-  const findChannel = (channel: string) =>
-    ss().channels.findOneBy("channel_id", channel) ??
-    ss()
-      .channels.all()
-      .find((ch) => !ch.is_im && !ch.is_mpim && ch.name === channel);
+  const findChannel = (channel: string) => findChannelByIdOrName(ss().channels, channel);
 
   type ShareTargetRef = { key: string; channel?: SlackChannel; directUserId?: string };
 
