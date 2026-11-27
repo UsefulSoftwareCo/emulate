@@ -1,8 +1,17 @@
 # Changelog
 
-## 0.17.4
+## 0.17.5
 
 <!-- release:start -->
+
+### New Features
+
+- **An emulator WebSocket endpoint.** `GET /_emulate/openai/websocket` (`wss://` hosted, `ws://` locally) accepts a WebSocket upgrade and echoes each message, text or binary, as it was received. With `?chunks=N&interval_ms=M`, the paced-answer controls, it also sends N messages of its own M ms apart, then stays open, for a busy connection or an idle one. It closes when the client closes, with the client's code. An emulator control, not OpenAI's Realtime or WebSocket-mode protocol, which remain unsupported.
+- **WebSockets for emulator routes.** `upgradeWebSocket(request, session)` in `@emulators/core` serves one session interface on the Workers runtime and on the local Node server, which now speaks the server side of RFC 6455.
+
+<!-- release:end -->
+
+## 0.17.4
 
 ### New Features
 
@@ -13,8 +22,6 @@
 - **A large request body no longer resets a hosted instance.** A body over the limit is refused with a `413` before it is read, in the provider's error shape where it has one: 16 MiB on hosted instances, and 32 MiB for the OpenAI emulator (locally too), which answers `request_too_large` in OpenAI's error shape. Bodies within the limit are streamed to the instance. A 100 MiB body used to exhaust the instance's memory, answer 500 and end the other requests in it, a paced stream included.
 - **Hosted instances hold their data with less memory, within a stated budget.** The ledger records a body over 1 MiB by size without a second copy, saves keep a fingerprint of each stored value rather than its JSON, and a write that would take an instance's stored data past 32 MiB answers `507 instance_storage_full`. `GET /_emulate/persistence` shows the size and the budget.
 - **The local server answers a client still uploading.** After answering a request whose body it did not read, it ends the connection instead of leaving the client waiting.
-
-<!-- release:end -->
 
 ## 0.17.3
 
