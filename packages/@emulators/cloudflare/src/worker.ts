@@ -43,6 +43,10 @@ export interface Env {
 }
 
 const DEFAULT_HOST_SUFFIX = "emulators.dev";
+
+/** A host suffix for local development, served over plain http. */
+const isLocalSuffix = (suffix: string): boolean =>
+  suffix === "localhost" || suffix.endsWith(".localhost") || /^(127\.\d+\.\d+\.\d+|\[?::1\]?)(:\d+)?$/.test(suffix);
 // The instance segment selects the MCP surface's auth/scope preset:
 //  - oauth | bearer | query: how `/mcp` authenticates.
 //  - scope-discovery: oauth, but the protected-resource metadata stays silent on
@@ -119,6 +123,15 @@ export default {
     // through to the custom-domain worker (the documented route -> custom
     // domain chaining pattern).
     if (url.hostname === `docs.${suffix}`) return fetch(request);
+
+    // Hosted emulators are HTTPS only, like the providers they stand in for, and every
+    // address the control plane returns is https. Plain http is redirected to the same
+    // address over https (308 keeps the method and body), so one instance is never
+    // reached under two base addresses. Local development (`wrangler dev`) stays on http.
+    if (url.protocol === "http:" && !isLocalSuffix(suffix)) {
+      url.protocol = "https:";
+      return new Response(null, { status: 308, headers: { location: url.toString() } });
+    }
     const segments = url.pathname
       .replace(/^\/+/, "")
       .split("/")

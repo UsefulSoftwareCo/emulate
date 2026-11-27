@@ -14,15 +14,10 @@ import {
   tokenEntry,
   tokenUser,
 } from "@emulators/core";
+import { ChunkedStorage, type DurableObjectStorage } from "./chunked-storage.js";
 import { SERVICES, issueCloudflareCredential } from "./services.js";
 
 // Minimal CF runtime types (avoid a hard dep on @cloudflare/workers-types here).
-interface DurableObjectStorage {
-  get<T = unknown>(key: string): Promise<T | undefined>;
-  put(key: string, value: unknown): Promise<void>;
-  delete(key: string | string[]): Promise<boolean | number>;
-  list<T = unknown>(options?: { prefix?: string }): Promise<Map<string, T>>;
-}
 interface DurableObjectState {
   storage: DurableObjectStorage;
   blockConcurrencyWhile<T>(fn: () => Promise<T>): Promise<T>;
@@ -80,8 +75,13 @@ const MINTED_PREFIX = "minted:";
 // Present once the records under MINTED_PREFIX are the whole token map. Instances saved
 // before that recorded only control-plane tokens, so their seeded tokens are rebuilt from the seed.
 const TOKENS_COMPLETE_KEY = "minted-complete";
-// Webhook subscriptions held by the core dispatcher (GitHub's repository and org hooks).
+// Webhook subscriptions held by the core dispatcher (GitHub's repository and org hooks):
+// the id counters under WEBHOOKS_KEY, one value per subscription under the prefix.
 const WEBHOOKS_KEY = "webhooks";
+const WEBHOOK_SUB_PREFIX = "webhooks:sub:";
+// The most recent saves that failed, newest last, shown at GET /_emulate/persistence.
+const SAVE_FAILURES_KEY = "persist:failures";
+const MAX_SAVE_FAILURES = 20;
 // Armed faults and the next fault id. Cloudflare can replace an instance at any time, even
 // between a test arming a fault and the request it targets, so faults persist with the store.
 const FAULTS_KEY = "faults";
@@ -95,7 +95,16 @@ interface SnapshotMeta {
 }
 interface LedgerMeta {
   counter: number;
-  ids: string[];
+}
+interface WebhookCounters {
+  subscriptionIdCounter: number;
+  deliveryIdCounter: number;
+}
+export interface SaveFailure {
+  at: string;
+  /** What was being saved: the request ("GET /user") or the step ("rebuild"). */
+  during: string;
+  error: string;
 }
 
 // Durable Object storage allows at most 128 concurrent operations (and at most
@@ -117,7 +126,9 @@ const snapshotItemKey = (collection: string, id: number): string =>
 const snapshotItemPrefix = (collection: string): string => `${SNAPSHOT_ITEM_PREFIX}${encodeKeyPart(collection)}:`;
 const snapshotDataKey = (key: string): string => `${SNAPSHOT_DATA_PREFIX}${encodeKeyPart(key)}`;
 const ledgerEntryKey = (id: string): string => `${LEDGER_ENTRY_PREFIX}${encodeKeyPart(id)}`;
-
+const ledgerIdNumber = (key: string): number =>
+  Number(decodeKeyPart(key.slice(LEDGER_ENTRY_PREFIX.length)).replace(/^req_/, ""));
+const webhookSubKey = (id: number): string => `${WEBHOOK_SUB_PREFIX}${id}`;
 // One Durable Object instance == one stateful emulator instance. Its `store`
 // lives in DO memory (single-threaded → the serialized-write consistency the
 // in-process emulator already assumes). After every mutating request, the
@@ -133,20 +144,28 @@ export class EmulatorDurableObject {
   // storage writes and the cost of a request does not grow with stored history.
   // Undefined until read from storage for the current live instance.
   private written?: Map<string, string>;
+  // Keys of the ledger entries in storage. Entries never change once recorded, so a
+  // save writes only new ones and deletes the ones the ledger has dropped.
+  private writtenLedger?: Set<string>;
+  private saveFailures: SaveFailure[] = [];
+  // Set when a save that included the store failed: the next save includes it too.
+  private storeUnsaved = false;
   // Storage key of each token, by token (a SHA-256, so computing it is async).
   private readonly tokenKeys = new Map<string, string>();
 
-  constructor(
-    private readonly state: DurableObjectState,
-    _env: unknown,
-  ) {}
+  // Values over the storage's 128 KiB limit are split into parts and reassembled.
+  private readonly storage: ChunkedStorage;
+
+  constructor(state: DurableObjectState, _env: unknown) {
+    this.storage = new ChunkedStorage(state.storage);
+  }
 
   private async readPersistedState(): Promise<PersistedState> {
-    return (await this.state.storage.get<PersistedState>(STATE_KEY)) ?? {};
+    return (await this.storage.get<PersistedState>(STATE_KEY)) ?? {};
   }
 
   private async writeStateMeta(persisted: Pick<PersistedState, "seed" | "strict">): Promise<void> {
-    await this.state.storage.put(STATE_KEY, {
+    await this.storage.put(STATE_KEY, {
       ...(persisted.seed !== undefined && { seed: persisted.seed }),
       ...(persisted.strict !== undefined && { strict: persisted.strict }),
     });
@@ -157,12 +176,12 @@ export class EmulatorDurableObject {
     if (list.length === 0) return;
     // storage.delete accepts at most 128 keys per call.
     for (let i = 0; i < list.length; i += STORAGE_BATCH_SIZE) {
-      await this.state.storage.delete(list.slice(i, i + STORAGE_BATCH_SIZE));
+      await this.storage.delete(list.slice(i, i + STORAGE_BATCH_SIZE));
     }
   }
 
   private async deletePrefix(prefix: string): Promise<void> {
-    await this.deleteKeys((await this.state.storage.list({ prefix })).keys());
+    await this.deleteKeys((await this.storage.list({ prefix })).keys());
   }
 
   private async writeStoreSnapshot(snapshot: StoreSnapshot): Promise<void> {
@@ -188,21 +207,21 @@ export class EmulatorDurableObject {
       }
     }
 
-    await inBatches(writes, (write) => this.state.storage.put(write.key, write.value));
-    await this.state.storage.put(SNAPSHOT_META_KEY, meta);
+    await inBatches(writes, (write) => this.storage.put(write.key, write.value));
+    await this.storage.put(SNAPSHOT_META_KEY, meta);
 
-    const existingItems = await this.state.storage.list({ prefix: SNAPSHOT_ITEM_PREFIX });
-    const existingData = await this.state.storage.list({ prefix: SNAPSHOT_DATA_PREFIX });
+    const existingItems = await this.storage.list({ prefix: SNAPSHOT_ITEM_PREFIX });
+    const existingData = await this.storage.list({ prefix: SNAPSHOT_DATA_PREFIX });
     await this.deleteKeys([...existingItems.keys(), ...existingData.keys()].filter((key) => !expectedKeys.has(key)));
   }
 
   private async readStoreSnapshot(legacySnapshot: unknown): Promise<StoreSnapshot | undefined> {
-    const meta = await this.state.storage.get<SnapshotMeta>(SNAPSHOT_META_KEY);
+    const meta = await this.storage.get<SnapshotMeta>(SNAPSHOT_META_KEY);
     if (!meta) return legacySnapshot as StoreSnapshot | undefined;
 
     const collections: StoreSnapshot["collections"] = {};
     for (const [name, collectionMeta] of Object.entries(meta.collections)) {
-      const itemEntries = await this.state.storage.list<StoreSnapshot["collections"][string]["items"][number]>({
+      const itemEntries = await this.storage.list<StoreSnapshot["collections"][string]["items"][number]>({
         prefix: snapshotItemPrefix(name),
       });
       const items = [...itemEntries.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, item]) => item);
@@ -214,7 +233,7 @@ export class EmulatorDurableObject {
     }
 
     const data: StoreSnapshot["data"] = {};
-    const dataEntries = await this.state.storage.list({ prefix: SNAPSHOT_DATA_PREFIX });
+    const dataEntries = await this.storage.list({ prefix: SNAPSHOT_DATA_PREFIX });
     for (const [storageKey, value] of dataEntries) {
       data[decodeKeyPart(storageKey.slice(SNAPSHOT_DATA_PREFIX.length))] = value;
     }
@@ -225,31 +244,31 @@ export class EmulatorDurableObject {
   private async clearStoreSnapshot(): Promise<void> {
     await this.deletePrefix(SNAPSHOT_ITEM_PREFIX);
     await this.deletePrefix(SNAPSHOT_DATA_PREFIX);
-    await this.state.storage.delete(SNAPSHOT_META_KEY);
+    await this.storage.delete(SNAPSHOT_META_KEY);
   }
 
   private async writeLedger(snapshot: LedgerSnapshot): Promise<void> {
-    const ids = snapshot.entries.map((entry) => entry.id);
-    const expectedKeys = new Set(ids.map(ledgerEntryKey));
-    await inBatches(snapshot.entries, (entry) => this.state.storage.put(ledgerEntryKey(entry.id), entry));
-    await this.state.storage.put(LEDGER_META_KEY, { counter: snapshot.counter, ids } satisfies LedgerMeta);
+    const expectedKeys = new Set(snapshot.entries.map((entry) => ledgerEntryKey(entry.id)));
+    await inBatches(snapshot.entries, (entry) => this.storage.put(ledgerEntryKey(entry.id), entry));
+    await this.storage.put(LEDGER_META_KEY, { counter: snapshot.counter } satisfies LedgerMeta);
 
-    const existing = await this.state.storage.list({ prefix: LEDGER_ENTRY_PREFIX });
+    const existing = await this.storage.list({ prefix: LEDGER_ENTRY_PREFIX });
     await this.deleteKeys([...existing.keys()].filter((key) => !expectedKeys.has(key)));
   }
 
   private async readLedger(legacyLedger: LedgerSnapshot | undefined): Promise<LedgerSnapshot | undefined> {
-    const meta = await this.state.storage.get<LedgerMeta>(LEDGER_META_KEY);
+    const meta = await this.storage.get<LedgerMeta>(LEDGER_META_KEY);
     if (!meta) return legacyLedger;
-    const entries = (await inBatches(meta.ids, (id) => this.state.storage.get<LedgerEntry>(ledgerEntryKey(id)))).filter(
-      (entry): entry is LedgerEntry => entry != null,
-    );
+    const stored = await this.storage.list<LedgerEntry>({ prefix: LEDGER_ENTRY_PREFIX });
+    const entries = [...stored.entries()]
+      .sort(([a], [b]) => ledgerIdNumber(a) - ledgerIdNumber(b))
+      .map(([, entry]) => entry);
     return { entries, counter: meta.counter };
   }
 
   private async clearLedger(): Promise<void> {
     await this.deletePrefix(LEDGER_ENTRY_PREFIX);
-    await this.state.storage.delete(LEDGER_META_KEY);
+    await this.storage.delete(LEDGER_META_KEY);
   }
 
   private async mintedKey(token: string): Promise<string> {
@@ -259,13 +278,13 @@ export class EmulatorDurableObject {
   }
 
   private async writeMinted(entry: TokenEntry): Promise<void> {
-    await this.state.storage.put(await this.mintedKey(entry.token), entry);
+    await this.storage.put(await this.mintedKey(entry.token), entry);
   }
 
   private async readMinted(legacyMinted: TokenEntry[] | undefined): Promise<TokenEntry[]> {
     const byToken = new Map<string, TokenEntry>();
     for (const entry of legacyMinted ?? []) byToken.set(entry.token, entry);
-    const stored = await this.state.storage.list<TokenEntry>({ prefix: MINTED_PREFIX });
+    const stored = await this.storage.list<TokenEntry>({ prefix: MINTED_PREFIX });
     for (const entry of [...stored.values()].sort((a, b) => a.token.localeCompare(b.token))) {
       byToken.set(entry.token, entry);
     }
@@ -274,17 +293,17 @@ export class EmulatorDurableObject {
 
   private async clearMinted(): Promise<void> {
     await this.deletePrefix(MINTED_PREFIX);
-    await this.state.storage.delete(TOKENS_COMPLETE_KEY);
+    await this.storage.delete(TOKENS_COMPLETE_KEY);
     this.tokenKeys.clear();
   }
 
   private async migrateLegacyState(persisted: PersistedState): Promise<void> {
     if (persisted.snapshot) {
-      const hasSplitSnapshot = Boolean(await this.state.storage.get(SNAPSHOT_META_KEY));
+      const hasSplitSnapshot = Boolean(await this.storage.get(SNAPSHOT_META_KEY));
       if (!hasSplitSnapshot) await this.writeStoreSnapshot(persisted.snapshot as StoreSnapshot);
     }
     if (persisted.ledger) {
-      const hasSplitLedger = Boolean(await this.state.storage.get(LEDGER_META_KEY));
+      const hasSplitLedger = Boolean(await this.storage.get(LEDGER_META_KEY));
       if (!hasSplitLedger) await this.writeLedger(persisted.ledger);
     }
     await inBatches(persisted.minted ?? [], (entry) => this.writeMinted(entry));
@@ -331,7 +350,7 @@ export class EmulatorDurableObject {
     if (this.live && this.live.service === service && this.live.baseUrl === baseUrl) return this.live;
     // The same instance reached under another base address (http and https, say) is rebuilt
     // for that address. Save everything first, so the rebuild starts from the state as it is.
-    if (this.live) await this.persist(true);
+    if (this.live) await this.save("rebuild for another base address");
     const entry = SERVICES[service];
     if (!entry) throw new Error(`unknown emulator service: ${service}`);
 
@@ -341,11 +360,12 @@ export class EmulatorDurableObject {
     const strict = persisted.strict ?? true;
     const snapshot = await this.readStoreSnapshot(persisted.snapshot);
     const ledgerSnapshot = await this.readLedger(persisted.ledger);
-    const faultSnapshot = await this.state.storage.get<FaultRegistrySnapshot>(FAULTS_KEY);
+    const faultSnapshot = await this.storage.get<FaultRegistrySnapshot>(FAULTS_KEY);
     const minted = await this.readMinted(persisted.minted);
-    const complete = (await this.state.storage.get<boolean>(TOKENS_COMPLETE_KEY)) === true;
+    const complete = (await this.storage.get<boolean>(TOKENS_COMPLETE_KEY)) === true;
     const tokens = this.buildTokens(persisted.seed, strict, minted, complete);
-    const webhookSnapshot = await this.state.storage.get<WebhookDispatcherSnapshot>(WEBHOOKS_KEY);
+    const webhookSnapshot = await this.readWebhooks();
+    this.saveFailures = (await this.storage.get<SaveFailure[]>(SAVE_FAILURES_KEY)) ?? [];
 
     // eslint-disable-next-line prefer-const
     let cachedResolver: AppKeyResolver | undefined;
@@ -368,11 +388,11 @@ export class EmulatorDurableObject {
       instance,
       ledgerPersistent: true,
       reset: () => resetService(),
-      onFaultConsumed: () => this.persist(),
+      onFaultConsumed: () => this.save("fault consumed"),
       seed: async (seed) => {
         if (seed && entry.seedFromConfig) {
           entry.seedFromConfig(store, baseUrl, seed as Record<string, unknown>);
-          await this.persist();
+          await this.save("POST /_emulate/seed");
         }
       },
       issueCredential: async (request) => {
@@ -385,7 +405,7 @@ export class EmulatorDurableObject {
             scopes: credential.scopes ?? [],
           });
         }
-        await this.persist();
+        await this.save("POST /_emulate/credentials");
         return credential;
       },
     });
@@ -402,7 +422,7 @@ export class EmulatorDurableObject {
       ledger.clear();
       this.seedInto(store, service, baseUrl, persisted.seed);
       await entry.prepare?.(store);
-      await this.persist();
+      await this.save("reset");
     };
 
     // URL-selected preset (e.g. `/oauth|bearer|query/mcp`): pin the auth mode from
@@ -431,7 +451,7 @@ export class EmulatorDurableObject {
       // Persist prepared state now: a read-only first request would not persist it,
       // and a rebuild must not replace state a client has already observed.
       await entry.prepare(store);
-      await this.persist();
+      await this.save("first build");
     }
     return this.live;
   }
@@ -454,26 +474,24 @@ export class EmulatorDurableObject {
     }
     for (const [token, user] of live.tokenMap) entries.set(this.tokenKeys.get(token)!, tokenEntry(token, user));
     entries.set(TOKENS_COMPLETE_KEY, true);
-    entries.set(WEBHOOKS_KEY, live.webhooks.serialize());
-    // The request ledger is intentionally durable, agent-readable history. Entries
-    // are split by id so each request writes only its own entry.
-    const ledger = live.ledger.serialize();
-    for (const entry of ledger.entries) entries.set(ledgerEntryKey(entry.id), entry);
-    entries.set(LEDGER_META_KEY, {
-      counter: ledger.counter,
-      ids: ledger.entries.map((entry) => entry.id),
-    } satisfies LedgerMeta);
+    const webhooks = live.webhooks.serialize();
+    for (const sub of webhooks.subscriptions) entries.set(webhookSubKey(sub.id), sub);
+    entries.set(WEBHOOKS_KEY, {
+      subscriptionIdCounter: webhooks.subscriptionIdCounter,
+      deliveryIdCounter: webhooks.deliveryIdCounter,
+    } satisfies WebhookCounters);
+    entries.set(LEDGER_META_KEY, { counter: live.ledger.serialize().counter } satisfies LedgerMeta);
     entries.set(FAULTS_KEY, live.faults.serialize());
     return entries;
   }
 
   private async readWritten(): Promise<Map<string, string>> {
     const written = new Map<string, string>();
-    for (const prefix of [SNAPSHOT_ITEM_PREFIX, SNAPSHOT_DATA_PREFIX, LEDGER_ENTRY_PREFIX, MINTED_PREFIX]) {
-      for (const [key, value] of await this.state.storage.list({ prefix })) written.set(key, JSON.stringify(value));
+    for (const prefix of [SNAPSHOT_ITEM_PREFIX, SNAPSHOT_DATA_PREFIX, MINTED_PREFIX, WEBHOOK_SUB_PREFIX]) {
+      for (const [key, value] of await this.storage.list({ prefix })) written.set(key, JSON.stringify(value));
     }
     for (const key of [SNAPSHOT_META_KEY, LEDGER_META_KEY, FAULTS_KEY, TOKENS_COMPLETE_KEY, WEBHOOKS_KEY]) {
-      const value = await this.state.storage.get(key);
+      const value = await this.storage.get(key);
       if (value !== undefined) written.set(key, JSON.stringify(value));
     }
     return written;
@@ -487,6 +505,9 @@ export class EmulatorDurableObject {
     const live = this.live;
     if (!live) return;
     const written = (this.written ??= await this.readWritten());
+    const writtenLedger = (this.writtenLedger ??= new Set(
+      (await this.storage.list({ prefix: LEDGER_ENTRY_PREFIX })).keys(),
+    ));
     for (const token of live.tokenMap.keys()) {
       if (!this.tokenKeys.has(token)) this.tokenKeys.set(token, await this.mintedKey(token));
     }
@@ -502,15 +523,62 @@ export class EmulatorDurableObject {
       key === SNAPSHOT_META_KEY || key.startsWith(SNAPSHOT_ITEM_PREFIX) || key.startsWith(SNAPSHOT_DATA_PREFIX);
     const deletes = [...written.keys()].filter((key) => !entries.has(key) && (withStore || !isStoreKey(key)));
     for (const key of deletes) written.delete(key);
+
+    const current = new Set<string>();
+    for (const entry of live.ledger.serialize().entries) {
+      const key = ledgerEntryKey(entry.id);
+      current.add(key);
+      if (!writtenLedger.has(key)) {
+        puts.push({ key, value: entry });
+        writtenLedger.add(key);
+      }
+    }
+    for (const key of writtenLedger) {
+      if (current.has(key)) continue;
+      deletes.push(key);
+      writtenLedger.delete(key);
+    }
+
     if (puts.length === 0 && deletes.length === 0) return;
     try {
-      await inBatches(puts, (put) => this.state.storage.put(put.key, put.value));
+      await inBatches(puts, (put) => this.storage.put(put.key, put.value));
       await this.deleteKeys(deletes);
     } catch (error) {
       // Storage no longer matches the recorded values; read it again next time.
       this.written = undefined;
+      this.writtenLedger = undefined;
       throw error;
     }
+  }
+
+  /**
+   * Save, and never let a failed save change the answer: the emulated service's
+   * response goes out either way, and the failure is kept for GET /_emulate/persistence.
+   */
+  private async save(during: string, withStore = true): Promise<void> {
+    const includeStore = withStore || this.storeUnsaved;
+    try {
+      await this.persist(includeStore);
+      this.storeUnsaved = false;
+    } catch (error) {
+      if (includeStore) this.storeUnsaved = true;
+      const failure: SaveFailure = {
+        at: new Date().toISOString(),
+        during,
+        error: error instanceof Error ? error.message : String(error),
+      };
+      this.saveFailures = [...this.saveFailures, failure].slice(-MAX_SAVE_FAILURES);
+      await this.storage.put(SAVE_FAILURES_KEY, this.saveFailures).catch(() => undefined);
+    }
+  }
+
+  private async readWebhooks(): Promise<WebhookDispatcherSnapshot | undefined> {
+    const counters = await this.storage.get<WebhookCounters>(WEBHOOKS_KEY);
+    if (!counters) return undefined;
+    const subs = await this.storage.list<WebhookDispatcherSnapshot["subscriptions"][number]>({
+      prefix: WEBHOOK_SUB_PREFIX,
+    });
+    return { ...counters, subscriptions: [...subs.values()].sort((a, b) => a.id - b.id) };
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -534,13 +602,15 @@ export class EmulatorDurableObject {
       await this.clearStoreSnapshot();
       await this.clearLedger();
       await this.clearMinted();
-      await this.state.storage.delete(FAULTS_KEY);
-      await this.state.storage.delete(WEBHOOKS_KEY);
+      await this.storage.delete(FAULTS_KEY);
+      await this.storage.delete(WEBHOOKS_KEY);
+      await this.deletePrefix(WEBHOOK_SUB_PREFIX);
       await this.writeStateMeta({ seed, strict: strict !== false });
       this.live = undefined;
       this.written = undefined;
+      this.writtenLedger = undefined;
       await this.ensure(service, instance, baseUrl);
-      await this.persist();
+      await this.save(`${request.method} ${path}`);
       return Response.json({ ok: true, url: baseUrl, strict: strict !== false });
     }
     if (path === "/__reset" && request.method === "POST") {
@@ -562,16 +632,19 @@ export class EmulatorDurableObject {
       const token = `emu_${service}_${crypto.randomUUID().replace(/-/g, "")}`;
       const scopeList = scopes ?? [];
       live.tokenMap.set(token, { login, id, scopes: scopeList });
-      await this.persist();
+      await this.save(`${request.method} ${path}`);
       return Response.json({ token, login, scopes: scopeList });
     }
 
     const live = await this.ensure(service, instance, baseUrl, preset);
+    if (path === "/_emulate/persistence" && request.method === "GET") {
+      return Response.json({ failures: [...this.saveFailures].reverse() });
+    }
     const res = await live.app.fetch(request);
     // A plugin can ask for a save after a read that changed state (X counts GETs
     // against its rate limits and records them in the ledger). Others never do.
     const persistRequested = live.store.takePersistRequest();
-    await this.persist(MUTATES(request.method) || persistRequested);
+    await this.save(`${request.method} ${path}`, MUTATES(request.method) || persistRequested);
     return res;
   }
 }
