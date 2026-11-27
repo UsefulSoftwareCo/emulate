@@ -291,3 +291,81 @@ describe("what a hosted instance issues outlives the object", () => {
     expect(raw.get("minted-complete")).toBe(true);
   });
 });
+
+describe("revoking one token on a hosted instance", () => {
+  it("GitHub: the revoked token gets GitHub's 401 across eviction; the other keeps working", async () => {
+    const h = hosted();
+    const base = "https://emulators.dev/github/revoke-one";
+    await h.json(`${base}/__seed`, githubSeed);
+    const first = await githubToken(h, base);
+    const second = await githubToken(h, base);
+    const user = (token: string) => h.call(`${base}/user`, { headers: { authorization: `Bearer ${token}` } });
+    expect((await h.json(`${base}/_emulate/tokens/revoke`, { token: first })).status).toBe(200);
+    h.evict();
+    const refused = await user(first);
+    expect(refused.status).toBe(401);
+    expect(((await refused.json()) as Json).message).toBe("Bad credentials");
+    expect((await user(second)).status).toBe(200);
+  });
+
+  it("GitHub: an OAuth app revokes its own token with DELETE /applications/:client_id/token", async () => {
+    const h = hosted();
+    const base = "https://emulators.dev/github/app-revoke";
+    await h.json(`${base}/__seed`, githubSeed);
+    const token = await githubToken(h, base);
+    const other = await githubToken(h, base);
+    const del = (auth: string, body: unknown) =>
+      h.call(`${base}/applications/cid/token`, {
+        method: "DELETE",
+        headers: { authorization: auth, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    const basic = (secret: string) => "Basic " + Buffer.from(`cid:${secret}`).toString("base64");
+    expect((await del(basic("wrong"), { access_token: token })).status).toBe(404);
+    expect((await del(basic("csec"), {})).status).toBe(422);
+    expect((await del(basic("csec"), { access_token: token })).status).toBe(204);
+    expect((await del(basic("csec"), { access_token: token })).status).toBe(404);
+    h.evict();
+    const user = (t: string) =>
+      h.call(`${base}/user`, { headers: { authorization: `Bearer ${t}` } }).then((r) => r.status);
+    expect([await user(token), await user(other)]).toEqual([401, 200]);
+  });
+
+  it("X and OpenAI: a token kept in the service's own store is revoked the same way", async () => {
+    const h = hosted();
+    const x = "https://emulators.dev/x/revoke-x";
+    await h.json(`${x}/__seed`, {
+      x: {
+        users: [{ username: "ada", user_id: "1700000000000000001" }],
+        oauth_clients: [{ client_id: "app", client_secret: "sec", client_type: "confidential", redirect_uris: [R] }],
+      },
+    });
+    const app = (await (
+      await h.form(
+        `${x}/2/oauth2/token`,
+        { grant_type: "client_credentials" },
+        {
+          authorization: "Basic " + Buffer.from("app:sec").toString("base64"),
+        },
+      )
+    ).json()) as Json;
+    const me = () =>
+      h.call(`${x}/2/users/by/username/ada`, { headers: { authorization: `Bearer ${app.access_token}` } });
+    expect((await me()).status).toBe(200);
+    expect((await h.json(`${x}/_emulate/tokens/revoke`, { token: app.access_token })).status).toBe(200);
+    h.evict();
+    expect((await me()).status).toBe(401);
+
+    const o = "https://emulators.dev/openai/revoke-key";
+    const key = ((await (await h.json(`${o}/_emulate/credentials`, { type: "api-key" })).json()) as Json).credential
+      .token;
+    const ask = () =>
+      h.json(`${o}/v1/responses`, { model: "gpt-5-mini", input: "ping" }, { authorization: `Bearer ${key}` });
+    expect((await ask()).status).toBe(200);
+    expect((await h.json(`${o}/_emulate/tokens/revoke`, { token: key })).status).toBe(200);
+    h.evict();
+    const refused = await ask();
+    expect(refused.status).toBe(401);
+    expect(((await refused.json()) as Json).error.code).toBe("invalid_api_key");
+  });
+});

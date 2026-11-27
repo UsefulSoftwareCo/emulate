@@ -143,6 +143,13 @@ export function issueCredential(store: Store, baseUrl: string, request: Credenti
 
 export const miroPlugin: ServicePlugin = {
   name: "miro",
+  revokeToken(store: Store, token: string): boolean {
+    const ms = getMiroStore(store);
+    const t = ms.oauthTokens.findOneBy("access_token", token) ?? ms.oauthTokens.findOneBy("refresh_token", token);
+    if (!t || t.revoked) return false;
+    ms.oauthTokens.update(t.id, { revoked: true });
+    return true;
+  },
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     registerOAuthRoutes(ctx);

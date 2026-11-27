@@ -60,6 +60,20 @@ export function seedFromConfig(store: Store, _baseUrl: string, config: WorkosSee
 
 export const workosPlugin: ServicePlugin = {
   name: "workos",
+  // API keys and refresh tokens. Access tokens are signed JWTs checked by signature
+  // alone, so one cannot be revoked here; revoking its refresh token ends the session.
+  revokeToken(store: Store, token: string): boolean {
+    const ws = getWorkosStore(store);
+    const key = ws.apiKeys.findOneBy("value", token);
+    if (key) {
+      ws.apiKeys.delete(key.id);
+      return true;
+    }
+    const session = ws.sessions.findOneBy("refresh_token", token);
+    if (!session || session.revoked) return false;
+    ws.sessions.update(session.id, { revoked: true });
+    return true;
+  },
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     oauthRoutes(ctx);

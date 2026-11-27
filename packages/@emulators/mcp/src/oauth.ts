@@ -65,13 +65,15 @@ function userButtonsHtml(store: Store, baseUrl: string, hidden: ConsentFields): 
     .join("\n");
 }
 
-// Copy-pasteable instructions to seed a user into THIS instance (the only way to
-// add an authorizable identity). The github seed shape lives under the `github` key.
+// Copy-pasteable instructions to add a user to THIS instance (the only way to add an
+// authorizable identity). /_emulate/seed adds to the instance and takes the service's
+// own config, so the same body works on the MCP service and on GitHub's MCP surface;
+// /__seed would replace the instance, and with it the client that is signing in.
 function seedHintHtml(baseUrl: string, login: string): string {
   const who = login || "octocat";
-  const cmd = `curl -X POST ${baseUrl}/__seed \\
+  const cmd = `curl -X POST ${baseUrl}/_emulate/seed \\
   -H 'content-type: application/json' \\
-  -d '{"github":{"users":[{"login":"${who}"}]}}'`;
+  -d '{"users":[{"login":"${who}"}]}'`;
   return `<p class="empty" style="text-align:left;margin-top:18px">Only <strong>seeded</strong> users can be authorized. Add one to this instance, then retry:</p>
 <pre style="white-space:pre-wrap;word-break:break-all;background:#0b0e14;border:1px solid #222a35;border-radius:8px;padding:12px;font-size:12px;text-align:left;color:#d6dae0">${escapeBasic(cmd)}</pre>`;
 }
@@ -257,7 +259,7 @@ export function registerOAuthRoutes(ctx: RouteContext): void {
       )
       .join("\n");
 
-    const footer = `<p class="empty" style="margin-top:18px;font-size:12px">Don't see the user you want? Seed it: <code>POST ${baseUrl}/__seed</code> with <code>{"github":{"users":[{"login":"…"}]}}</code>.</p>`;
+    const footer = `<p class="empty" style="margin-top:18px;font-size:12px">Don't see the user you want? Add it: <code>POST ${baseUrl}/_emulate/seed</code> with <code>{"users":[{"login":"…"}]}</code>.</p>`;
     const body =
       users.length === 0
         ? `<p class="empty">No users seeded in this instance yet.</p>${seedHintHtml(baseUrl, "")}`

@@ -49,6 +49,8 @@ export interface ControlPlaneOptions {
   reset?: () => void | Promise<void>;
   seed?: (seed: unknown) => void | Promise<void>;
   issueCredential?: (request: CredentialRequest) => IssuedCredential | Promise<IssuedCredential>;
+  /** A service's own revocation for tokens it keeps in its store (ServicePlugin.revokeToken). */
+  revokeToken?: (token: string) => boolean;
 }
 
 export const INSTANCE_NOTES =
@@ -117,6 +119,18 @@ function connectionVars(
     defaultAuthType: manifest.auth[0]?.type ?? "bearer-token",
     ...overrides,
   };
+}
+
+const REVOKED_TOKENS_KEY = "core.revoked_tokens";
+
+/** Tokens revoked through the control plane, kept in the store so a host that saves it keeps them. */
+export function revokedTokens(store: Store): Set<string> {
+  let set = store.getData<Set<string>>(REVOKED_TOKENS_KEY);
+  if (!set) {
+    set = new Set();
+    store.setData(REVOKED_TOKENS_KEY, set);
+  }
+  return set;
 }
 
 export function registerControlPlane(app: Hono<AppEnv>, options: ControlPlaneOptions): void {
@@ -202,6 +216,28 @@ export function registerControlPlane(app: Hono<AppEnv>, options: ControlPlaneOpt
     }
     return c.json({ ok: true });
   });
+  /**
+   * POST /_emulate/tokens/revoke: revoke one token, as when a user revokes an app's
+   * access or a provider expires it. Later requests with that token get the
+   * provider's own 401; every other token keeps working. Body: { "token": "..." }.
+   */
+  app.post("/_emulate/tokens/revoke", async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { token?: unknown };
+    const token = typeof body.token === "string" ? body.token.trim() : "";
+    if (!token)
+      return c.json({ error: "invalid_request", message: 'Give the token to revoke: { "token": "..." }.' }, 400);
+    const fromMap = options.tokenMap?.delete(token) ?? false;
+    const fromService = options.revokeToken?.(token) ?? false;
+    if (fromMap || fromService) revokedTokens(store).add(token);
+    if (!fromMap && !fromService) {
+      return c.json(
+        { error: "not_found", message: "This instance did not issue that token, or it is already revoked." },
+        404,
+      );
+    }
+    return c.json({ revoked: true });
+  });
+
   app.post("/_emulate/credentials", async (c) => {
     const body = (await c.req.json().catch(() => ({}))) as CredentialRequest;
     try {

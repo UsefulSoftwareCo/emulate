@@ -62,6 +62,7 @@ Provider traffic and control-plane traffic are separate. Provider routes stay fa
 | `POST /_emulate/seed` | Add runtime seed data using the service seed schema |
 | `POST /_emulate/reset` | Reset state, webhooks, and request logs, then replay seed data |
 | `POST /_emulate/credentials` | Mint a credential for the service (the canonical, uniform way) |
+| `POST /_emulate/tokens/revoke` | Revoke one token: later requests with it get the provider's own 401, other tokens keep working |
 
 There is also a global, host-level catalog:
 
@@ -112,7 +113,7 @@ Send `X-Correlation-Id` on a request to trace it end to end, then read it back f
 
 ### Fault injection
 
-Use `POST /_emulate/faults` to arm a one-shot or counted response for matching provider requests. The body is `{ "match": { "operationId": "...", "method": "GET", "pathPattern": "/v1/*" }, "response": { "status": 503, "body": { "error": "temporary" } }, "times": 1 }`. Match criteria are combined, and `pathPattern` is a glob where `*` matches any characters in the request path. Matched requests short-circuit, decrement `remaining`, and still appear in `GET /_emulate/ledger` with `faulted: true` and `faultId`.
+Use `POST /_emulate/faults` to arm a one-shot or counted response for matching provider requests. The body is `{ "match": { "operationId": "...", "method": "GET", "pathPattern": "/v1/*" }, "response": { "status": 503, "body": { "error": "temporary" } }, "times": 1 }`. Match criteria are combined, and `pathPattern` is a glob where `*` matches any characters in the request path. A fault can also match request headers by exact value: `"headers": { "authorization": "Bearer tok_1" }` faults only that caller (header names are case-insensitive). Matched requests short-circuit, decrement `remaining`, and still appear in `GET /_emulate/ledger` with `faulted: true` and `faultId`.
 
 ## Host-Based Routing (Deployed Emulators)
 

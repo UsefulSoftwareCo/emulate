@@ -455,10 +455,31 @@ async function deliverToAppWebhookUrls(
   }
 }
 
+/** Paths outside the REST API, which answer a bad token in their own way. */
+const NOT_REST_API = /^\/(_emulate|login|settings|\.well-known|mcp|oauth|authorize|register|token|__)/;
+
 export const githubPlugin: ServicePlugin = {
   name: "github",
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
     const gh = getGitHubStore(store);
+
+    // A token GitHub does not accept (unknown, expired or revoked) is refused on every
+    // API route with GitHub's 401, as api.github.com does, rather than treated as anonymous.
+    app.use("*", async (c, next) => {
+      const header = c.req.header("Authorization") ?? "";
+      if (
+        /^(bearer|token)\s+\S/i.test(header) &&
+        !c.get("authUser") &&
+        !c.get("authApp") &&
+        !NOT_REST_API.test(new URL(c.req.url).pathname)
+      ) {
+        return c.json(
+          { message: "Bad credentials", documentation_url: "https://docs.github.com/rest", status: "401" },
+          401,
+        );
+      }
+      return next();
+    });
 
     const originalDispatch = webhooks.dispatch.bind(webhooks);
     webhooks.dispatch = async (

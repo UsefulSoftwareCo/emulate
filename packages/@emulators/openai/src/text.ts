@@ -7,9 +7,30 @@ import { randomBytes } from "crypto";
  * OpenAI's tokenizer, and the manifest says so.
  */
 export function approxTokens(...texts: Array<string | null | undefined>): number {
+  return tokensOfTexts(texts);
+}
+
+/** approxTokens over a list of any length (no argument spread, no per-character array). */
+export function tokensOfTexts(texts: Iterable<string | null | undefined>): number {
   let chars = 0;
-  for (const t of texts) if (t) chars += [...t].length;
+  for (const t of texts) if (t) chars += codePoints(t);
   return Math.ceil(chars / 4);
+}
+
+/** Characters as code points, counted without building an array of them. */
+function codePoints(text: string): number {
+  let pairs = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c >= 0xd800 && c <= 0xdbff && i + 1 < text.length) {
+      const next = text.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        pairs++;
+        i++;
+      }
+    }
+  }
+  return text.length - pairs;
 }
 
 /** A text-only conversation, as the emulator sees a request's input. */
@@ -104,7 +125,7 @@ export function conversationFromChatMessages(messages: unknown): Conversation {
 }
 
 export function inputTokens(conv: Conversation): number {
-  return approxTokens(conv.instructions, ...conv.messages.map((m) => m.text));
+  return tokensOfTexts([conv.instructions, ...conv.messages.map((m) => m.text)]);
 }
 
 export function lastUserText(conv: Conversation): string {

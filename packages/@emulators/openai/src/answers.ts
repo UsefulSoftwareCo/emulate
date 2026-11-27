@@ -66,11 +66,21 @@ export function enqueueAnswers(store: Store, answers: unknown[]): number {
   return os.queue.all().length;
 }
 
+/** True when the needle appears in the instructions or any message, as the joined input would show it. */
+function containsText(conv: Conversation, needle: string): boolean {
+  if (conv.instructions?.includes(needle)) return true;
+  if (conv.messages.some((x) => x.text.includes(needle))) return true;
+  // A needle that spans the line break between two texts.
+  if (!needle.includes("\n")) return false;
+  const texts = [conv.instructions ?? "", ...conv.messages.map((x) => x.text)];
+  return texts.join("\n").includes(needle);
+}
+
 function matches(rule: OpenAIRule, model: string, conv: Conversation): boolean {
   const m = rule.match;
-  const all = [conv.instructions ?? "", ...conv.messages.map((x) => x.text)].join("\n");
   if (m.model !== undefined && m.model !== model) return false;
-  if (m.contains !== undefined && !all.includes(m.contains)) return false;
+  // Each text on its own: joining them would hold a second copy of the whole input.
+  if (m.contains !== undefined && !containsText(conv, m.contains)) return false;
   if (m.last_user_equals !== undefined && lastUserText(conv) !== m.last_user_equals) return false;
   if (m.instructions_contains !== undefined && !(conv.instructions ?? "").includes(m.instructions_contains)) {
     return false;

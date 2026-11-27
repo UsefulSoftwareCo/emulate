@@ -69,6 +69,13 @@ export const DEFAULT_API_KEY = "sk-proj-emulate-default-key";
 
 export const openaiPlugin: ServicePlugin = {
   name: "openai",
+  revokeToken(store: Store, token: string): boolean {
+    const keys = getOpenAIStore(store).keys;
+    const key = keys.findOneBy("key", token);
+    if (!key) return false;
+    keys.delete(key.id);
+    return true;
+  },
   register(app, store, webhooks, baseUrl, tokenMap): void {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     // Refuse an oversized body before any route reads it.

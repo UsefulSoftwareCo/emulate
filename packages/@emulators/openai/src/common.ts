@@ -177,7 +177,9 @@ async function readLimitedText(c: Context, limit: number): Promise<string | null
   const stream = c.req.raw.body;
   if (!stream) return "";
   const reader = stream.getReader();
-  const parts: Uint8Array[] = [];
+  // Decoded as it arrives, so the raw bytes are not held alongside the text.
+  const decoder = new TextDecoder();
+  const pieces: string[] = [];
   let total = 0;
   for (;;) {
     const { done, value } = await reader.read();
@@ -188,9 +190,10 @@ async function readLimitedText(c: Context, limit: number): Promise<string | null
       void reader.cancel().catch(() => {});
       return null;
     }
-    parts.push(value);
+    pieces.push(decoder.decode(value, { stream: true }));
   }
-  return Buffer.concat(parts).toString("utf8");
+  pieces.push(decoder.decode());
+  return pieces.join("");
 }
 
 /** Read and parse the JSON body, recording a large one in the ledger by size only. */

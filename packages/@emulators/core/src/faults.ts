@@ -7,6 +7,11 @@ export interface FaultMatch {
   operationId?: string;
   method?: string;
   pathPattern?: string;
+  /**
+   * Request headers the fault applies to, by name (case-insensitive) and exact
+   * value: `{ "authorization": "Bearer tok_1" }` faults only that caller's requests.
+   */
+  headers?: Record<string, string>;
 }
 
 export interface FaultResponse {
@@ -129,6 +134,7 @@ export function createFaultMiddleware(
       operationId: operation?.operationId,
       method: c.req.method,
       path: url.pathname,
+      header: (name) => c.req.header(name),
     });
     if (!fault) {
       await next();
@@ -155,6 +161,7 @@ interface FaultRequest {
   operationId?: string;
   method: string;
   path: string;
+  header?: (name: string) => string | undefined;
 }
 
 function validateFaultInput(input: FaultArmInput): void {
@@ -163,6 +170,17 @@ function validateFaultInput(input: FaultArmInput): void {
   if (!input.response || typeof input.response !== "object") throw new Error("Fault response is required.");
   if (!input.match.operationId && !input.match.method && !input.match.pathPattern) {
     throw new Error("Fault match must include operationId, method, or pathPattern.");
+  }
+  if (input.match.headers !== undefined) {
+    const h = input.match.headers;
+    if (!h || typeof h !== "object" || Array.isArray(h) || Object.keys(h).length === 0) {
+      throw new Error("Fault match.headers must be an object of header names to values.");
+    }
+    for (const [key, value] of Object.entries(h)) {
+      if (typeof key !== "string" || typeof value !== "string") {
+        throw new Error("Fault match.headers must contain string names and values.");
+      }
+    }
   }
   if (!Number.isInteger(input.response.status) || input.response.status < 100 || input.response.status > 599) {
     throw new Error("Fault response.status must be an HTTP status code.");
@@ -194,6 +212,9 @@ function normalizeMatch(match: FaultMatch): FaultMatch {
     ...(match.operationId ? { operationId: match.operationId } : {}),
     ...(match.method ? { method: match.method.toUpperCase() } : {}),
     ...(match.pathPattern ? { pathPattern: match.pathPattern } : {}),
+    ...(match.headers
+      ? { headers: Object.fromEntries(Object.entries(match.headers).map(([k, v]) => [k.toLowerCase(), v])) }
+      : {}),
   };
 }
 
@@ -201,6 +222,11 @@ function matchesFault(fault: ArmedFault, request: FaultRequest): boolean {
   if (fault.match.operationId && fault.match.operationId !== request.operationId) return false;
   if (fault.match.method && fault.match.method.toUpperCase() !== request.method.toUpperCase()) return false;
   if (fault.match.pathPattern && !globToRegExp(fault.match.pathPattern).test(request.path)) return false;
+  if (fault.match.headers) {
+    for (const [name, value] of Object.entries(fault.match.headers)) {
+      if (request.header?.(name) !== value) return false;
+    }
+  }
   return true;
 }
 

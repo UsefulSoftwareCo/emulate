@@ -42,6 +42,13 @@ export function issueCredential(store: Store, _baseUrl: string, request: Credent
 
 export const zapierPlugin: ServicePlugin = {
   name: "zapier",
+  revokeToken(store: Store, token: string): boolean {
+    const zs = getZapierStore(store);
+    const t = zs.tokens.findOneBy("access_token", token) ?? zs.tokens.findOneBy("refresh_token", token);
+    if (!t || t.revoked) return false;
+    zs.tokens.update(t.id, { revoked: true });
+    return true;
+  },
   register(app, store, webhooks, baseUrl, tokenMap, ledger): void {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap, ledger };
     controlRoutes(ctx);

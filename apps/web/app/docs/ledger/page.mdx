@@ -94,7 +94,7 @@ Set `X-Correlation-Id` (or `X-Request-Id`) on a request and the emulator stores 
 
 ## Faulted requests
 
-`POST /_emulate/faults` arms a one-shot or counted response for matching provider requests. Match criteria are combined: `operationId` when the emulator can resolve one from the service manifest, `method`, and `pathPattern`. `pathPattern` is a glob where `*` matches any characters in the request path. A matched request short-circuits with the configured response, decrements the fault's remaining count, and is recorded here with `faulted: true` and `faultId`.
+`POST /_emulate/faults` arms a one-shot or counted response for matching provider requests. Match criteria are combined: `operationId` when the emulator can resolve one from the service manifest, `method`, and `pathPattern`. `pathPattern` is a glob where `*` matches any characters in the request path. A fault can also match request headers by exact value: `"headers": { "authorization": "Bearer tok_1" }` faults only that caller (header names are case-insensitive). A matched request short-circuits with the configured response, decrements the fault's remaining count, and is recorded here with `faulted: true` and `faultId`.
 
 ## Persistence
 

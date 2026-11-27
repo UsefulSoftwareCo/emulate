@@ -37,6 +37,14 @@ export const manifest: ServiceManifest = {
       coverage: "hand-authored",
       operations: [
         { operationId: "users/getAuthenticated", method: "GET", path: "/user", status: "hand-authored" },
+        {
+          operationId: "apps/deleteToken",
+          method: "DELETE",
+          path: "/applications/:client_id/token",
+          status: "hand-authored",
+          summary:
+            "An OAuth app revokes one of its tokens (Basic client auth); the token then gets 401 Bad credentials.",
+        },
         { operationId: "users/getByUsername", method: "GET", path: "/users/:username", status: "hand-authored" },
         { operationId: "repos/get", method: "GET", path: "/repos/:owner/:repo", status: "hand-authored" },
         {
