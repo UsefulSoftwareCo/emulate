@@ -159,7 +159,7 @@ export const manifest: ServiceManifest = {
           path: "/2/dm_conversations/media/:dm_id/:media_id/:resource_id",
           status: "partial",
           summary:
-            "Streams a DM attachment to a participant with dm.read. Seeded and generated media are deterministic placeholder bytes; the media url X returns is not documented, so includes.media.url points here.",
+            "Streams a DM attachment to a participant with dm.read. Seeded and generated media are deterministic placeholder bytes; the media url X returns is not documented, so includes.media.url points here. Emulator control, not X behaviour: a download can be paced as exactly chunks pieces interval_ms apart (attachment.stream in the seed or on /_emulate/x/dm/arrive, or POST /_emulate/x/media/:media_key/stream); unpaced by default.",
         },
         {
           operationId: "getDirectMessagesEventsByConversationId",

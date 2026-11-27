@@ -1,7 +1,7 @@
 import { writeFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { ChunkedStorage, STORAGE_VALUE_LIMIT } from "../chunked-storage.js";
-import { EmulatorDurableObject } from "../durable-object.js";
+import { EmulatorDurableObject, INSTANCE_STORE_BUDGET_BYTES } from "../durable-object.js";
 import worker, { type Env } from "../worker.js";
 
 type Json = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -151,9 +151,33 @@ describe("what a hosted request writes", () => {
     const issue = (await (await h.call(`${base}/repos/ada/widget/issues/${number}`, { headers: auth })).json()) as Json;
     expect(issue.body.length).toBe(body.length);
     const ledger = (await (await h.call(`${base}/_emulate/ledger`)).json()) as Json;
-    expect(
-      (ledger.entries as Json[]).find((e) => e.method === "POST" && e.path.endsWith("/issues"))!.request.bodyTruncated,
-    ).toBe(true);
+    // A body over 1 MiB is recorded by its size, without a second copy of it.
+    const entry = (ledger.entries as Json[]).find((e) => e.method === "POST" && e.path.endsWith("/issues"))!;
+    expect(entry.request.bodyBytes).toBeGreaterThan(8 * 1024 * 1024);
+    expect(String(entry.request.body)).toMatch(/^<request body omitted: \d+ bytes>$/);
+  }, 60000);
+
+  it("refuses a write that would take the instance past its store budget, and keeps answering reads", async () => {
+    const h = hosted();
+    await h.json(`${base}/__seed`, seed);
+    const auth = await credential(h);
+    const body = "x".repeat(8 * 1024 * 1024);
+    const statuses: number[] = [];
+    for (let i = 0; i < 4; i++) {
+      statuses.push((await h.json(`${base}/repos/ada/widget/issues`, { title: `big ${i}`, body }, auth)).status);
+    }
+    expect(statuses).toEqual([201, 201, 201, 507]);
+    // The refusal names the budget; a small write still fits under it.
+    const refused = (await (
+      await h.json(`${base}/repos/ada/widget/issues`, { title: "again", body }, auth)
+    ).json()) as Json;
+    expect(refused.error).toBe("instance_storage_full");
+    expect((await h.json(`${base}/repos/ada/widget/issues`, { title: "small" }, auth)).status).toBe(201);
+    expect((await h.call(`${base}/repos/ada/widget/issues/1`, { headers: auth })).status).toBe(200);
+    const persistence = (await (await h.call(`${base}/_emulate/persistence`)).json()) as Json;
+    expect(persistence.stored_bytes).toBeGreaterThan(24 * 1024 * 1024);
+    expect(persistence.budget_bytes).toBe(INSTANCE_STORE_BUDGET_BYTES);
+    expect(persistence.failures).toEqual([]);
   }, 60000);
 
   it("answers even when storage refuses the write, and shows the failure on the control plane", async () => {

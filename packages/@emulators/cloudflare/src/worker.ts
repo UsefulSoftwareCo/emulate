@@ -6,7 +6,7 @@ import {
   servicesCatalog,
 } from "@emulators/core";
 import { EmulatorDurableObject } from "./durable-object.js";
-import { SERVICES } from "./services.js";
+import { HOSTED_MAX_REQUEST_BYTES, SERVICES, hostedRequestTooLarge } from "./services.js";
 import { SERVICE_ICONS } from "./icons.js";
 import { consoleHtml } from "./console-html.js";
 
@@ -81,6 +81,31 @@ const wantsJson = (request: Request): boolean => {
   return a.includes("application/json") && !a.includes("text/html");
 };
 
+/** The whole stream, or null once it passes `limit` bytes (reading stops there). */
+async function readUpTo(stream: ReadableStream<Uint8Array>, limit: number): Promise<ArrayBuffer | null> {
+  const reader = stream.getReader();
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      // Not awaited: the rest of the body may never arrive, and cancelling must not hold the answer.
+      void reader.cancel().catch(() => {});
+      return null;
+    }
+    parts.push(value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const part of parts) {
+    out.set(part, offset);
+    offset += part.byteLength;
+  }
+  return out.buffer;
+}
+
 async function forwardToDurableObject(
   env: Env,
   request: Request,
@@ -92,8 +117,26 @@ async function forwardToDurableObject(
   headers.set("x-emulator-instance", opts.instance);
   headers.set("x-emulator-base-url", opts.baseUrl);
   if (opts.mcpMode) headers.set("x-emulator-mcp-mode", opts.mcpMode);
-  const hasBody = request.method !== "GET" && request.method !== "HEAD";
-  const body = hasBody ? await request.arrayBuffer() : undefined;
+  const hasBody = request.method !== "GET" && request.method !== "HEAD" && request.body !== null;
+  // Refuse an oversized body before reading it, and otherwise pass it through as a
+  // stream, so no request can fill an isolate's memory and reset it with every
+  // other request in it. A body of unknown length is read up to the limit.
+  const entry = SERVICES[opts.service];
+  const limit = entry?.maxRequestBytes ?? HOSTED_MAX_REQUEST_BYTES;
+  const tooLarge = () => (entry?.requestTooLarge ?? hostedRequestTooLarge)(limit);
+  let body: ReadableStream<Uint8Array> | ArrayBuffer | undefined;
+  if (hasBody) {
+    const declared = Number(request.headers.get("content-length") ?? NaN);
+    if (Number.isFinite(declared)) {
+      if (declared > limit) return tooLarge();
+      body = request.body!;
+    } else {
+      const read = await readUpTo(request.body!, limit);
+      if (!read) return tooLarge();
+      body = read;
+      headers.set("content-length", String(read.byteLength));
+    }
+  }
   // Manual redirect: the emulator's OAuth callbacks return 302s (e.g. → the app's
   // redirect_uri). Without this, the Worker→DO stub.fetch FOLLOWS the redirect
   // internally and re-fetches the DO by the Location path, mangling it.
@@ -101,6 +144,8 @@ async function forwardToDurableObject(
     method: request.method,
     headers,
     body,
+    // A streamed body needs a half-duplex request (fetch standard; Node enforces it).
+    ...(body instanceof ReadableStream ? { duplex: "half" } : {}),
     redirect: "manual",
   });
   const id = env.EMULATOR.idFromName(`${opts.service}:${opts.instance}`);

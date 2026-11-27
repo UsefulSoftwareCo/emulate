@@ -2,7 +2,14 @@ import { afterEach, describe, expect, it } from "vitest";
 import type { AddressInfo } from "net";
 import OpenAI from "openai";
 import { createServer, serve } from "@emulators/core";
-import { openaiPlugin, seedFromConfig, getOpenAIStore, approxTokens, type OpenAISeedConfig } from "../index.js";
+import {
+  openaiPlugin,
+  seedFromConfig,
+  getOpenAIStore,
+  approxTokens,
+  MAX_REQUEST_BYTES,
+  type OpenAISeedConfig,
+} from "../index.js";
 
 type Json = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
 
@@ -377,6 +384,51 @@ describe("keys, models, limits and the ledger", () => {
     expect(JSON.stringify(entry).length).toBeLessThan(64 * 1024);
     const usage = (await (await control("/usage")).json()) as Json;
     expect(usage.calls[0]).toMatchObject({ key_name: "primary", request_bytes: entry.request.bodyBytes });
+  });
+
+  it("refuses a body over its stated limit with a 413 in OpenAI's error shape, through the official SDK", async () => {
+    const { client, ledger } = await start();
+    const big = "a".repeat(MAX_REQUEST_BYTES + 1);
+    const err = await client()
+      .responses.create({ model: "gpt-5-mini", input: big })
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(OpenAI.APIError);
+    expect((err as InstanceType<typeof OpenAI.APIError>).status).toBe(413);
+    expect((err as InstanceType<typeof OpenAI.APIError>).error).toEqual({
+      message: `Request body too large. The emulator accepts request bodies of up to ${MAX_REQUEST_BYTES} bytes.`,
+      type: "invalid_request_error",
+      param: null,
+      code: "request_too_large",
+    });
+    expect(ledger.list()[0]!.response.status).toBe(413);
+  });
+
+  it("refuses a body of undeclared length once it passes the limit, and accepts one under it", async () => {
+    const { raw } = await start({ answer_rules: [{ answer: "ok" }] });
+    const stream = (bytes: number) => {
+      const head = new TextEncoder().encode('{"model":"gpt-5-mini","input":"');
+      const tail = new TextEncoder().encode('"}');
+      let sent = 0;
+      const middle = bytes - head.length - tail.length;
+      return new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(head);
+        },
+        pull(controller) {
+          if (sent >= middle) {
+            controller.enqueue(tail);
+            return controller.close();
+          }
+          const n = Math.min(1024 * 1024, middle - sent);
+          controller.enqueue(new Uint8Array(n).fill(97));
+          sent += n;
+        },
+      });
+    };
+    const send = (bytes: number) =>
+      raw("/v1/responses", { method: "POST", body: stream(bytes), duplex: "half" } as RequestInit);
+    expect((await send(MAX_REQUEST_BYTES + 1024)).status).toBe(413);
+    expect((await send(4 * 1024 * 1024)).status).toBe(200);
   });
 
   it("keeps one usage record per call whose counts match the responses", async () => {

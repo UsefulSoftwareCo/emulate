@@ -6,10 +6,12 @@ import { responsesRoutes } from "./routes/responses.js";
 import { chatRoutes } from "./routes/chat.js";
 import { modelRoutes } from "./routes/models.js";
 import { controlRoutes } from "./routes/control.js";
+import { MAX_REQUEST_BYTES, requestTooLargeResponse } from "./common.js";
 
 export { getOpenAIStore, type OpenAIStore } from "./store.js";
 export type * from "./store.js";
 export { approxTokens } from "./text.js";
+export { MAX_REQUEST_BYTES, requestTooLargeResponse } from "./common.js";
 export { manifest } from "./manifest.js";
 
 export interface OpenAISeedConfig {
@@ -68,6 +70,12 @@ export const openaiPlugin: ServicePlugin = {
   name: "openai",
   register(app, store, webhooks, baseUrl, tokenMap): void {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
+    // Refuse an oversized body before any route reads it.
+    app.use("/v1/*", async (c, next) => {
+      const declared = Number(c.req.header("content-length") ?? NaN);
+      if (Number.isFinite(declared) && declared > MAX_REQUEST_BYTES) return requestTooLargeResponse();
+      return next();
+    });
     controlRoutes(ctx);
     responsesRoutes(ctx);
     chatRoutes(ctx);

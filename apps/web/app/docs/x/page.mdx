@@ -49,7 +49,7 @@ x:
 - `POST /2/media/upload` — the whole file, base64 in JSON or raw in multipart
 - `POST /2/media/upload/initialize`, `POST /2/media/upload/:id/append`, `POST /2/media/upload/:id/finalize` — chunked, segments up to 8 MB
 - `GET /2/media/upload?command=STATUS&media_id=...`
-- `GET /2/dm_conversations/media/:dm_id/:media_key/:media_id` — the attachment's bytes for a participant, streamed with `content-length`
+- `GET /2/dm_conversations/media/:dm_id/:media_key/:media_id` — the attachment's bytes for a participant, streamed with `content-length`. Pace a DM attachment's download with `stream: { chunks, interval_ms }` on a seeded or arriving attachment, or `POST /_emulate/x/media/:media_key/stream`, the same controls as the OpenAI emulator's paced answers: exactly `chunks` pieces `interval_ms` apart (for example 90 MiB as 300 pieces 100 ms apart arrives in about 30 s). An emulator control, not X behaviour; downloads are unpaced unless asked, and `{"stream": null}` clears it.
 
 Seeded attachments are deterministic placeholder bytes of the declared size. No transcoding happens; video reports `succeeded` at once.
 

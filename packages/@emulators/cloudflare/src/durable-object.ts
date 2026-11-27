@@ -129,6 +129,32 @@ const ledgerEntryKey = (id: string): string => `${LEDGER_ENTRY_PREFIX}${encodeKe
 const ledgerIdNumber = (key: string): number =>
   Number(decodeKeyPart(key.slice(LEDGER_ENTRY_PREFIX.length)).replace(/^req_/, ""));
 const webhookSubKey = (id: number): string => `${WEBHOOK_SUB_PREFIX}${id}`;
+const isStoreKey = (key: string) =>
+  key === SNAPSHOT_META_KEY || key.startsWith(SNAPSHOT_ITEM_PREFIX) || key.startsWith(SNAPSHOT_DATA_PREFIX);
+
+/**
+ * The most an instance's stored data (its store, as JSON) may grow to on the hosted
+ * surface. An instance's object has 128 MB of memory, and a save holds the store and
+ * the request at once; past this, the isolate runs out and is reset with every
+ * request in it. A write that would pass it is refused with a 507 instead.
+ */
+export const INSTANCE_STORE_BUDGET_BYTES = 32 * 1024 * 1024;
+
+/**
+ * The length and a 64-bit FNV-1a hash (two 32-bit lanes) of a JSON string: enough
+ * to tell whether a stored value changed without keeping the value.
+ */
+function fingerprint(json: string): string {
+  let a = 0x811c9dc5;
+  let b = 0x01000193 ^ json.length;
+  for (let i = 0; i < json.length; i++) {
+    const c = json.charCodeAt(i);
+    a = Math.imul(a ^ c, 0x01000193);
+    b = Math.imul(b ^ c, 0x5bd1e995) ^ (b >>> 15);
+  }
+  return `${json.length}:${(a >>> 0).toString(36)}:${(b >>> 0).toString(36)}`;
+}
+
 // One Durable Object instance == one stateful emulator instance. Its `store`
 // lives in DO memory (single-threaded → the serialized-write consistency the
 // in-process emulator already assumes). After every mutating request, the
@@ -138,7 +164,9 @@ const webhookSubKey = (id: number): string => `${WEBHOOK_SUB_PREFIX}${id}`;
 // real API's 401/403. Mint tokens at runtime via `POST /__token`.
 export class EmulatorDurableObject {
   private live?: Live;
-  // The JSON of every snapshot and ledger value last written to storage, by key.
+  // A fingerprint (length and 64-bit hash of the JSON) of every value last written
+  // to storage, by key. Not the JSON itself: that would keep a second copy of the
+  // whole store in memory for as long as the instance lives.
   // `persist()` writes only the keys whose value changed and deletes only the
   // keys the state no longer has, so a request that changed nothing costs no
   // storage writes and the cost of a request does not grow with stored history.
@@ -488,11 +516,12 @@ export class EmulatorDurableObject {
   private async readWritten(): Promise<Map<string, string>> {
     const written = new Map<string, string>();
     for (const prefix of [SNAPSHOT_ITEM_PREFIX, SNAPSHOT_DATA_PREFIX, MINTED_PREFIX, WEBHOOK_SUB_PREFIX]) {
-      for (const [key, value] of await this.storage.list({ prefix })) written.set(key, JSON.stringify(value));
+      for (const [key, value] of await this.storage.list({ prefix }))
+        written.set(key, fingerprint(JSON.stringify(value)));
     }
     for (const key of [SNAPSHOT_META_KEY, LEDGER_META_KEY, FAULTS_KEY, TOKENS_COMPLETE_KEY, WEBHOOKS_KEY]) {
       const value = await this.storage.get(key);
-      if (value !== undefined) written.set(key, JSON.stringify(value));
+      if (value !== undefined) written.set(key, fingerprint(JSON.stringify(value)));
     }
     return written;
   }
@@ -514,13 +543,11 @@ export class EmulatorDurableObject {
     const puts: Array<{ key: string; value: unknown }> = [];
     const entries = this.persistedEntries(live, withStore);
     for (const [key, value] of entries) {
-      const json = JSON.stringify(value);
-      if (written.get(key) === json) continue;
+      const print = fingerprint(JSON.stringify(value));
+      if (written.get(key) === print) continue;
       puts.push({ key, value });
-      written.set(key, json);
+      written.set(key, print);
     }
-    const isStoreKey = (key: string) =>
-      key === SNAPSHOT_META_KEY || key.startsWith(SNAPSHOT_ITEM_PREFIX) || key.startsWith(SNAPSHOT_DATA_PREFIX);
     const deletes = [...written.keys()].filter((key) => !entries.has(key) && (withStore || !isStoreKey(key)));
     for (const key of deletes) written.delete(key);
 
@@ -570,6 +597,14 @@ export class EmulatorDurableObject {
       this.saveFailures = [...this.saveFailures, failure].slice(-MAX_SAVE_FAILURES);
       await this.storage.put(SAVE_FAILURES_KEY, this.saveFailures).catch(() => undefined);
     }
+  }
+
+  /** The size of the instance's stored data as last saved: the sum of its store values' JSON. */
+  private async storedBytes(): Promise<number> {
+    const written = (this.written ??= await this.readWritten());
+    let total = 0;
+    for (const [key, print] of written) if (isStoreKey(key)) total += Number(print.slice(0, print.indexOf(":")));
+    return total;
   }
 
   private async readWebhooks(): Promise<WebhookDispatcherSnapshot | undefined> {
@@ -638,7 +673,26 @@ export class EmulatorDurableObject {
 
     const live = await this.ensure(service, instance, baseUrl, preset);
     if (path === "/_emulate/persistence" && request.method === "GET") {
-      return Response.json({ failures: [...this.saveFailures].reverse() });
+      return Response.json({
+        failures: [...this.saveFailures].reverse(),
+        stored_bytes: await this.storedBytes(),
+        budget_bytes: INSTANCE_STORE_BUDGET_BYTES,
+      });
+    }
+    if (MUTATES(request.method)) {
+      const incoming = SERVICES[service].requestBodiesNotStored
+        ? 0
+        : Number(request.headers.get("content-length") ?? 0) || 0;
+      const stored = await this.storedBytes();
+      if (stored + incoming > INSTANCE_STORE_BUDGET_BYTES) {
+        return Response.json(
+          {
+            error: "instance_storage_full",
+            message: `This hosted instance holds ${stored} bytes of data; with this ${incoming}-byte request it would pass its ${INSTANCE_STORE_BUDGET_BYTES}-byte budget. Reset or re-seed the instance, or use a new one.`,
+          },
+          { status: 507 },
+        );
+      }
     }
     const res = await live.app.fetch(request);
     // A plugin can ask for a save after a read that changed state (X counts GETs
