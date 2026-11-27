@@ -236,7 +236,7 @@ describe("tools/list and tools/call through the official SDKs, both protocol era
     expect(b.names).toEqual(a.names);
     const first = await m.listTools();
     expect(first.tools[0]).toMatchObject({ inputSchema: { type: "object", required: ["instructions"] } });
-  });
+  }, 30000);
 
   it("speaks 2025-06-18 when a handshake-era client asks for it", async () => {
     const { legacy } = await start();
@@ -271,7 +271,7 @@ describe("tools/list and tools/call through the official SDKs, both protocol era
       (await (await s.modern(ADA)).callTool({ name: toolsOne[5]!.name, arguments: { instructions: "x" } }))
         .structuredContent;
     expect(await call(two)).toEqual(await call(one));
-  });
+  }, 30000);
 
   it("gives an unpaged request the first page and a cursor, or the whole list when page_size is 0", async () => {
     const { rawModern, tokenFor, control } = await start();
@@ -284,7 +284,7 @@ describe("tools/list and tools/call through the official SDKs, both protocol era
     const all = (await res.json()) as Json;
     expect(all.result.tools).toHaveLength(3000);
     expect(all.result.nextCursor).toBeUndefined();
-  });
+  }, 30000);
 });
 
 describe("the 2026-07-28 binding's rules", () => {

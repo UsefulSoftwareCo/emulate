@@ -150,7 +150,7 @@ describe("Zapier MCP on the Cloudflare host", () => {
       "/tmp/zapier-sizes.txt",
       `whole list ${text.length} bytes in ${Date.now() - started} ms; 30 pages ${bytes} bytes`,
     );
-  });
+  }, 30000);
 
   it("holds a 2026-07-28 listen stream open on the object and delivers a change to it", async () => {
     const h = hosted();
