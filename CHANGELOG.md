@@ -1,8 +1,19 @@
 # Changelog
 
-## 0.17.0
+## 0.17.1
 
 <!-- release:start -->
+
+### Fixes
+
+- **Hosted instances keep what they issue.** An instance on `*.emulators.dev` now keeps every token it has issued (OAuth access tokens, API keys, bearer credentials, and their revocations) and GitHub's webhook subscriptions across Durable Object unloads and deploys, and saves its ledger after every request, reads included. A rebuild used to answer 401 to GitHub, Apple, Microsoft, Slack and Vercel tokens issued moments earlier, stop delivering GitHub webhooks, and drop ledger entries since the last write. Reaching one instance over both `http` and `https` no longer loses anything either.
+- **Hosted saves cost what changed and never fail a request.** Each ledger entry is written once, so a read at a full ledger of 1,000 entries writes about 2 KB. Values over the storage limit for a single value are split, so an 8 MB body saves like any other. A save that fails no longer fails the request; the failure is listed at `GET /_emulate/persistence` and the next save catches up.
+- **Hosted emulators are HTTPS only.** Plain `http` is redirected to the same address over `https` with a `308`, which keeps the method and body. A client on the wrong scheme used to rebuild the instance on every switch.
+- **Docs answer at every service's bare address.** `docs.emulators.dev/<service>` redirects to the service's page for every page, as the manifests advertise, not only the older ones.
+
+<!-- release:end -->
+
+## 0.17.0
 
 ### New Features
 
@@ -22,8 +33,6 @@
 - **Hosted Google instances keep the access tokens they issued** across eviction; they used to answer 401 to them.
 - **Slack finds a channel named with a leading `#`.** `channel: "#general"` works wherever a channel name does, as in Slack's own examples.
 - **Discovery probes get a 404, not a page.** The apex and service hosts answer `/.well-known/*` with a JSON 404 instead of HTML with a 200, so OAuth discovery clients move on to the next candidate.
-
-<!-- release:end -->
 
 ## 0.16.0
 
