@@ -1,14 +1,26 @@
 # Changelog
 
-## 0.17.3
+## 0.17.4
 
 <!-- release:start -->
+
+### New Features
+
+- **Paced X DM media downloads.** A DM attachment's download can be sent as exactly `chunks` pieces `interval_ms` apart, the same controls as the OpenAI emulator's paced answers: `attachment.stream` in the seed or on `/_emulate/x/dm/arrive`, or `POST /_emulate/x/media/:media_key/stream`. An emulator control, not X behaviour; downloads stay unpaced unless asked.
+
+### Fixes
+
+- **A large request body no longer resets a hosted instance.** A body over the limit is refused with a `413` before it is read, in the provider's error shape where it has one: 16 MiB on hosted instances, and 32 MiB for the OpenAI emulator (locally too), which answers `request_too_large` in OpenAI's error shape. Bodies within the limit are streamed to the instance. A 100 MiB body used to exhaust the instance's memory, answer 500 and end the other requests in it, a paced stream included.
+- **Hosted instances hold their data with less memory, within a stated budget.** The ledger records a body over 1 MiB by size without a second copy, saves keep a fingerprint of each stored value rather than its JSON, and a write that would take an instance's stored data past 32 MiB answers `507 instance_storage_full`. `GET /_emulate/persistence` shows the size and the budget.
+- **The local server answers a client still uploading.** After answering a request whose body it did not read, it ends the connection instead of leaving the client waiting.
+
+<!-- release:end -->
+
+## 0.17.3
 
 ### Fixes
 
 - **X delivers only to webhooks whose challenge was answered.** As on X, a webhook gets DM deliveries only once its challenge has been answered: the CRC at creation or on `PUT /2/webhooks/:id`, or, in control mode, a correct answer at `POST /_emulate/x/webhooks/:id/challenge`. Until then, and for a seeded webhook until `PUT`, deliveries are held, listed as held, and previewable. An address accepted only through control mode's relaxation (`http`, or a port, on an https instance) is never called at all.
-
-<!-- release:end -->
 
 ## 0.17.2
 
