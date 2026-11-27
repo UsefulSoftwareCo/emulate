@@ -386,6 +386,29 @@ describe("keys, models, limits and the ledger", () => {
     expect(usage.calls[0]).toMatchObject({ key_name: "primary", request_bytes: entry.request.bodyBytes });
   });
 
+  it("answers a request of hundreds of thousands of messages on both endpoints, and records it", async () => {
+    const { raw, control } = await start({ answer_rules: [{ answer: "ok" }] });
+    const many = Array.from({ length: 300_000 }, () => ({ role: "user", content: "hi" }));
+    const responses = await raw("/v1/responses", {
+      method: "POST",
+      body: JSON.stringify({ model: "gpt-5-mini", input: many }),
+    });
+    expect(responses.status).toBe(200);
+    expect(((await responses.json()) as Json).usage.input_tokens).toBe(Math.ceil((300_000 * 2) / 4));
+    const chat = await raw("/v1/chat/completions", {
+      method: "POST",
+      body: JSON.stringify({ model: "gpt-5-mini", messages: many }),
+    });
+    expect(chat.status).toBe(200);
+    const usage = (await (await control("/usage")).json()) as Json;
+    expect(usage.calls).toHaveLength(2);
+  });
+
+  it("counts characters as code points, surrogate pairs once, as before", () => {
+    const text = "a\u00e9\u{1F600}b\uD800";
+    expect(approxTokens(text.repeat(4))).toBe(Math.ceil([...text.repeat(4)].length / 4));
+  });
+
   it("refuses a body over its stated limit with a 413 in OpenAI's error shape, through the official SDK", async () => {
     const { client, ledger } = await start();
     const big = "a".repeat(MAX_REQUEST_BYTES + 1);
