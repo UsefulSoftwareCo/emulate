@@ -1,3 +1,4 @@
+import { WEBSOCKET_SESSION_HEADER } from "./websocket.js";
 import type { MiddlewareHandler } from "./http.js";
 import type { AppEnv, AuthUser, AuthApp } from "./middleware/auth.js";
 import type { WebhookDispatcher } from "./webhooks.js";
@@ -194,11 +195,14 @@ export function createLedgerMiddleware(ledger: RequestLedger, options: LedgerOpt
     }
     if (!response) return;
 
-    const responseBody = c.get("ledgerOmitResponseBody")
-      ? { body: BINARY_BODY_OMITTED }
-      : isStreamingContentType(response.headers.get("content-type") ?? "")
-        ? { body: STREAMING_BODY_OMITTED }
-        : await readBody(response.clone(), maxBodyChars);
+    const upgraded = response.status === 101 || response.headers.has(WEBSOCKET_SESSION_HEADER);
+    const responseBody = upgraded
+      ? { body: "<websocket upgrade>" }
+      : c.get("ledgerOmitResponseBody")
+        ? { body: BINARY_BODY_OMITTED }
+        : isStreamingContentType(response.headers.get("content-type") ?? "")
+          ? { body: STREAMING_BODY_OMITTED }
+          : await readBody(response.clone(), maxBodyChars);
     const route = c.req.routePath;
     const operationId = c.get("operationId");
     const sideEffects = (c.get("ledgerEffects") as LedgerSideEffect[] | undefined) ?? [];

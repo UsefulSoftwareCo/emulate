@@ -27,6 +27,16 @@ export const manifest: ServiceManifest = {
       kind: "provider-specific",
       title: "WebSocket and Realtime transports",
       status: "unsupported",
+      notes: "OpenAI's own WebSocket protocols (the Realtime API and WebSocket mode) are not emulated.",
+    },
+    {
+      id: "websocket-control",
+      kind: "provider-specific",
+      title: "Emulator WebSocket endpoint (echo and paced messages)",
+      status: "supported",
+      basePath: "/_emulate/openai/websocket",
+      notes:
+        "An emulator control, not OpenAI behaviour: GET /_emulate/openai/websocket accepts the upgrade and echoes each message as it was received; ?chunks=N&interval_ms=M (the paced-answer controls) also sends N messages of its own, M ms apart, then stays open. It closes when the client closes, answering with the client's code. A deploy of the hosted emulator ends open connections.",
     },
   ],
   auth: [

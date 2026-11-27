@@ -13,6 +13,7 @@ export {
   deserializeValue,
 } from "./store.js";
 export { createServer, type ServerOptions } from "./server.js";
+export { upgradeWebSocket, isWebSocketUpgrade, type WebSocketPeer, type WebSocketSession } from "./websocket.js";
 export {
   Hono,
   Context,
