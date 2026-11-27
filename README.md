@@ -63,6 +63,7 @@ Every running service also exposes a public control plane under `/_emulate`:
 | `POST /_emulate/reset`        | Reset state, webhooks, and request logs, then replay seed data                                                                      |
 | `POST /_emulate/seed`         | Add runtime seed data using the service seed schema                                                                                 |
 | `POST /_emulate/credentials`  | Create bearer tokens, API keys, OAuth clients, or client-credentials apps where supported                                           |
+| `POST /_emulate/tokens/revoke` | Revoke one token: later requests with it get the provider's own 401, other tokens keep working |
 | `POST /_emulate/instances`    | Return URLs for a lazily created hosted instance with a server-generated, unguessable name                                          |
 
 Stripe exposes the same hand-authored OpenAPI subset at `GET /openapi.json` and `GET /openapi.yaml`.
@@ -75,7 +76,7 @@ The request ledger is a core feature, not a debug afterthought. Each entry recor
 
 ### Fault injection
 
-Tests and development harnesses can arm one-shot faults with `POST /_emulate/faults`. A fault matches all provided criteria: `operationId` when the emulator can resolve one from its service manifest, `method`, and `pathPattern`. `pathPattern` uses a simple glob where `*` matches any characters in the request path. Matching requests short-circuit with the configured response, decrement `remaining`, and are removed at zero. Faulted requests are still written to `/_emulate/ledger` with `faulted: true` and `faultId`. On the hosted Cloudflare surface armed faults, their remaining counts and the next fault id are persisted with the instance, so a fault keeps its count when Cloudflare replaces the instance between arming it and the requests it targets.
+Tests and development harnesses can arm one-shot faults with `POST /_emulate/faults`. A fault matches all provided criteria: `operationId` when the emulator can resolve one from its service manifest, `method`, and `pathPattern`. `pathPattern` uses a simple glob where `*` matches any characters in the request path. Matching requests short-circuit with the configured response, decrement `remaining`, and are removed at zero. A fault can also match request headers by exact value: `"headers": { "authorization": "Bearer tok_1" }` faults only that caller (header names are case-insensitive). Faulted requests are still written to `/_emulate/ledger` with `faulted: true` and `faultId`. On the hosted Cloudflare surface armed faults, their remaining counts and the next fault id are persisted with the instance, so a fault keeps its count when Cloudflare replaces the instance between arming it and the requests it targets.
 
 ```bash
 curl -s -X POST "$EMULATOR_URL/_emulate/faults" \
@@ -552,6 +553,8 @@ github:
 ```
 
 If no `oauth_apps` are configured, the emulator accepts any `client_id` (backward-compatible). With apps configured, strict validation is enforced.
+
+An app revokes one of its tokens with `DELETE /applications/:client_id/token` (Basic auth with the client id and secret, `{ "access_token": "..." }` in the body), as on GitHub: `204`, then that token gets `401 Bad credentials` while the app's other tokens keep working. `POST /_emulate/tokens/revoke` does the same without the app's secret. `POST /_emulate/tokens/revoke` with `{ "token": "..." }` revokes one token, as when a user revokes an app's access: later requests with it get the provider's own 401 (GitHub's `Bad credentials`, OpenAI's `invalid_api_key`, and so on), on hosted instances across unloads too, while every other token keeps working. It covers tokens in the shared token map (GitHub, Google, Apple, Microsoft, Slack, Vercel, Okta, Clerk, PostHog, MCP, and `/_emulate/credentials` tokens) and the tokens X, Zapier, PlanetScale and Miro keep, OpenAI API keys, and WorkOS API keys and refresh tokens. WorkOS access tokens are signed JWTs checked by signature alone and cannot be revoked one by one; revoking the session's refresh token ends the session.
 
 ### GitHub Apps
 

@@ -132,3 +132,10 @@ Every endpoint below is fully stateful. Creates, updates, and deletes persist in
 - `GET /emojis` - emoji URLs
 - `GET /zen` - random zen phrase
 - `GET /versions` - API versions
+
+## Revoking a token
+
+- `DELETE /applications/:client_id/token` - an OAuth app revokes one of its tokens (Basic auth with the client id and secret, `{ "access_token": "..." }` in the body); `204`, then that token gets `401 Bad credentials` while the app's other tokens keep working
+- `POST /_emulate/tokens/revoke` with `{ "token": "..." }` - the same through the control plane, for any token the instance issued
+
+A request whose token GitHub would not accept (unknown or revoked) gets `401 {"message":"Bad credentials"}` on every REST route, as on GitHub.

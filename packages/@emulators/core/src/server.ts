@@ -12,7 +12,7 @@ import {
 import type { ServicePlugin } from "./plugin.js";
 import { registerFontRoutes } from "./fonts.js";
 import { RequestLedger, createLedgerMiddleware } from "./ledger.js";
-import { registerControlPlane, type CredentialRequest, type IssuedCredential } from "./control-plane.js";
+import { registerControlPlane, revokedTokens, type CredentialRequest, type IssuedCredential } from "./control-plane.js";
 import { createDefaultManifest, type ServiceManifest } from "./manifest.js";
 import { FaultRegistry, createFaultMiddleware } from "./faults.js";
 
@@ -65,7 +65,10 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
   app.onError(createApiErrorHandler(docsUrl));
   app.use("*", cors());
   app.use("*", createErrorHandler(docsUrl));
-  app.use("*", authMiddleware(tokenMap, options.appKeyResolver, options.fallbackUser));
+  app.use(
+    "*",
+    authMiddleware(tokenMap, options.appKeyResolver, options.fallbackUser, (token) => revokedTokens(store).has(token)),
+  );
 
   if (options.enableControlPlane !== false) {
     const manifest = options.manifest ?? createDefaultManifest(plugin.name);
@@ -88,6 +91,7 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
       reset: options.reset,
       seed: options.seed,
       issueCredential: options.issueCredential,
+      revokeToken: plugin.revokeToken ? (token) => plugin.revokeToken!(store, token) : undefined,
     });
   }
 

@@ -187,6 +187,13 @@ export function seedFromConfig(store: Store, baseUrl: string, config: XSeedConfi
 
 export const xPlugin: ServicePlugin = {
   name: "x",
+  revokeToken(store: Store, token: string): boolean {
+    const xs = getXStore(store);
+    let found = false;
+    for (const t of xs.accessTokens.findBy("token", token)) found = xs.accessTokens.delete(t.id) || found;
+    for (const t of xs.refreshTokens.findBy("token", token)) found = xs.refreshTokens.delete(t.id) || found;
+    return found;
+  },
   // X's own limiter (x-rate-limit-* headers, 429) replaces the shared GitHub-shaped one.
   rateLimit: "provider",
   register(app, store, webhooks, baseUrl, tokenMap): void {

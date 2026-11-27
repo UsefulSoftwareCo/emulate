@@ -158,6 +158,13 @@ export function issueCredential(store: Store, baseUrl: string, request: Credenti
 
 export const planetscalePlugin: ServicePlugin = {
   name: "planetscale",
+  revokeToken(store: Store, token: string): boolean {
+    const ps = getPlanetScaleStore(store);
+    const t = ps.oauthTokens.findOneBy("access_token", token) ?? ps.oauthTokens.findOneBy("refresh_token", token);
+    if (!t || t.revoked) return false;
+    ps.oauthTokens.update(t.id, { revoked: true });
+    return true;
+  },
   register(app: Hono<AppEnv>, store: Store, webhooks: WebhookDispatcher, baseUrl: string, tokenMap?: TokenMap): void {
     const ctx: RouteContext = { app, store, webhooks, baseUrl, tokenMap };
     registerOAuthRoutes(ctx);

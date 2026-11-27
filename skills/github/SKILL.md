@@ -495,6 +495,13 @@ curl http://localhost:4001/settings/connections/applications/Iv1.abc123 -H "Auth
 # Revoke OAuth app
 curl -X POST http://localhost:4001/settings/connections/applications/Iv1.abc123/revoke \
   -H "Authorization: Bearer $TOKEN"
+
+# Revoke one token, as the app (GitHub's own route): 204, then that token gets 401 Bad credentials
+curl -X DELETE http://localhost:4001/applications/Iv1.abc123/token -u "Iv1.abc123:secret_abc123" \
+  -H "Content-Type: application/json" -d "{\"access_token\":\"$TOKEN\"}"
+
+# Or through the control plane, without the app's secret
+curl -X POST http://localhost:4001/_emulate/tokens/revoke -H "Content-Type: application/json" -d "{\"token\":\"$TOKEN\"}"
 ```
 
 ### MCP surface

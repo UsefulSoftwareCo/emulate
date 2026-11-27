@@ -36,4 +36,10 @@ export interface ServicePlugin {
     ledger?: RequestLedger,
   ): void;
   seed?(store: Store, baseUrl: string): void;
+  /**
+   * Revoke a token this service keeps in its own store (not the shared token
+   * map), so later requests with it get the provider's own 401. True when the
+   * token was found. Used by POST /_emulate/tokens/revoke.
+   */
+  revokeToken?(store: Store, token: string): boolean;
 }

@@ -113,7 +113,12 @@ export interface AuthFallback {
   scopes: string[];
 }
 
-export function authMiddleware(tokens: TokenMap, appKeyResolver?: AppKeyResolver, fallbackUser?: AuthFallback) {
+export function authMiddleware(
+  tokens: TokenMap,
+  appKeyResolver?: AppKeyResolver,
+  fallbackUser?: AuthFallback,
+  isRevoked: (token: string) => boolean = () => false,
+) {
   return async (c: Context, next: Next) => {
     const authHeader = c.req.header("Authorization");
     if (authHeader) {
@@ -141,8 +146,10 @@ export function authMiddleware(tokens: TokenMap, appKeyResolver?: AppKeyResolver
           // JWT verification failed
         }
       } else {
-        let user = tokens.get(token);
-        if (!user && fallbackUser && token.length > 0) {
+        // A revoked token is refused even where unknown tokens fall back to a default user.
+        const revoked = isRevoked(token);
+        let user = revoked ? undefined : tokens.get(token);
+        if (!user && !revoked && fallbackUser && token.length > 0) {
           debug("auth", "fallback user for unknown token", { login: fallbackUser.login, id: fallbackUser.id });
           user = { login: fallbackUser.login, id: fallbackUser.id, scopes: fallbackUser.scopes, fallback: true };
         }

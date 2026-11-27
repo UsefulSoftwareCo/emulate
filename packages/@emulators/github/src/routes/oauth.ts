@@ -535,4 +535,36 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
 
     return c.redirect("/settings/applications", 302);
   });
+
+  // DELETE /applications/:client_id/token: an OAuth app revokes one of its tokens
+  // (Basic auth with the app's client id and secret, the token in the body). The
+  // token then answers 401; the app's other tokens keep working.
+  const DELETE_TOKEN_DOCS = "https://docs.github.com/rest/apps/oauth-applications#delete-an-app-token";
+  app.delete("/applications/:client_id/token", async (c) => {
+    const clientId = c.req.param("client_id");
+    const basic = /^Basic\s+(.+)$/i.exec(c.req.header("Authorization") ?? "");
+    const [id, secret] = basic ? Buffer.from(basic[1]!, "base64").toString("utf8").split(":") : [];
+    const oauthApp = gh.oauthApps.findOneBy("client_id", clientId);
+    if (!oauthApp || id !== clientId || !secret || !constantTimeSecretEqual(secret, oauthApp.client_secret)) {
+      return c.json({ message: "Not Found", documentation_url: DELETE_TOKEN_DOCS }, 404);
+    }
+    const body = (await c.req.json().catch(() => ({}))) as { access_token?: unknown };
+    const token = typeof body.access_token === "string" ? body.access_token : "";
+    if (!token) {
+      return c.json(
+        {
+          message: 'Invalid request.\n\n"access_token" wasn\'t supplied.',
+          documentation_url: DELETE_TOKEN_DOCS,
+          status: "422",
+        },
+        422,
+      );
+    }
+    if (!tokenMap?.has(token) || getTokenToClientId(store).get(token) !== clientId) {
+      return c.json({ message: "Not Found", documentation_url: DELETE_TOKEN_DOCS }, 404);
+    }
+    tokenMap.delete(token);
+    getTokenToClientId(store).delete(token);
+    return c.body(null, 204);
+  });
 }
