@@ -4,7 +4,7 @@ import type { WebhookDispatcher } from "./webhooks.js";
 import { faultLedgerFields } from "./faults.js";
 
 export interface LedgerIdentity {
-  user?: Pick<AuthUser, "login" | "id" | "scopes">;
+  user?: Pick<AuthUser, "login" | "id" | "scopes" | "externalId">;
   app?: Pick<AuthApp, "appId" | "slug" | "name">;
 }
 
@@ -78,6 +78,7 @@ const DEFAULT_MAX_ENTRIES = 1000;
 const DEFAULT_MAX_BODY_CHARS = 20000;
 const REDACTED = "[redacted]";
 const STREAMING_BODY_OMITTED = "<streaming body omitted>";
+const BINARY_BODY_OMITTED = "<binary body omitted>";
 const SENSITIVE_HEADERS = new Set([
   "authorization",
   "cookie",
@@ -185,9 +186,11 @@ export function createLedgerMiddleware(ledger: RequestLedger, options: LedgerOpt
     }
     if (!response) return;
 
-    const responseBody = isStreamingContentType(response.headers.get("content-type") ?? "")
-      ? { body: STREAMING_BODY_OMITTED }
-      : await readBody(response.clone(), maxBodyChars);
+    const responseBody = c.get("ledgerOmitResponseBody")
+      ? { body: BINARY_BODY_OMITTED }
+      : isStreamingContentType(response.headers.get("content-type") ?? "")
+        ? { body: STREAMING_BODY_OMITTED }
+        : await readBody(response.clone(), maxBodyChars);
     const route = c.req.routePath;
     const operationId = c.get("operationId");
     const sideEffects = (c.get("ledgerEffects") as LedgerSideEffect[] | undefined) ?? [];

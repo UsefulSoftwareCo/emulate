@@ -27,7 +27,7 @@ All services start with sensible defaults. No config file needed:
 - **MongoDB Atlas** on `http://localhost:4010`
 - **Clerk** on `http://localhost:4011`
 - **Spotify** on `http://localhost:4012`
-- **X** on `http://localhost:4013`
+- **X** on `http://localhost:4013` (OAuth 2.0, users, Posts, direct messages, DM media, webhooks with X Activity API DM events, X rate limits)
 - **WorkOS** on `http://localhost:4014` (AuthKit, user directory, organizations, organization domains, Vault, and OAuth)
 - **Autumn** on `http://localhost:4015`
 - **PostHog** on `http://localhost:4016`
@@ -209,6 +209,8 @@ GET /_emulate/services
 It returns each service's id, name, description, service host, instance host pattern, path form, and manifest URL, so agents can discover the full surface without repository context.
 
 The apex `https://emulators.dev` is the emulator catalog: a links-out landing page that lists every emulator and links to each one's service host. The console builds it from `GET /_emulate/services`. The apex is not the docs site.
+
+Discovery documents (`/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration`, and any other `/.well-known/` path) are served only by instances, at `<instance base>/.well-known/<type>` or the path-aware `https://emulators.dev/.well-known/<type>/<service>/<instance>`. The apex and service hosts answer them with a JSON 404, never a page, so OAuth discovery clients fall through to the next candidate instead of failing to parse HTML.
 
 ### Docs
 
@@ -906,12 +908,12 @@ Google ID tokens use RS256 signatures. Verify them with the public keys at `/oau
 OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local inbox, calendar, and drive flows.
 
 - `GET /o/oauth2/v2/auth` - authorization endpoint
-- `POST /oauth2/token` - token exchange
+- `POST /oauth2/token` - token exchange; the client authenticates with `client_secret_post` or `client_secret_basic`, as discovery advertises
 - `GET /oauth2/v2/userinfo` - get user info
 - `GET /.well-known/openid-configuration` - OIDC discovery document
 - `GET /oauth2/v3/certs` - JSON Web Key Set (JWKS)
-- `GET /gmail/v1/users/:userId/messages` - list messages with `q`, `labelIds`, `maxResults`, and `pageToken`
-- `GET /gmail/v1/users/:userId/messages/:id` - fetch a Gmail-style message payload in `full`, `metadata`, `minimal`, or `raw` formats
+- `GET /gmail/v1/users/:userId/messages` - list messages with `q` (including `list:`), `labelIds`, `maxResults`, and `pageToken`
+- `GET /gmail/v1/users/:userId/messages/:id` - fetch a Gmail-style message payload in `full` (every header, including `List-Id` and `List-Unsubscribe`), `metadata` (the `metadataHeaders` named), `minimal`, or `raw` formats
 - `GET /gmail/v1/users/:userId/messages/:messageId/attachments/:id` - fetch attachment bodies
 - `POST /gmail/v1/users/:userId/messages/send` - create sent mail from `raw` MIME or structured fields
 - `POST /gmail/v1/users/:userId/messages/import` - import inbox mail
@@ -923,11 +925,31 @@ OAuth 2.0, OpenID Connect, and mutable Google Workspace-style surfaces for local
 - `POST /gmail/v1/users/:userId/threads/:id/modify` - add/remove labels across a thread
 - `GET /gmail/v1/users/:userId/threads` and `GET /gmail/v1/users/:userId/threads/:id`
 - `GET /gmail/v1/users/:userId/labels`, `POST /gmail/v1/users/:userId/labels`, `PATCH /gmail/v1/users/:userId/labels/:id`, `DELETE /gmail/v1/users/:userId/labels/:id`
+- `GET /gmail/v1/users/:userId/profile` - `emailAddress`, `messagesTotal`, `threadsTotal`, `historyId`
 - `GET /gmail/v1/users/:userId/history`, `POST /gmail/v1/users/:userId/watch`, `POST /gmail/v1/users/:userId/stop`
 - `GET /gmail/v1/users/:userId/settings/filters`, `POST /gmail/v1/users/:userId/settings/filters`, `DELETE /gmail/v1/users/:userId/settings/filters/:id`
 - `GET /gmail/v1/users/:userId/settings/forwardingAddresses`, `GET /gmail/v1/users/:userId/settings/sendAs`
 - `GET /calendar/v3/users/:userId/calendarList`, `GET /calendar/v3/calendars/:calendarId/events`, `POST /calendar/v3/calendars/:calendarId/events`, `DELETE /calendar/v3/calendars/:calendarId/events/:eventId`, `POST /calendar/v3/freeBusy`
 - `GET /drive/v3/files`, `GET /drive/v3/files/:fileId`, `POST /drive/v3/files`, `PATCH /drive/v3/files/:fileId`, `PUT /drive/v3/files/:fileId`, `DELETE /drive/v3/files/:fileId`, `POST /upload/drive/v3/files`
+
+Gmail push: `users.watch` notifies the topic's Cloud Pub/Sub push subscriptions after a matching mailbox change (`labelIds` with `INCLUDE` or `EXCLUDE`), at most once a second per user, as Gmail does. Pub/Sub is not emulated, so configure push subscriptions with the `pubsub_push_subscriptions` seed field or `POST /_emulate/google/pubsub/subscriptions`:
+
+```yaml
+google:
+  pubsub_push_subscriptions:
+    - name: projects/demo/subscriptions/gmail-push
+      topic: projects/demo/topics/gmail
+      push_endpoint: https://app.example.test/push
+      audience: https://app.example.test/push
+```
+
+Each push is the Pub/Sub-wrapped body (`message.data` is base64 `{"emailAddress","historyId"}`, plus `messageId`, `publishTime` and `subscription`) with `Authorization: Bearer <OIDC token>`. The token is RS256, with `aud` (the audience, or the push endpoint), `email` (default `gmail-push@{project}.iam.gserviceaccount.com`), `email_verified`, `sub`, `azp`, `iat` and `exp`. Google signs with its own keys and `iss` `https://accounts.google.com`; the emulator signs with its OIDC key, so point the receiver's verifier at the emulator: JWKS `<base>/oauth2/v3/certs` and issuer `<base>`.
+
+For a test the emulator cannot reach:
+
+- `POST /_emulate/google/gmail/arrive` with `{"to":"user@example.com","from":"a@example.com","subject":"hi","text":"hello","headers":[{"name":"List-Id","value":"..."}]}` delivers mail to the INBOX and notifies the watch.
+- `POST /_emulate/google/gmail/preview-push` with `{"email":"user@example.com"}` returns each push's URL, headers (with the signed token) and body without sending them.
+- `GET /_emulate/google/pubsub/deliveries` lists the pushes made and whether each was acknowledged (102, 200, 201, 202 or 204).
 
 ## Slack API
 
@@ -936,7 +958,7 @@ Fully stateful Slack Web API emulation with channels, messages, threads, reactio
 ### Auth & Chat
 
 - `POST /api/auth.test` - test authentication
-- `POST /api/chat.postMessage` - post message with text or rich payload fields (supports threads via `thread_ts` and DM user IDs)
+- `POST /api/chat.postMessage` - post message with text or rich payload fields (supports threads via `thread_ts` and DM user IDs). `channel` is a conversation ID or a channel name, with or without the leading `#` (`general` or `#general`); the same applies to every method that takes `channel` and to an incoming webhook's `channel` override
 - `POST /api/chat.postEphemeral` - post ephemeral message outside channel history
 - `POST /api/chat.update` - update message text and rich payload fields
 - `POST /api/chat.delete` - delete message
@@ -1023,6 +1045,53 @@ Slack scope checks are relaxed by default so local tests can use simple bearer t
 
 Current Slack limits: Slack Connect, Enterprise Grid admin APIs, Audit Logs API, SCIM, Legal Holds, Socket Mode, slash command and interaction simulation, user groups, reminders, stars, calls, canvases, lists, functions, workflows, chat streaming, legacy `files.upload`, exact rate limiting, and paid-plan behavior are not implemented.
 
+## X API v2
+
+When all services run together, X uses `http://localhost:4013`. Tokens come from the real OAuth 2.0 flows (`/2/oauth2/authorize`, `/2/oauth2/token`); the `dm.read`, `dm.write` and `media.write` scopes are accepted and enforced per route as X's OpenAPI spec lists them.
+
+### Direct messages
+
+- `GET /2/dm_events`, `GET /2/dm_conversations/with/:participant_id/dm_events`, `GET /2/dm_conversations/:id/dm_events`, `GET` and `DELETE /2/dm_events/:event_id`
+- `POST /2/dm_conversations/with/:participant_id/messages`, `POST /2/dm_conversations/:dm_conversation_id/messages`, `POST /2/dm_conversations` (group)
+- `max_results`, `pagination_token`, `event_types`, `dm_event.fields`, `expansions` (`sender_id`, `participant_ids`, `attachments.media_keys`), `user.fields`, `media.fields`; events from the last 30 days, newest first
+
+Seed history cheaply: `generate` describes events computed on demand, never stored.
+
+```yaml
+x:
+  users:
+    - username: developer
+    - username: alice
+  dm_conversations:
+    - participants: [developer, alice]
+      messages:
+        - from: alice
+          text: Hi!
+          attachment: { bytes: 4194304, media_type: image/jpeg }
+      generate: { count: 2000, interval_seconds: 60, attachment_every: 50 }
+  dm_bulk: { user: developer, conversations: 50, events_per_conversation: 1000 }
+  rate_limits:
+    endpoints:
+      getDirectMessagesEvents: { limit: 3, window_seconds: 5 }
+```
+
+### Media
+
+`POST /2/media/upload` (one request), `POST /2/media/upload/initialize`, `/:id/append`, `/:id/finalize` and `GET /2/media/upload?command=STATUS` (all `media.write`). Attach with `attachments: [{ media_id }]` on a send. Participants download with `GET /2/dm_conversations/media/:dm_id/:media_key/:media_id` (`dm.read`), streamed; `includes.media[].url` points there.
+
+### Webhooks and the X Activity API
+
+`/2/webhooks` (create, list, `PUT` for a CRC, delete) and `/2/activity/subscriptions` for `dm.sent` and `dm.received`. Creating a webhook sends `GET <url>?crc_token=...` and refuses a wrong answer. Deliveries use X's envelope and are signed over the raw body with `X-Twitter-Webhooks-Signature-OAuth2` (the client secret), plus `X-Twitter-Webhooks-Signature` when a `consumer_secret` is seeded. The deprecated Account Activity API is not emulated.
+
+For a test the emulator cannot reach:
+
+- `POST /_emulate/x/webhooks/crc-delivery` with `{"mode":"control"}` (or seed `webhook_crc_delivery: control`) is an emulator mode: creation sends no challenge, and `GET /_emulate/x/webhooks/:id/challenge` returns the GET X would send for the test to deliver; report the answer with `POST /_emulate/x/webhooks/:id/challenge`.
+- `POST /_emulate/x/dm/arrive` with `{"to":"developer","from":"alice","text":"hi"}` makes a message arrive (stored, then delivered).
+- `POST /_emulate/x/dm/preview-delivery` with `{"dm_event_id":"..."}` returns the exact URL, headers and body of each delivery without sending it.
+
+### Rate limits
+
+Limited responses carry `x-rate-limit-limit`, `x-rate-limit-remaining` and `x-rate-limit-reset` (epoch seconds); a spent window answers `429` with `{"errors":[{"code":88,"message":"Rate limit exceeded"}]}`. Windows follow X's table (for example 15 DM reads per 15 minutes per user). Override them with the `rate_limits` seed field or `POST /_emulate/x/rate-limits`; `GET /_emulate/x/rate-limits` shows the open windows. Every request, including 429s, is in `/_emulate/ledger` with its operation id, status and user.
 ## OpenAI API
 
 When all services run together, OpenAI uses `http://localhost:4022`. Point an SDK at it with `baseURL: "<base>/v1"` and an API key: the default instance has `sk-proj-emulate-default-key`, seed `api_keys`, or create one with `POST /_emulate/openai/keys` or `POST /_emulate/credentials` (type `api-key`). Unknown keys answer `401 invalid_api_key`.

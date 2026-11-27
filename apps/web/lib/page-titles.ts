@@ -18,6 +18,7 @@ export const PAGE_TITLES: Record<string, string> = {
   clerk: "Clerk",
   workos: "WorkOS",
   spotify: "Spotify",
+  x: "X API",
   planetscale: "PlanetScale",
   miro: "Miro",
   openai: "OpenAI API",

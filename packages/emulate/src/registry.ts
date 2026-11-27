@@ -241,7 +241,7 @@ function credentialSeed(
 function tokenUrlFor(service: ServiceName, baseUrl: string): string | undefined {
   const paths: Partial<Record<ServiceName, string>> = {
     github: "/login/oauth/access_token",
-    google: "/token",
+    google: "/oauth2/token",
     apple: "/auth/token",
     microsoft: "/oauth2/v2.0/token",
     okta: "/oauth2/default/v1/token",
@@ -905,7 +905,7 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
   x: {
     label: "X (Twitter) API v2 emulator",
     endpoints:
-      "OAuth 2.0 authorize/token/revoke (Authorization Code with PKCE + app-only client credentials), users, tweets",
+      "OAuth 2.0 authorize/token/revoke (Authorization Code with PKCE + app-only client credentials), users, tweets, direct messages, DM media upload/download, webhooks with X Activity API DM events, X rate limits",
     async load() {
       const mod = await import("@emulators/x");
       return {

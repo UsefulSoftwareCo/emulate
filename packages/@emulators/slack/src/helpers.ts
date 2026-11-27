@@ -438,3 +438,21 @@ function setOptionalBooleanField<K extends Extract<SlackRichMessageFieldName, ke
     fields[field] = value as SlackRichMessageFields[K];
   }
 }
+
+/**
+ * The conversation a `channel` argument names: an encoded ID, or a public or
+ * private channel's name with or without the leading `#` (Slack's own SDK
+ * examples post with `channel: "#random"`; the method docs accept "the channel
+ * name or the channel's ID"). Names are matched as Slack stores them, in
+ * lowercase. DMs and group DMs are found by ID only.
+ */
+export function findChannelByIdOrName(
+  channels: { findOneBy(field: "channel_id", value: string): SlackChannel | undefined; all(): SlackChannel[] },
+  channel: string,
+): SlackChannel | undefined {
+  const byId = channels.findOneBy("channel_id", channel);
+  if (byId) return byId;
+  const name = channel.trim().replace(/^#/, "").toLowerCase();
+  if (!name) return undefined;
+  return channels.all().find((ch) => !ch.is_im && !ch.is_mpim && ch.name === name);
+}

@@ -75,6 +75,10 @@ A bare service host such as `https://github.emulators.dev`, with no instance, se
 - `GET /_emulate`, `/_emulate/manifest`, `/_emulate/quickstart`, `/_emulate/specs`, `/_emulate/coverage`, `/_emulate/connections`, `/_emulate/openapi`
 - `POST /_emulate/instances` to create an instance and get its URLs
 
+## Discovery documents
+
+OAuth and OpenID Connect discovery documents (`/.well-known/oauth-protected-resource`, `/.well-known/oauth-authorization-server`, `/.well-known/openid-configuration`) belong to instances: an instance serves its own at `<instance base>/.well-known/<type>`, and the path-aware form `https://emulators.dev/.well-known/<type>/<service>/<instance>` resolves to the same instance. The apex and service hosts have no such documents and answer any `/.well-known/` path with a JSON `404`, never an HTML page, so a discovery client moves on to its next candidate URL.
+
 ## Instance model
 
 The `emulate-hosts` worker serves `emulators.dev/*` (the apex catalog) and `*.emulators.dev/*` (service and instance hosts). Each stateful instance is backed by one Cloudflare Durable Object. The `EmulatorDurableObject` class is declared through a wrangler `migrations` entry (`new_classes`), and the instance state, the request ledger and armed faults are snapshotted to Durable Object storage, so an instance survives eviction.

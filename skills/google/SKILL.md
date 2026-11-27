@@ -230,7 +230,7 @@ redirect_uri=http://localhost:3000/api/auth/callback/google&\
 grant_type=authorization_code"
 ```
 
-Also accepts `application/json` body. Returns:
+Also accepts `application/json` body, and client authentication with an HTTP Basic `Authorization` header (`client_secret_basic`) instead of `client_id`/`client_secret` in the body. Returns:
 
 ```json
 {
@@ -432,7 +432,10 @@ curl -X DELETE http://localhost:4002/gmail/v1/users/me/labels/Label_ops \
 curl "http://localhost:4002/gmail/v1/users/me/history?startHistoryId=1&historyTypes=messageAdded&maxResults=100" \
   -H "Authorization: Bearer $TOKEN"
 
-# Set up push notification watch (stub)
+# Who the mailbox is
+curl http://localhost:4002/gmail/v1/users/me/profile -H "Authorization: Bearer $TOKEN"
+
+# Watch: notifications go to the topic's Pub/Sub push subscriptions (see below)
 curl -X POST http://localhost:4002/gmail/v1/users/me/watch \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
@@ -442,6 +445,25 @@ curl -X POST http://localhost:4002/gmail/v1/users/me/watch \
 curl -X POST http://localhost:4002/gmail/v1/users/me/stop \
   -H "Authorization: Bearer $TOKEN"
 ```
+
+Gmail push: `users.watch` notifies the topic's Cloud Pub/Sub push subscriptions after a matching mailbox change (`labelIds` with `INCLUDE` or `EXCLUDE`), at most once a second per user, as Gmail does. Pub/Sub is not emulated, so configure push subscriptions with the `pubsub_push_subscriptions` seed field or `POST /_emulate/google/pubsub/subscriptions`:
+
+```yaml
+google:
+  pubsub_push_subscriptions:
+    - name: projects/demo/subscriptions/gmail-push
+      topic: projects/demo/topics/gmail
+      push_endpoint: https://app.example.test/push
+      audience: https://app.example.test/push
+```
+
+Each push is the Pub/Sub-wrapped body (`message.data` is base64 `{"emailAddress","historyId"}`, plus `messageId`, `publishTime` and `subscription`) with `Authorization: Bearer <OIDC token>`. The token is RS256, with `aud` (the audience, or the push endpoint), `email` (default `gmail-push@{project}.iam.gserviceaccount.com`), `email_verified`, `sub`, `azp`, `iat` and `exp`. Google signs with its own keys and `iss` `https://accounts.google.com`; the emulator signs with its OIDC key, so point the receiver's verifier at the emulator: JWKS `<base>/oauth2/v3/certs` and issuer `<base>`.
+
+For a test the emulator cannot reach:
+
+- `POST /_emulate/google/gmail/arrive` with `{"to":"user@example.com","from":"a@example.com","subject":"hi","text":"hello","headers":[{"name":"List-Id","value":"..."}]}` delivers mail to the INBOX and notifies the watch.
+- `POST /_emulate/google/gmail/preview-push` with `{"email":"user@example.com"}` returns each push's URL, headers (with the signed token) and body without sending them.
+- `GET /_emulate/google/pubsub/deliveries` lists the pushes made and whether each was acknowledged (102, 200, 201, 202 or 204).
 
 ### Settings
 
