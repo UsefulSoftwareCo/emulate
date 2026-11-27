@@ -1,8 +1,32 @@
 # Changelog
 
-## 0.16.0
+## 0.17.0
 
 <!-- release:start -->
+
+### New Features
+
+- **X direct messages.** The three v2 DM event lookups, an event by id, delete, and sends to a participant, a conversation or a new group, with `dm_event.fields`, `expansions`, `user.fields`, `media.fields`, `event_types` and base32hex pagination tokens. A seed can describe thousands of events with `generate` or `dm_bulk` without storing them, and events older than X's 30 days are hidden.
+- **X media.** v2 upload in one request or in chunks, and the DM media download, streamed with its length.
+- **X webhooks and the X Activity API.** `/2/webhooks` sends the CRC at creation and on PUT, `dm.sent` and `dm.received` subscriptions deliver X's envelope signed with `X-Twitter-Webhooks-Signature-OAuth2`, and `/_emulate/x` can make a message arrive, preview a delivery unsent, and hold challenges for a test the emulator cannot reach. The Account Activity API, which X has deprecated, is listed as unsupported.
+- **X rate limits.** `x-rate-limit-*` headers and the 429 with code 88, per user and per app as X's table has them, with limits an instance can set through the seed or `POST /_emulate/x/rate-limits`. Each request, 429s included, is in the ledger with its user, and a hosted instance keeps reads and their counts across eviction.
+- **Gmail push.** `users.watch` pushes to Pub/Sub push subscriptions set by seed or control plane, with the wrapped body and an OIDC token verifiable at `/oauth2/v3/certs`, at most once a second per user. `/_emulate/google/gmail/arrive` delivers mail and `preview-push` returns a push unsent.
+- **`users.getProfile`**, and the `list:` search operator.
+- **An OpenAI emulator.** The Responses API and Chat Completions for text, streamed or not, with API keys, per-key request limits, deterministic answers a test seeds, answers paced into a stated number of chunks, and a usage record per call. Token counts are approximate and labelled so.
+- **A Zapier MCP emulator.** Zapier's managed-mode MCP server at `/api/v1/connect` for protocol 2026-07-28 and the 2025-11-25 and 2025-06-18 handshake era, OAuth per person as `mcp.zapier.com` publishes it, and a deterministic tool list per account of any size that pages with opaque cursors and changes on command.
+
+### Fixes
+
+- **Gmail returns every header.** `List-Id`, `List-Unsubscribe` and the rest now appear in `format=full`, and in `format=metadata` when named.
+- **Google's token endpoint accepts `client_secret_basic`**, which its discovery document advertised, and issued Google credentials name `/oauth2/token`, the route that exists, instead of `/token`.
+- **Hosted Google instances keep the access tokens they issued** across eviction; they used to answer 401 to them.
+- **Slack finds a channel named with a leading `#`.** `channel: "#general"` works wherever a channel name does, as in Slack's own examples.
+- **Discovery probes get a 404, not a page.** The apex and service hosts answer `/.well-known/*` with a JSON 404 instead of HTML with a 200, so OAuth discovery clients move on to the next candidate.
+
+<!-- release:end -->
+
+## 0.16.0
+
 
 ### New Features
 
@@ -15,7 +39,6 @@
 - **Approving on the MCP and PlanetScale consent pages works from a browser.** Their user buttons did not post the chosen user, so approving always answered "Unknown user". Tests that posted `login` themselves never saw it.
 - **Vercel's minted OAuth client names its real authorize page.** `credentials.mint` for Vercel returned `/integrations/oauth/authorize`, which does not exist; it now returns `/oauth/authorize`, where the consent page is.
 
-<!-- release:end -->
 
 ## 0.15.1
 
