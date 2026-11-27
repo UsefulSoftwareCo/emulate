@@ -71,7 +71,11 @@ const XAA_EVENT_TYPES = new Set<string>(DM_ACTIVITY_EVENT_TYPES);
 
 export function webhookRoutes({ app, store, baseUrl }: RouteContext): void {
   const xs = getXStore(store);
-  const strictUrls = baseUrl.startsWith("https://");
+  // X's https and no-port rules apply on an https instance (a hosted one), except in the
+  // emulator's control mode: there the challenge is held for the test rather than sent to
+  // the address, so a local http address with a port can be registered and subscribed to.
+  // An emulator-only relaxation, listed as such in the manifest.
+  const strictUrls = () => baseUrl.startsWith("https://") && getCrcDeliveryMode(store) === "outbound";
 
   // POST /2/webhooks: register a webhook; X sends a CRC to it first.
   app.post("/2/webhooks", async (c) => {
@@ -80,7 +84,7 @@ export function webhookRoutes({ app, store, baseUrl }: RouteContext): void {
     const body = (await c.req.json().catch(() => undefined)) as Record<string, unknown> | undefined;
     const url = typeof body?.url === "string" ? body.url : "";
     if (!url) return invalidRequest(c, "url", "", "`url` is required.");
-    const urlProblem = webhookUrlProblem(url, strictUrls);
+    const urlProblem = webhookUrlProblem(url, strictUrls());
     if (urlProblem) return webhookFailure(c, "UrlValidationFailed", urlProblem);
     if (xs.webhooks.findBy("client_id", auth.token.client_id).some((w) => w.url === url)) {
       return webhookFailure(

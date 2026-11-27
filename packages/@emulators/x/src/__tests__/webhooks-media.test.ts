@@ -184,6 +184,79 @@ describe("X webhooks and the CRC", () => {
   });
 });
 
+describe("webhook addresses in each CRC mode on an https instance", () => {
+  function httpsInstance(mode: "outbound" | "control") {
+    const host = "https://x.example.test";
+    const server = createServer(xPlugin, { baseUrl: host });
+    seedFromConfig(server.store, host, {
+      users: [
+        { username: "developer", user_id: DEV },
+        { username: "alice", user_id: ALICE },
+      ],
+      oauth_clients: [{ client_id: "dm-app", client_secret: SECRET, client_type: "confidential" }],
+      webhook_crc_delivery: mode,
+    });
+    const xs = getXStore(server.store);
+    const token = (user: string | null) => {
+      const t = `tok_${randomBytes(8).toString("hex")}`;
+      xs.accessTokens.insert({
+        token: t,
+        client_id: "dm-app",
+        user_id: user,
+        scopes: user ? ["dm.read", "dm.write", "tweet.read", "users.read"] : [],
+        app_only: user === null,
+        expires: 0,
+      });
+      return t;
+    };
+    const post = (path: string, t: string, body: unknown) =>
+      server.app.request(`${host}${path}`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${t}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    return { token, post };
+  }
+  const local = ["http://localhost:3000/webhooks/x", "https://app.example.test:8443/webhooks/x"];
+
+  it("keeps X's rule in outbound mode: no http address, no port", async () => {
+    const { token, post } = httpsInstance("outbound");
+    const app = token(null);
+    for (const url of local) {
+      const res = await post("/2/webhooks", app, { url });
+      expect(((await res.json()) as Json).errors[0].message, url).toBe("UrlValidationFailed");
+    }
+  });
+
+  it("accepts a local http address with a port in control mode, with subscriptions and previews", async () => {
+    const { token, post } = httpsInstance("control");
+    const app = token(null);
+    const dev = token(DEV);
+    const ids: string[] = [];
+    for (const url of local) {
+      const res = await post("/2/webhooks", app, { url });
+      expect(res.status, url).toBe(200);
+      ids.push(((await res.json()) as Json).data.id);
+    }
+    const sub = await post("/2/activity/subscriptions", dev, {
+      event_type: "dm.received",
+      filter: { user_id: DEV },
+      webhook_id: ids[0],
+    });
+    expect(sub.status).toBe(200);
+    const arrived = (await (
+      await post("/_emulate/x/dm/arrive", app, { to: "developer", from: "alice", text: "hi" })
+    ).json()) as Json;
+    const preview = (await (
+      await post("/_emulate/x/dm/preview-delivery", app, { dm_event_id: arrived.dm_event_id, include_invalid: true })
+    ).json()) as Json;
+    expect(preview.deliveries.map((d: Json) => d.url)).toEqual([local[0]]);
+    expect(preview.deliveries[0].headers["x-twitter-webhooks-signature-oauth2"]).toBe(
+      sign(SECRET, preview.deliveries[0].body),
+    );
+  });
+});
+
 describe("X Activity API DM deliveries", () => {
   async function subscribed(extra: Partial<XSeedConfig> = {}) {
     const r = await receiver(SECRET);

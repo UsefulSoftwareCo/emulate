@@ -40,7 +40,7 @@ export const manifest: ServiceManifest = {
       status: "partial",
       basePath: "/2/webhooks",
       notes:
-        "Webhook configs with the CRC at creation and on PUT; X Activity API subscriptions for dm.sent and dm.received, delivered as the documented envelope and signed with X-Twitter-Webhooks-Signature-OAuth2 (client secret) plus X-Twitter-Webhooks-Signature when a consumer_secret is seeded. Other XAA event types, the persistent stream, replay, filter qualifiers and the hourly CRC are not emulated. CRC delivery mode `control` (POST /_emulate/x/webhooks/crc-delivery) is an emulator mode, not X behaviour.",
+        "Webhook configs with the CRC at creation and on PUT; X Activity API subscriptions for dm.sent and dm.received, delivered as the documented envelope and signed with X-Twitter-Webhooks-Signature-OAuth2 (client secret) plus X-Twitter-Webhooks-Signature when a consumer_secret is seeded. Other XAA event types, the persistent stream, replay, filter qualifiers and the hourly CRC are not emulated. CRC delivery mode `control` (POST /_emulate/x/webhooks/crc-delivery) is an emulator mode, not X behaviour. Emulator-only relaxation: in control mode POST /2/webhooks also accepts an http address and one with a port, which X refuses, so a test can register a local receiver and preview its deliveries; DM deliveries to that address are still attempted and recorded (from a hosted instance a local address is unreachable). Outbound mode keeps X's rule: https, no port, at most 200 characters.",
     },
     {
       id: "account-activity",
@@ -382,7 +382,7 @@ export const manifest: ServiceManifest = {
         key: "webhook_crc_delivery",
         title: "CRC delivery mode",
         description:
-          "outbound (default, X's behaviour) or control: an emulator mode in which webhook creation sends no challenge and each challenge is held at GET /_emulate/x/webhooks/:id/challenge for the test to deliver.",
+          "outbound (default, X's behaviour) or control: an emulator mode in which webhook creation sends no challenge, each challenge is held at GET /_emulate/x/webhooks/:id/challenge for the test to deliver, and webhook addresses may be http or carry a port (an emulator-only relaxation of X's rule).",
         example: "control",
       },
     ],

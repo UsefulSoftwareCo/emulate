@@ -1086,7 +1086,7 @@ x:
 
 For a test the emulator cannot reach:
 
-- `POST /_emulate/x/webhooks/crc-delivery` with `{"mode":"control"}` (or seed `webhook_crc_delivery: control`) is an emulator mode: creation sends no challenge, and `GET /_emulate/x/webhooks/:id/challenge` returns the GET X would send for the test to deliver; report the answer with `POST /_emulate/x/webhooks/:id/challenge`.
+- `POST /_emulate/x/webhooks/crc-delivery` with `{"mode":"control"}` (or seed `webhook_crc_delivery: control`) is an emulator mode: creation sends no challenge, and `GET /_emulate/x/webhooks/:id/challenge` returns the GET X would send for the test to deliver; report the answer with `POST /_emulate/x/webhooks/:id/challenge`. In control mode `POST /2/webhooks` also accepts an `http` address or one with a port, which X refuses (an emulator-only relaxation), so a local receiver can be registered, subscribed to and its deliveries previewed; outbound mode keeps X's rule (https, no port).
 - `POST /_emulate/x/dm/arrive` with `{"to":"developer","from":"alice","text":"hi"}` makes a message arrive (stored, then delivered).
 - `POST /_emulate/x/dm/preview-delivery` with `{"dm_event_id":"..."}` returns the exact URL, headers and body of each delivery without sending it.
 
