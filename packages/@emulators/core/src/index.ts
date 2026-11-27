@@ -34,6 +34,7 @@ export {
   type WebhookSubscription,
   type WebhookDelivery,
   type RawWebhookDelivery,
+  type WebhookDispatcherSnapshot,
 } from "./webhooks.js";
 export {
   createDefaultManifest,
@@ -123,6 +124,8 @@ export {
   requireAppAuth,
   serializeTokenMap,
   restoreTokenMap,
+  tokenEntry,
+  tokenUser,
   type AuthUser,
   type AuthApp,
   type AuthInstallation,

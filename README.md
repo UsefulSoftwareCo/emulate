@@ -223,7 +223,7 @@ Documentation is a separate site at `https://docs.emulators.dev`. Per-service do
 
 ### Deployment
 
-The emulator worker is named `emulate-hosts`. It serves `emulators.dev/*` (the apex catalog) and `*.emulators.dev/*`, that is every service and instance subdomain. The `EmulatorDurableObject` class is declared through a wrangler `migrations` entry (`new_classes`). Each stateful instance is backed by one `EmulatorDurableObject`; the store snapshot, the request ledger and armed faults are persisted to Durable Object storage so instances survive eviction.
+The emulator worker is named `emulate-hosts`. It serves `emulators.dev/*` (the apex catalog) and `*.emulators.dev/*`, that is every service and instance subdomain. The `EmulatorDurableObject` class is declared through a wrangler `migrations` entry (`new_classes`). Each stateful instance is backed by one `EmulatorDurableObject`; the store snapshot, the request ledger, armed faults, every token the instance has issued (OAuth access tokens, API keys, bearer credentials, and their revocations) and webhook subscriptions are persisted to Durable Object storage, so an instance keeps them across eviction and deploys. The ledger and tokens are saved after every request, reads included; the store after every write. A deploy still closes open streams, which clients reconnect.
 
 The docs site (`apps/web`, worker name `emulate-docs`) serves `docs.emulators.dev`. Because that host is more specific than `*.emulators.dev`, it wins for docs traffic.
 

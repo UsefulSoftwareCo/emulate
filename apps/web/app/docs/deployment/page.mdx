@@ -81,7 +81,7 @@ OAuth and OpenID Connect discovery documents (`/.well-known/oauth-protected-reso
 
 ## Instance model
 
-The `emulate-hosts` worker serves `emulators.dev/*` (the apex catalog) and `*.emulators.dev/*` (service and instance hosts). Each stateful instance is backed by one Cloudflare Durable Object. The `EmulatorDurableObject` class is declared through a wrangler `migrations` entry (`new_classes`), and the instance state, the request ledger and armed faults are snapshotted to Durable Object storage, so an instance survives eviction.
+The `emulate-hosts` worker serves `emulators.dev/*` (the apex catalog) and `*.emulators.dev/*` (service and instance hosts). Each stateful instance is backed by one Cloudflare Durable Object. The `EmulatorDurableObject` class is declared through a wrangler `migrations` entry (`new_classes`), and the instance state, the request ledger, armed faults, every token the instance has issued (revocations included) and webhook subscriptions are kept in Durable Object storage, so an instance keeps them across eviction and deploys. A deploy still closes open streams, which clients reconnect.
 
 ```text
 POST https://github.emulators.dev/_emulate/instances

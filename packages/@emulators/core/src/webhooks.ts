@@ -223,4 +223,30 @@ export class WebhookDispatcher {
     this.subscriptionIdCounter = 1;
     this.deliveryIdCounter = 1;
   }
+
+  /**
+   * The registered subscriptions and id counters, for a host that rebuilds the
+   * emulator from storage. Delivery history is not included: it can be large and
+   * each delivery is already recorded on the request ledger.
+   */
+  serialize(): WebhookDispatcherSnapshot {
+    return {
+      subscriptions: this.subscriptions.map((s) => ({ ...s, events: [...s.events] })),
+      subscriptionIdCounter: this.subscriptionIdCounter,
+      deliveryIdCounter: this.deliveryIdCounter,
+    };
+  }
+
+  restore(snapshot: WebhookDispatcherSnapshot | undefined): void {
+    if (!snapshot) return;
+    this.subscriptions = snapshot.subscriptions.map((s) => ({ ...s, events: [...s.events] }));
+    this.subscriptionIdCounter = snapshot.subscriptionIdCounter;
+    this.deliveryIdCounter = snapshot.deliveryIdCounter;
+  }
+}
+
+export interface WebhookDispatcherSnapshot {
+  subscriptions: WebhookSubscription[];
+  subscriptionIdCounter: number;
+  deliveryIdCounter: number;
 }

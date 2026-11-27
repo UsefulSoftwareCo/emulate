@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from "crypto";
 import { SignJWT, generateKeyPair, exportJWK, importJWK, calculateJwkThumbprint, type JWK } from "jose";
-import type { RouteContext, TokenMap } from "@emulators/core";
+import type { RouteContext } from "@emulators/core";
 import {
   escapeHtml,
   escapeAttr,
@@ -127,32 +127,6 @@ async function createIdToken(
   return builder.sign(privateKey);
 }
 
-const ISSUED_ACCESS_TOKENS_KEY = "google.oauth.accessTokens";
-
-/**
- * Access tokens this instance issued, kept in the store so a host that persists
- * the store (a Durable Object) still recognises them after eviction. The core
- * token map holds them only in memory.
- */
-function getIssuedAccessTokens(store: Store): Map<string, { login: string; id: number; scopes: string[] }> {
-  let tokens = store.getData<Map<string, { login: string; id: number; scopes: string[] }>>(ISSUED_ACCESS_TOKENS_KEY);
-  if (!tokens) {
-    tokens = new Map();
-    store.setData(ISSUED_ACCESS_TOKENS_KEY, tokens);
-  }
-  return tokens;
-}
-
-function issueAccessToken(
-  store: Store,
-  tokenMap: TokenMap | undefined,
-  token: string,
-  entry: { login: string; id: number; scopes: string[] },
-): void {
-  tokenMap?.set(token, entry);
-  getIssuedAccessTokens(store).set(token, entry);
-}
-
 function parseBasicClientAuth(header: string | undefined): { clientId: string; clientSecret: string } | null {
   const m = /^Basic\s+([A-Za-z0-9+/=_-]+)\s*$/i.exec(header ?? "");
   if (!m) return null;
@@ -170,22 +144,6 @@ function parseBasicClientAuth(header: string | undefined): { clientId: string; c
 }
 
 export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): void {
-  // Recognise a token this instance issued that the in-memory token map has lost
-  // (a hosted instance rebuilt after eviction): restore it and its identity.
-  app.use("*", async (c, next) => {
-    const current = c.get("authUser");
-    const m = /^Bearer\s+(.+)$/i.exec(c.req.header("Authorization") ?? "");
-    if (m && (!current || current.fallback)) {
-      const issued = getIssuedAccessTokens(store).get(m[1]!.trim());
-      if (issued) {
-        tokenMap?.set(m[1]!.trim(), issued);
-        c.set("authUser", { ...issued });
-        c.set("authToken", m[1]!.trim());
-        c.set("authScopes", issued.scopes);
-      }
-    }
-    return next();
-  });
   const gs = getGoogleStore(store);
 
   // ---------- OIDC Discovery ----------
@@ -429,7 +387,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
       const accessToken = "google_" + randomBytes(20).toString("base64url");
       const scopes = record.scope ? record.scope.split(/\s+/).filter(Boolean) : [];
 
-      issueAccessToken(store, tokenMap, accessToken, { login: user.email, id: user.id, scopes });
+      tokenMap?.set(accessToken, { login: user.email, id: user.id, scopes });
 
       return c.json({
         access_token: accessToken,
@@ -489,7 +447,7 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     const refreshToken = "google_refresh_" + randomBytes(24).toString("base64url");
     const scopes = pending.scope ? pending.scope.split(/\s+/).filter(Boolean) : [];
 
-    issueAccessToken(store, tokenMap, accessToken, { login: user.email, id: user.id, scopes });
+    tokenMap?.set(accessToken, { login: user.email, id: user.id, scopes });
     getRefreshTokens(store).set(refreshToken, {
       email: user.email,
       scope: pending.scope,
@@ -556,7 +514,6 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
     if (token && tokenMap) {
       tokenMap.delete(token);
     }
-    if (token) getIssuedAccessTokens(store).delete(token);
     if (token) {
       getRefreshTokens(store).delete(token);
     }
@@ -567,7 +524,6 @@ export function oauthRoutes({ app, store, baseUrl, tokenMap }: RouteContext): vo
   app.post("/_emulate/oauth/access-tokens/expire", (c) => {
     const expired = tokenMap?.size ?? 0;
     tokenMap?.clear();
-    getIssuedAccessTokens(store).clear();
     return c.json({ expired });
   });
 
