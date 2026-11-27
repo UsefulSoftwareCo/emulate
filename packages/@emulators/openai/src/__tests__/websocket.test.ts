@@ -3,7 +3,11 @@ import { createServer, serveOnFreePort, type FreePortServer } from "@emulators/c
 import { openaiPlugin } from "../index.js";
 
 const servers: FreePortServer[] = [];
+const sockets: WebSocket[] = [];
 afterEach(async () => {
+  // Clients first: a server cannot finish closing while a WebSocket is still open on it.
+  for (const ws of sockets.splice(0)) if (ws.readyState <= 1) ws.close();
+  await new Promise((r) => setTimeout(r, 20));
   await Promise.all(servers.splice(0).map((s) => s.close()));
 });
 
@@ -19,6 +23,7 @@ async function start() {
 /** Open a socket with Node's own WebSocket client and collect what arrives. */
 function connect(url: string) {
   const ws = new WebSocket(url);
+  sockets.push(ws);
   ws.binaryType = "arraybuffer";
   const received: Array<{ data: string | ArrayBuffer; at: number }> = [];
   const opened = new Promise<void>((resolve, reject) => {
@@ -57,14 +62,14 @@ describe("emulator WebSocket control", () => {
 
   it("sends the asked number of messages, interval apart, then stays open until closed", async () => {
     const { base } = await start();
-    const c = connect(`ws://${base}/_emulate/openai/websocket?chunks=4&interval_ms=60`);
+    const c = connect(`ws://${base}/_emulate/openai/websocket?chunks=4&interval_ms=100`);
     await c.opened;
-    const t0 = Date.now();
     const got = await c.until(4);
     expect(got.map((m) => JSON.parse(m.data as string).n)).toEqual([1, 2, 3, 4]);
     expect(got.every((m) => JSON.parse(m.data as string).of === 4)).toBe(true);
-    expect(got[3]!.at - t0).toBeGreaterThanOrEqual(4 * 60 - 15);
-    for (let i = 1; i < 4; i++) expect(got[i]!.at - got[i - 1]!.at).toBeGreaterThanOrEqual(45);
+    // The server's timer starts when it opens, before the client sees the open: measure the spacing.
+    expect(got[3]!.at - got[0]!.at).toBeGreaterThanOrEqual(3 * 100 - 30);
+    for (let i = 1; i < 4; i++) expect(got[i]!.at - got[i - 1]!.at).toBeGreaterThanOrEqual(60);
     // Still open and still echoing after the paced messages.
     await new Promise((r) => setTimeout(r, 150));
     expect(c.received).toHaveLength(4);
