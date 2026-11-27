@@ -1,25 +1,16 @@
+import { readdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import createMDX from "@next/mdx";
 
 const withMDX = createMDX();
 
-const oldDocsSlugs = [
-  "programmatic-api",
-  "configuration",
-  "nextjs",
-  "vercel",
-  "github",
-  "google",
-  "slack",
-  "apple",
-  "microsoft",
-  "aws",
-  "okta",
-  "mongoatlas",
-  "resend",
-  "stripe",
-  "authentication",
-  "architecture",
-];
+// Every docs page also answers at its bare slug (`/x` redirects to `/docs/x`), the
+// address each service manifest advertises as its docsUrl. Read from the docs
+// folders so a new service's page is reachable without editing a list.
+const docsDir = fileURLToPath(new URL("./app/docs/", import.meta.url));
+const docsSlugs = readdirSync(docsDir, { withFileTypes: true })
+  .filter((entry) => entry.isDirectory())
+  .map((entry) => entry.name);
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -29,7 +20,7 @@ const nextConfig = {
     unoptimized: true,
   },
   async redirects() {
-    return oldDocsSlugs.map((slug) => ({
+    return docsSlugs.map((slug) => ({
       source: `/${slug}`,
       destination: `/docs/${slug}`,
       permanent: true,
