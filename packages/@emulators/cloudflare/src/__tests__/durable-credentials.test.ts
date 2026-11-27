@@ -205,18 +205,69 @@ describe("what a hosted instance issues outlives the object", () => {
     expect(reads.map((e) => e.response.status)).toEqual([200, 200, 200]);
   });
 
-  it("loses nothing when one instance is reached over http and https in turn", async () => {
+  it("redirects plain http to https, so an instance never sees a second base address", async () => {
     const h = hosted();
     const https = "https://emulators.dev/github/schemes";
-    const http = "http://emulators.dev/github/schemes";
     await h.json(`${https}/__seed`, githubSeed);
     const token = await githubToken(h, https);
+    const redirected = await h.json(
+      "http://emulators.dev/github/schemes/repos/ada/widget/issues?x=1",
+      { title: "over http" },
+      { authorization: `Bearer ${token}` },
+    );
+    expect(redirected.status).toBe(308);
+    expect(redirected.headers.get("location")).toBe("https://emulators.dev/github/schemes/repos/ada/widget/issues?x=1");
+    expect((await h.call(`${https}/user`, { headers: { authorization: `Bearer ${token}` } })).status).toBe(200);
+    const ledger = (await (await h.call(`${https}/_emulate/ledger`)).json()) as Json;
+    expect((ledger.entries as Json[]).some((e) => String(e.path).includes("/issues"))).toBe(false);
+  });
+
+  it("saves before rebuilding for another base address, so the rebuild loses nothing", async () => {
+    // The worker no longer sends a second scheme, but any other change of base address
+    // (a local host suffix, a future host form) rebuilds the object the same way.
+    const state = memoryState();
+    const object = new EmulatorDurableObject(state as never, {});
+    const at = (base: string, path: string, init: RequestInit = {}) =>
+      object.fetch(
+        new Request(`https://emulators.dev${path}`, {
+          redirect: "manual",
+          ...init,
+          headers: {
+            "x-emulator-service": "github",
+            "x-emulator-instance": "bases",
+            "x-emulator-base-url": base,
+            ...(init.headers as Record<string, string>),
+          },
+        }),
+      );
+    const a = "https://emulators.dev/github/bases";
+    const b = "http://localhost/github/bases";
+    await at(a, "/__seed", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(githubSeed),
+    });
+    const cb = await at(a, "/login/oauth/callback", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({ login: "ada", redirect_uri: R, client_id: "cid", scope: "repo" }).toString(),
+    });
+    const code = new URL(cb.headers.get("location")!).searchParams.get("code")!;
+    const token = (
+      (await (
+        await at(a, "/login/oauth/access_token", {
+          method: "POST",
+          headers: { "content-type": "application/json", accept: "application/json" },
+          body: JSON.stringify({ client_id: "cid", client_secret: "csec", code, redirect_uri: R }),
+        })
+      ).json()) as Json
+    ).access_token as string;
     const status: number[] = [];
-    for (const base of [http, https, http, https]) {
-      status.push((await h.call(`${base}/user`, { headers: { authorization: `Bearer ${token}` } })).status);
+    for (const base of [b, a, b, a]) {
+      status.push((await at(base, "/user", { headers: { authorization: `Bearer ${token}` } })).status);
     }
     expect(status).toEqual([200, 200, 200, 200]);
-    const ledger = (await (await h.call(`${https}/_emulate/ledger`)).json()) as Json;
+    const ledger = (await (await at(a, "/_emulate/ledger")).json()) as Json;
     expect((ledger.entries as Json[]).filter((e) => e.method === "GET" && e.path === "/user")).toHaveLength(4);
   });
 
