@@ -156,6 +156,8 @@ export function seedFromConfig(store: Store, baseUrl: string, config: XSeedConfi
       client_id: w.client_id,
       url: w.url,
       valid: w.valid ?? true,
+      // No challenge has been answered for a seeded webhook: PUT /2/webhooks/:id proves it.
+      crc_proven: false,
       created_at_x: new Date().toISOString(),
     });
   }

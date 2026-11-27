@@ -11,7 +11,7 @@ import {
   setCrcDeliveryMode,
 } from "../activity.js";
 import { clearRateWindows, getRateLimitConfig, rateLimitState, setRateLimitConfig } from "../rate-limits.js";
-import { ensureOneToOne, storeAndDeliverMessage } from "./dm.js";
+import { ensureOneToOne, recordHeldDeliveries, storeAndDeliverMessage } from "./dm.js";
 import type { XSeedAttachment } from "../dm-seed.js";
 
 /**
@@ -87,6 +87,7 @@ export function controlRoutes({ app, store, baseUrl, webhooks }: RouteContext): 
       text,
       mediaKeys,
     });
+    recordHeldDeliveries(c, deliveries);
     return c.json({
       dm_event_id: view.id,
       dm_conversation_id: conv.conversation_id,
@@ -174,7 +175,7 @@ export function controlRoutes({ app, store, baseUrl, webhooks }: RouteContext): 
       body.response_token ?? (body.response as Record<string, unknown> | undefined)?.response_token ?? undefined;
     const valid = !!client && crcAnswerValid(client, pending.crc_token, answer);
     xs.pendingChallenges.update(pending.id, { answered: true, valid });
-    xs.webhooks.update(webhook.id, { valid });
+    xs.webhooks.update(webhook.id, { valid, crc_proven: valid });
     return c.json({ webhook_id: webhook.webhook_id, valid });
   });
 

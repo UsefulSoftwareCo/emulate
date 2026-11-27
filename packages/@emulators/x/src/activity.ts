@@ -197,6 +197,24 @@ export interface PreparedDelivery {
   method: "POST";
   headers: Record<string, string>;
   body: string;
+  /** Why the emulator holds this delivery instead of sending it (it is still previewable). */
+  held?: string;
+}
+
+/**
+ * Why a delivery to this webhook is held, or null when it may be sent. X delivers only
+ * to an address whose owner answered the challenge; and an address accepted only through
+ * control mode's relaxation (http, or a port, on an https instance) is never called at all,
+ * so a public instance cannot be pointed at an arbitrary host and port.
+ */
+export function deliveryHold(baseUrl: string, webhook: XWebhook): string | null {
+  if (baseUrl.startsWith("https://") && webhookUrlProblem(webhook.url, true)) {
+    return "held: the address was accepted only through control mode's relaxation (http or a port), and the emulator never calls such an address";
+  }
+  if (!webhook.crc_proven) {
+    return "held: no challenge has been answered for this webhook; answer it (the CRC on PUT /2/webhooks/:id, or POST /_emulate/x/webhooks/:id/challenge in control mode) before deliveries are sent";
+  }
+  return null;
 }
 
 function activeSubscription(sub: XActivitySubscription, now: number): boolean {
@@ -237,6 +255,7 @@ export function prepareDmDeliveries(
         method: "POST",
         headers: { "content-type": "application/json", ...signatureHeaders(client, body) },
         body,
+        ...(deliveryHold(baseUrl, webhook) ? { held: deliveryHold(baseUrl, webhook)! } : {}),
       });
     }
   }
@@ -252,6 +271,8 @@ export interface DeliveryResult {
   status_code: number | null;
   success: boolean;
   delivery_id: number;
+  /** Set when the delivery was held, not sent: the reason. */
+  held?: string;
 }
 
 export async function sendDeliveries(
@@ -260,6 +281,20 @@ export async function sendDeliveries(
 ): Promise<DeliveryResult[]> {
   const results: DeliveryResult[] = [];
   for (const d of deliveries) {
+    if (d.held) {
+      results.push({
+        subscription_id: d.subscription_id,
+        webhook_id: d.webhook_id,
+        event_type: d.event_type,
+        for_user_id: d.for_user_id,
+        url: d.url,
+        status_code: null,
+        success: false,
+        delivery_id: 0,
+        held: d.held,
+      });
+      continue;
+    }
     const rec: WebhookDelivery = await dispatcher.deliver({
       hookRef: d.webhook_id,
       event: d.event_type,

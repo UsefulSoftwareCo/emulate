@@ -178,6 +178,12 @@ export interface XWebhook extends Entity {
   client_id: string;
   url: string;
   valid: boolean;
+  /**
+   * True once an answered challenge has proved the owner controls the address: X's
+   * CRC at creation or on PUT, or, in control mode, a correct answer reported at
+   * POST /_emulate/x/webhooks/:id/challenge. Deliveries go only to proven webhooks.
+   */
+  crc_proven?: boolean;
   created_at_x: string;
 }
 
