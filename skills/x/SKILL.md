@@ -47,7 +47,8 @@ Register with `POST /2/webhooks` (X sends a CRC first), subscribe with `POST /2/
 When the emulator cannot reach the app under test:
 
 ```bash
-# Emulator mode: hold CRC challenges for the test to deliver itself.
+# Emulator mode: hold CRC challenges for the test to deliver itself. In this mode a webhook
+# address may also be http or carry a port (an emulator-only relaxation of X's rule).
 curl -X POST "$X_EMULATOR_URL/_emulate/x/webhooks/crc-delivery" -H "Content-Type: application/json" -d '{"mode":"control"}'
 curl "$X_EMULATOR_URL/_emulate/x/webhooks/$WEBHOOK_ID/challenge"
 

@@ -284,9 +284,9 @@ export async function sendDeliveries(
 
 /**
  * X's URL rules for webhooks: HTTPS, at most 200 characters, no explicit port.
- * Enforced when the emulator itself is served over HTTPS (a hosted instance); a
- * local instance also accepts `http://` and ports so a test can register a local
- * receiver.
+ * Enforced when the emulator itself is served over HTTPS (a hosted instance) in
+ * outbound CRC mode; a local instance, or any instance in control mode, also
+ * accepts `http://` and ports so a test can register a local receiver.
  */
 export function webhookUrlProblem(url: string, strict: boolean): string | null {
   let parsed: URL;
