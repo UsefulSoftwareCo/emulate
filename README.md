@@ -37,6 +37,7 @@ All services start with sensible defaults. No config file needed:
 - **PlanetScale** on `http://localhost:4020` (Doorkeeper OAuth with DCR, MCP server at `/mcp/planetscale`)
 - **Miro** on `http://localhost:4021` (MCP server at `/`, OAuth with DCR and HS256 ID tokens)
 - **OpenAI** on `http://localhost:4022` (Responses API and Chat Completions for text, API keys, deterministic answers)
+- **Zapier MCP** on `http://localhost:4023` (managed-mode MCP server at `/api/v1/connect`, OAuth per person, per-account tool lists of any size)
 
 Every running service also exposes a public control plane under `/_emulate`:
 
@@ -184,7 +185,7 @@ github:
 
 ## Deployed Instances
 
-All services are available on host-based routing when deployed: `github`, `gitlab`, `mcp`, `vercel`, `google`, `okta`, `microsoft`, `spotify`, `slack`, `apple`, `aws`, `resend`, `stripe`, `mongoatlas`, `clerk`, `x`, `workos`, `autumn`, `context`, `planetscale`, `miro`, `openai`, and `posthog`. Each one supports three addressing forms:
+All services are available on host-based routing when deployed: `github`, `gitlab`, `mcp`, `vercel`, `google`, `okta`, `microsoft`, `spotify`, `slack`, `apple`, `aws`, `resend`, `stripe`, `mongoatlas`, `clerk`, `x`, `workos`, `autumn`, `context`, `planetscale`, `miro`, `openai`, `zapier`, and `posthog`. Each one supports three addressing forms:
 
 ```text
 https://github.emulators.dev                     # service host (control plane only)
@@ -276,7 +277,7 @@ afterAll(() => Promise.all([github.close(), vercel.close()]));
 
 | Option     | Default        | Description                                                                                                                                                                                                                                                                                                                                            |
 | ---------- | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `service`  | _(required)_   | Service name: `'vercel'`, `'github'`, `'gitlab'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'spotify'`, `'x'`, `'workos'`, `'autumn'`, `'context'`, `'planetscale'`, `'miro'`, `'openai'`, or `'posthog'`                                                                            |
+| `service`  | _(required)_   | Service name: `'vercel'`, `'github'`, `'gitlab'`, `'google'`, `'slack'`, `'apple'`, `'microsoft'`, `'okta'`, `'aws'`, `'resend'`, `'stripe'`, `'mongoatlas'`, `'clerk'`, `'spotify'`, `'x'`, `'workos'`, `'autumn'`, `'context'`, `'planetscale'`, `'miro'`, `'openai'`, `'zapier'`, or `'posthog'`                                                                            |
 | `port`     | `4000`         | Port for the HTTP server. `0` picks a free port; `port` and `url` on the instance report the one bound. `createEmulator` resolves once the server is listening and rejects if it cannot bind.                                                                                                                                                          |
 | `hostname` | all interfaces | Address to listen on, e.g. `'127.0.0.1'` or `'::1'`. When given, the default URL names it (`http://127.0.0.1:<port>`) instead of `localhost`                                                                                                                                                                                                           |
 | `seed`     | none           | Inline seed data (same shape as YAML config)                                                                                                                                                                                                                                                                                                           |
@@ -1116,6 +1117,30 @@ openai:
 ```
 
 A key's `rate_limit` (or `POST /_emulate/openai/keys/:name/rate-limit`) answers `429 rate_limit_exceeded` with `Retry-After` and `x-ratelimit-*-requests` for that key only. Token counts are approximate (one token per four characters) and identical in responses and in `GET /_emulate/openai/usage`, which lists every call with its key, model, tokens, whether it streamed and the request size. Request bodies over 64 KiB are recorded in the ledger by size only. Tools, images, audio, embeddings, stored responses and the Realtime and WebSocket transports are not emulated.
+
+## Zapier MCP
+
+Zapier's remote MCP server in managed mode: one tool per action an account enabled, a different list per account, OAuth per person. When all services run together, Zapier uses `http://localhost:4023`.
+
+- `POST /api/v1/connect` - Streamable HTTP for protocol `2026-07-28` (per-request `_meta` and the `MCP-Protocol-Version`, `Mcp-Method` and `Mcp-Name` headers, checked against the body; `server/discover`; `subscriptions/listen`) and the `2025-11-25` and `2025-06-18` handshake era (`initialize`, no session minted). No state is kept between requests, so a sessionless client is the normal case
+- `tools/list` - paged at 100 with opaque cursors bound to the list version (a cursor from before a change answers `-32602`); a request without a cursor gets the first page and a `nextCursor`, or the whole list when `settings.page_size` is `0`
+- `tools/call` - deterministic results; a tool outside the caller's own list answers `-32602 Unknown tool`
+- OAuth as `mcp.zapier.com` publishes it: `/.well-known/oauth-protected-resource/api/v1/connect`, `/.well-known/oauth-authorization-server`, dynamic registration at `/api/v1/oauth/register`, S256 PKCE at `/oauth/authorize`, `/api/v1/oauth/token` with refresh rotation, revocation and userinfo. Connection tokens (`Authorization: Bearer` or `?token=`) come from `POST /_emulate/zapier/accounts/:email/connection-token` or `POST /_emulate/credentials`
+
+```yaml
+zapier:
+  accounts:
+    - email: ada@example.com
+      tools: { count: 3000 }
+    - email: bob@example.com
+      tools: { count: 40, seed: bob }
+      behaviors:
+        - { tool: <a tool name>, delay_ms: 2000 }
+        - { tool: <another>, fail: tool }
+        - { tool: <another>, result_bytes: 1048576 }
+```
+
+The same seed gives the same tools, schemas and results on every instance and after eviction. `POST /_emulate/zapier/accounts/:email/tools` changes one account's list now (`add`, `remove`, `rename`, `replace`); the change is silent by default, as Zapier announces none, and is recorded in the ledger with what changed. Two settings are the emulator's own, not Zapier's, and say so: `list_changed` (send `notifications/tools/list_changed` on listen and handshake-era streams) and `rate_limit` (a per-account `429` with `Retry-After`), set with `POST /_emulate/zapier/settings`. Agentic mode's meta-tools, resources, prompts, sampling, elicitation and the SSE transport are not emulated.
 
 ## Apple Sign In
 

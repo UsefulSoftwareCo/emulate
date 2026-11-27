@@ -1,0 +1,45 @@
+# Zapier MCP
+
+Zapier's remote MCP server in managed mode: one tool per action an account enabled, a different list per account, and OAuth per person. Addresses and OAuth metadata follow what `mcp.zapier.com` publishes; tool names and schemas are the emulator's own, because Zapier does not document them.
+
+## Endpoint and protocol versions
+
+`POST /api/v1/connect`, Streamable HTTP only.
+
+- **2026-07-28:** no handshake. Every request carries its version in `_meta` and in the `MCP-Protocol-Version`, `Mcp-Method` and (for `tools/call`) `Mcp-Name` headers; a mismatch answers `400` with `-32020`, an unsupported version `400` with `-32022` and the supported list. `server/discover` and `subscriptions/listen` are served.
+- **2025-11-25 and 2025-06-18:** the `initialize` handshake. No session is minted: each request stands alone.
+
+The server keeps no state between requests beyond the instance's accounts, tool lists and tokens.
+
+## Authorisation
+
+An unauthenticated call answers `401` with `WWW-Authenticate: Bearer resource_metadata="<base>/.well-known/oauth-protected-resource/api/v1/connect"`. That metadata names the authorization server at `<base>`, whose metadata at `/.well-known/oauth-authorization-server` advertises dynamic registration (`/api/v1/oauth/register`), S256 PKCE (`/oauth/authorize`), public and confidential clients, refresh tokens (`/api/v1/oauth/token`, rotating), revocation and userinfo. The sign-in page lists the seeded accounts.
+
+A connection token, Zapier's alternative to OAuth, comes from `POST /_emulate/zapier/accounts/:email/connection-token` or `POST /_emulate/credentials`, and is sent as `Authorization: Bearer` or `?token=`.
+
+## Tools
+
+```yaml
+zapier:
+  accounts:
+    - email: ada@example.com
+      tools: { count: 3000 }
+    - email: bob@example.com
+      tools: { count: 40, seed: bob }
+```
+
+- `tools/list` pages at 100 with opaque cursors bound to the list's version; a cursor issued before a change answers `-32602`. A request without a cursor gets the first page and a `nextCursor`. With `settings.page_size` set to `0` it gets the whole list in one response (about 1.8 MB for 3,000 tools).
+- `tools/call` answers deterministically from the account, the tool and its arguments. A tool outside the caller's own list answers `-32602 Unknown tool`.
+- The same seed gives the same tools, schemas and results on every instance and after eviction.
+
+## Controls
+
+- `POST /_emulate/zapier/accounts` — add an account and its tools.
+- `POST /_emulate/zapier/accounts/:email/tools` — change one account's list now: `add` (a number or tools), `remove` (names or `{ count }`), `rename` (`{ from: to }`), `replace` (`{ count, seed? }`). Recorded in the ledger with what changed.
+- `POST /_emulate/zapier/accounts/:email/behaviors` — `{ tool, delay_ms?, fail?: "tool" | "protocol", result_bytes? }`.
+- `POST /_emulate/zapier/settings` — `page_size`, and two emulator controls that are not Zapier behaviour: `list_changed` (off by default; sends `notifications/tools/list_changed` on listen and handshake-era streams) and `rate_limit` (`{ requests, window_seconds }`; a per-account `429` with `Retry-After`).
+- `GET /_emulate/zapier/usage` — lists and calls per account and tool, and every list change.
+
+## Not emulated
+
+Agentic mode's meta-tools, skills, Next Gen Zaps, resources, prompts, sampling, elicitation, completions, logging and the deprecated SSE transport.

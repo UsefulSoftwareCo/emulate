@@ -22,6 +22,7 @@ export const PAGE_TITLES: Record<string, string> = {
   planetscale: "PlanetScale",
   miro: "Miro",
   openai: "OpenAI API",
+  zapier: "Zapier MCP",
   posthog: "PostHog",
   authentication: "Authentication",
   manifest: "Service Manifest",

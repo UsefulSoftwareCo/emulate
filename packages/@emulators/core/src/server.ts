@@ -141,7 +141,7 @@ export function createServer(plugin: ServicePlugin, options: ServerOptions = {})
     await next();
   });
 
-  plugin.register(app, store, webhooks, baseUrl, tokenMap);
+  plugin.register(app, store, webhooks, baseUrl, tokenMap, ledger);
 
   app.notFound((c) =>
     c.json(

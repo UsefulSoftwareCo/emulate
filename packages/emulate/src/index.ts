@@ -63,9 +63,13 @@ Global catalog:
   Hosted services:
   Available services include vercel, github, gitlab, google, slack, apple,
   microsoft, okta, aws, resend, stripe, mongoatlas, clerk, spotify, x, workos,
-  autumn, context, planetscale, miro, openai, posthog, and mcp.
+  autumn, context, planetscale, miro, openai, zapier, posthog, and mcp.
   PlanetScale emulates the Doorkeeper OAuth server (DCR, literal HTTP Basic
   client auth) and the hosted MCP server at /mcp/planetscale.
+  Zapier emulates Zapier's managed-mode MCP server at /api/v1/connect for
+  protocol 2026-07-28 and the 2025 handshake era, with OAuth per person and a
+  deterministic tool list per account; change one with
+  POST /_emulate/zapier/accounts/:email/tools.
   OpenAI emulates the Responses API and Chat Completions for text at /v1, with
   API keys, per-key request limits, deterministic seeded answers, paced streams,
   and a usage record at /_emulate/openai/usage.
