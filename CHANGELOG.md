@@ -1,15 +1,28 @@
 # Changelog
 
-## 0.17.5
+## 0.17.6
 
 <!-- release:start -->
 
 ### New Features
 
-- **An emulator WebSocket endpoint.** `GET /_emulate/openai/websocket` (`wss://` hosted, `ws://` locally) accepts a WebSocket upgrade and echoes each message, text or binary, as it was received. With `?chunks=N&interval_ms=M`, the paced-answer controls, it also sends N messages of its own M ms apart, then stays open, for a busy connection or an idle one. It closes when the client closes, with the client's code. An emulator control, not OpenAI's Realtime or WebSocket-mode protocol, which remain unsupported.
-- **WebSockets for emulator routes.** `upgradeWebSocket(request, session)` in `@emulators/core` serves one session interface on the Workers runtime and on the local Node server, which now speaks the server side of RFC 6455.
+- **Revoke one token.** `POST /_emulate/tokens/revoke` with `{ "token": "..." }`: later requests with that token get the provider's own 401, every other token keeps working, and a hosted instance keeps the revocation across unloads. It covers the tokens in the shared token map and, through a new `ServicePlugin.revokeToken` hook, those X, Zapier, PlanetScale and Miro keep, OpenAI API keys, and WorkOS API keys and refresh tokens. A revoked token is refused even where unknown tokens fall back to a default user.
+- **GitHub token revocation, as on GitHub.** `DELETE /applications/:client_id/token` with Basic client auth answers `204`, and a token GitHub would not accept now gets `401 Bad credentials` on REST routes instead of being treated as anonymous.
+- **Faults that match a header.** `match.headers` matches request headers by exact value, so a fault can target one caller's `Authorization`.
+
+### Fixes
+
+- **The OpenAI emulator answers a request of any shape at its stated limit.** A body of many messages within 32 MiB used to answer 500 and record no usage (the token count spread every message into one call), and a long input could exhaust the instance's memory.
+- **The MCP sign-in pages' seed hint works.** It now names `POST /_emulate/seed` with `{"users":[...]}`, which adds a user on the MCP service and on GitHub's MCP surface, instead of a `/__seed` body that seeded nothing there and replaced the instance.
 
 <!-- release:end -->
+
+## 0.17.5
+
+### New Features
+
+- **An emulator WebSocket endpoint.** `GET /_emulate/openai/websocket` (`wss://` hosted, `ws://` locally) accepts a WebSocket upgrade and echoes each message, text or binary, as it was received. With `?chunks=N&interval_ms=M`, the paced-answer controls, it also sends N messages of its own M ms apart, then stays open, for a busy connection or an idle one. It closes when the client closes, with the client's code. An emulator control, not OpenAI's Realtime or WebSocket-mode protocol, which remain unsupported.
+- **WebSockets for emulator routes.** `upgradeWebSocket(request, session)` in `@emulators/core` serves one session interface on the Workers runtime and on the local Node server, which now speaks the server side of RFC 6455.
 
 ## 0.17.4
 
