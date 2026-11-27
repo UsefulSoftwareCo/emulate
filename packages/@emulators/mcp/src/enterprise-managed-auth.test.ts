@@ -1,27 +1,30 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { createServer, serve } from "@emulators/core";
+import { createServer, serveOnFreePort, type FreePortServer } from "@emulators/core";
 import { manifest as workosManifest, seedFromConfig as seedWorkos, workosPlugin } from "@emulators/workos";
 import type { LedgerEntry } from "@emulators/core";
 import { mcpPlugin } from "./index.js";
 
-const WORKOS_PORT = 41883;
-const MCP_PORT = 41884;
-const WORKOS_BASE = `http://localhost:${WORKOS_PORT}`;
-const MCP_BASE = `http://localhost:${MCP_PORT}`;
+// Ports the system chooses, held from the start (see serveOnFreePort).
+let WORKOS_BASE = "";
+let MCP_BASE = "";
 const CLIENT_ID = "https://executor.test/client.json";
 const TOKEN_EXCHANGE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:token-exchange";
 const JWT_BEARER_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 const ID_JAG_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:id-jag";
 const ACCESS_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token";
 
-let workosServer: ReturnType<typeof serve>;
-let mcpServer: ReturnType<typeof serve>;
+let workosServer: FreePortServer;
+let mcpServer: FreePortServer;
 let workosLedger: { list: () => LedgerEntry[] };
 let mcpLedger: { list: () => LedgerEntry[] };
 
 beforeAll(async () => {
+  workosServer = await serveOnFreePort();
+  mcpServer = await serveOnFreePort();
+  WORKOS_BASE = `http://localhost:${workosServer.port}`;
+  MCP_BASE = `http://localhost:${mcpServer.port}`;
   const workos = createServer(workosPlugin, {
-    port: WORKOS_PORT,
+    port: workosServer.port,
     baseUrl: WORKOS_BASE,
     manifest: workosManifest,
     fallbackUser: { login: "sk_emulate_admin", id: 1, scopes: [] },
@@ -30,23 +33,20 @@ beforeAll(async () => {
     users: [{ email: "admin@localhost", first_name: "Admin" }],
   });
   workosLedger = workos.ledger;
-  workosServer = serve({ fetch: workos.app.fetch, port: WORKOS_PORT });
+  workosServer.use(workos.app.fetch);
 
   const mcp = createServer(mcpPlugin, {
-    port: MCP_PORT,
+    port: mcpServer.port,
     baseUrl: MCP_BASE,
     fallbackUser: { login: "admin", id: 1, scopes: [] },
   });
   mcpPlugin.seed?.(mcp.store, MCP_BASE);
   mcpLedger = mcp.ledger;
-  mcpServer = serve({ fetch: mcp.app.fetch, port: MCP_PORT });
+  mcpServer.use(mcp.app.fetch);
 });
 
 afterAll(async () => {
-  await Promise.all([
-    new Promise<void>((resolve) => workosServer.close(() => resolve())),
-    new Promise<void>((resolve) => mcpServer.close(() => resolve())),
-  ]);
+  await Promise.all([workosServer.close(), mcpServer.close()]);
 });
 
 async function workosAccessToken(loginHint: string): Promise<string> {

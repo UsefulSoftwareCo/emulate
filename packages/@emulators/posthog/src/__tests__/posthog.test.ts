@@ -1,13 +1,21 @@
 import { createHash } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { Hono, Store, WebhookDispatcher, authMiddleware, serve, type TokenMap } from "@emulators/core";
+import {
+  Hono,
+  Store,
+  WebhookDispatcher,
+  authMiddleware,
+  type TokenMap,
+  serveOnFreePort,
+  type FreePortServer,
+} from "@emulators/core";
 
 import { getPostHogStore, posthogPlugin } from "../index.js";
 
-const PORT = 41876;
-const BASE = `http://localhost:${PORT}`;
+let PORT = 0;
+let BASE = "";
 
-let httpServer: ReturnType<typeof serve>;
+let httpServer: FreePortServer;
 let app: Hono;
 let store: Store;
 
@@ -15,7 +23,11 @@ function pkceChallenge(verifier: string): string {
   return createHash("sha256").update(verifier).digest("base64url");
 }
 
-beforeAll(() => {
+beforeAll(async () => {
+  // A port the system chooses, held from the start (see serveOnFreePort).
+  httpServer = await serveOnFreePort();
+  PORT = httpServer.port;
+  BASE = `http://localhost:${PORT}`;
   store = new Store();
   const webhooks = new WebhookDispatcher();
   const tokenMap: TokenMap = new Map();
@@ -36,11 +48,11 @@ beforeAll(() => {
   );
   posthogPlugin.register(app as any, store, webhooks, BASE, tokenMap);
   posthogPlugin.seed?.(store, BASE);
-  httpServer = serve({ fetch: app.fetch, port: PORT });
+  httpServer.use(app.fetch);
 });
 
 afterAll(async () => {
-  await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+  await httpServer.close();
 });
 
 describe("PostHog emulator OAuth discovery", () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createServer, serve } from "@emulators/core";
+import { createServer, serveOnFreePort, type FreePortServer } from "@emulators/core";
 import { Autumn } from "autumn-js";
 
 import { autumnPlugin, seedFromConfig } from "../index.js";
@@ -10,14 +10,18 @@ import { manifest } from "../manifest.js";
 // card and redirects back, and the customer's default payment method only
 // changes once the Stripe webhook settles.
 
-const PORT = 41885;
-const BASE = `http://localhost:${PORT}`;
-const SUCCESS_URL = `${BASE}/back-to-billing`;
+let PORT = 0;
+let BASE = "";
+const successUrl = () => `${BASE}/back-to-billing`;
 
-let httpServer: ReturnType<typeof serve>;
+let httpServer: FreePortServer;
 let autumn: Autumn;
 
-beforeAll(() => {
+beforeAll(async () => {
+  // A port the system chooses, held from the start (see serveOnFreePort).
+  httpServer = await serveOnFreePort();
+  PORT = httpServer.port;
+  BASE = `http://localhost:${PORT}`;
   const { app, store } = createServer(autumnPlugin, {
     port: PORT,
     baseUrl: BASE,
@@ -35,12 +39,12 @@ beforeAll(() => {
       },
     ],
   });
-  httpServer = serve({ fetch: app.fetch, port: PORT });
+  httpServer.use(app.fetch);
   autumn = new Autumn({ secretKey: "am_test_emulate", serverURL: BASE });
 });
 
 afterAll(async () => {
-  await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+  await httpServer.close();
 });
 
 // The SDK types the expanded field as `any`, so read it through a narrow shape.
@@ -60,7 +64,7 @@ describe("autumn emulator: setup_payment (change the card on file)", () => {
   const CUSTOMER = "org_setup";
 
   it("setup_payment returns a hosted setup URL", async () => {
-    const res = await autumn.billing.setupPayment({ customerId: CUSTOMER, successUrl: SUCCESS_URL });
+    const res = await autumn.billing.setupPayment({ customerId: CUSTOMER, successUrl: successUrl() });
     expect(res.customerId).toBe(CUSTOMER);
     expect(res.url, "a hosted setup URL is returned").toContain("/checkout/setup/");
 
@@ -69,7 +73,7 @@ describe("autumn emulator: setup_payment (change the card on file)", () => {
   });
 
   it("the hosted setup page renders a save-card form", async () => {
-    const { url } = await autumn.billing.setupPayment({ customerId: CUSTOMER, successUrl: SUCCESS_URL });
+    const { url } = await autumn.billing.setupPayment({ customerId: CUSTOMER, successUrl: successUrl() });
     const page = await fetch(url);
     expect(page.status).toBe(200);
     const html = await page.text();
@@ -78,7 +82,7 @@ describe("autumn emulator: setup_payment (change the card on file)", () => {
   });
 
   it("submitting the card redirects to success_url but does not yet replace the card", async () => {
-    const { url } = await autumn.billing.setupPayment({ customerId: CUSTOMER, successUrl: SUCCESS_URL });
+    const { url } = await autumn.billing.setupPayment({ customerId: CUSTOMER, successUrl: successUrl() });
     const sessionId = new URL(url).pathname.split("/").pop()!;
 
     const completed = await fetch(`${BASE}/checkout/setup/${sessionId}/complete`, {
@@ -88,7 +92,7 @@ describe("autumn emulator: setup_payment (change the card on file)", () => {
       redirect: "manual",
     });
     expect(completed.status, "completion redirects").toBe(302);
-    expect(completed.headers.get("location"), "back to the app").toBe(SUCCESS_URL);
+    expect(completed.headers.get("location"), "back to the app").toBe(successUrl());
 
     // The webhook has not landed: the customer still has the OLD card (none).
     expect(await cardOnFile(CUSTOMER), "card unchanged before settle").toBeNull();
@@ -122,7 +126,7 @@ describe("autumn emulator: setup_payment (change the card on file)", () => {
     const before = await cardOnFile(CUSTOMER);
     expect(before?.card, "the first setup left a mastercard on file").toMatchObject({ last4: "4444" });
 
-    const { url } = await autumn.billing.setupPayment({ customerId: CUSTOMER, successUrl: SUCCESS_URL });
+    const { url } = await autumn.billing.setupPayment({ customerId: CUSTOMER, successUrl: successUrl() });
     const sessionId = new URL(url).pathname.split("/").pop()!;
     await fetch(`${BASE}/checkout/setup/${sessionId}/complete`, {
       method: "POST",
@@ -140,7 +144,7 @@ describe("autumn emulator: setup_payment (change the card on file)", () => {
 
   it("paying for a plan leaves a visa on file", async () => {
     const PAYING = "org_pays";
-    const attach = await autumn.billing.attach({ customerId: PAYING, planId: "team", successUrl: SUCCESS_URL });
+    const attach = await autumn.billing.attach({ customerId: PAYING, planId: "team", successUrl: successUrl() });
     const sessionId = new URL(attach.paymentUrl!).pathname.split("/").pop()!;
     await fetch(`${BASE}/checkout/${sessionId}/complete`, { method: "POST", redirect: "manual" });
     await fetch(`${BASE}/checkout/settle`, {
@@ -156,17 +160,17 @@ describe("autumn emulator: setup_payment (change the card on file)", () => {
 
 describe("autumn emulator: billing portal (change the card on file)", () => {
   const CUSTOMER = "org_portal";
-  const RETURN_URL = `${BASE}/settings/billing`;
+  const returnUrl = () => `${BASE}/settings/billing`;
 
   const openPortal = async (): Promise<string> => {
-    const res = await autumn.billing.openCustomerPortal({ customerId: CUSTOMER, returnUrl: RETURN_URL });
+    const res = await autumn.billing.openCustomerPortal({ customerId: CUSTOMER, returnUrl: returnUrl() });
     expect(res.customerId).toBe(CUSTOMER);
     return res.url;
   };
 
   it("the portal page shows the card on file and links back to the app", async () => {
     // Give the customer a card the only supported way: a first setup session.
-    const setup = await autumn.billing.setupPayment({ customerId: CUSTOMER, successUrl: SUCCESS_URL });
+    const setup = await autumn.billing.setupPayment({ customerId: CUSTOMER, successUrl: successUrl() });
     const sessionId = new URL(setup.url).pathname.split("/").pop()!;
     await fetch(`${BASE}/checkout/setup/${sessionId}/complete`, {
       method: "POST",
@@ -186,7 +190,7 @@ describe("autumn emulator: billing portal (change the card on file)", () => {
     expect(html, "the current card brand").toContain("visa");
     expect(html, "the current card last4").toContain("4242");
     expect(html, "the update form").toContain("Update payment method");
-    expect(html, "the return_url recorded when the portal was opened").toContain(`href="${RETURN_URL}"`);
+    expect(html, "the return_url recorded when the portal was opened").toContain(`href="${returnUrl()}"`);
   });
 
   it("updating the card in the portal applies immediately, with no settle step", async () => {

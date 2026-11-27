@@ -1,15 +1,14 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { createServer, serve } from "@emulators/core";
+import { createServer, serveOnFreePort, type FreePortServer } from "@emulators/core";
 import { manifest as oktaManifest, oktaPlugin, seedFromConfig as seedOkta } from "@emulators/okta";
 import type { LedgerEntry } from "@emulators/core";
 import { decodeJwt } from "jose";
 import { mcpPlugin } from "./index.js";
 
-const OKTA_PORT = 41893;
-const MCP_PORT = 41894;
-const OKTA_BASE = `http://localhost:${OKTA_PORT}`;
-const MCP_BASE = `http://localhost:${MCP_PORT}`;
-const OKTA_ISSUER = `${OKTA_BASE}/oauth2/default`;
+// Ports the system chooses, held from the start (see serveOnFreePort).
+let OKTA_BASE = "";
+let MCP_BASE = "";
+let OKTA_ISSUER = "";
 const CLIENT_ID = "mcp-desktop-client";
 const CLIENT_SECRET = "mcp-desktop-secret";
 const REDIRECT_URI = "http://127.0.0.1:9/callback";
@@ -21,14 +20,19 @@ const JWT_BEARER_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 const ID_JAG_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:id-jag";
 const ID_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:id_token";
 
-let oktaServer: ReturnType<typeof serve>;
-let mcpServer: ReturnType<typeof serve>;
+let oktaServer: FreePortServer;
+let mcpServer: FreePortServer;
 let oktaLedger: { list: () => LedgerEntry[] };
 let mcpLedger: { list: () => LedgerEntry[] };
 
 beforeAll(async () => {
+  oktaServer = await serveOnFreePort();
+  mcpServer = await serveOnFreePort();
+  OKTA_BASE = `http://localhost:${oktaServer.port}`;
+  MCP_BASE = `http://localhost:${mcpServer.port}`;
+  OKTA_ISSUER = `${OKTA_BASE}/oauth2/default`;
   const okta = createServer(oktaPlugin, {
-    port: OKTA_PORT,
+    port: oktaServer.port,
     baseUrl: OKTA_BASE,
     manifest: oktaManifest,
     tokens: { [OKTA_API_TOKEN]: { login: "okta-admin", id: 1, scopes: ["okta.*"] } },
@@ -47,23 +51,20 @@ beforeAll(async () => {
     ],
   });
   oktaLedger = okta.ledger;
-  oktaServer = serve({ fetch: okta.app.fetch, port: OKTA_PORT });
+  oktaServer.use(okta.app.fetch);
 
   const mcp = createServer(mcpPlugin, {
-    port: MCP_PORT,
+    port: mcpServer.port,
     baseUrl: MCP_BASE,
     fallbackUser: { login: "admin", id: 1, scopes: [] },
   });
   mcpPlugin.seed?.(mcp.store, MCP_BASE);
   mcpLedger = mcp.ledger;
-  mcpServer = serve({ fetch: mcp.app.fetch, port: MCP_PORT });
+  mcpServer.use(mcp.app.fetch);
 });
 
 afterAll(async () => {
-  await Promise.all([
-    new Promise<void>((resolve) => oktaServer.close(() => resolve())),
-    new Promise<void>((resolve) => mcpServer.close(() => resolve())),
-  ]);
+  await Promise.all([oktaServer.close(), mcpServer.close()]);
 });
 
 /** OIDC single sign-on to the MCP client, ending with an Okta ID token. */

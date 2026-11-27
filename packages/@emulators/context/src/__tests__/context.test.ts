@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createServer, serve } from "@emulators/core";
+import { createServer, serveOnFreePort, type FreePortServer } from "@emulators/core";
 
 import { contextPlugin, seedFromConfig } from "../index.js";
 import { manifest } from "../manifest.js";
 
-const PORT = 41893;
-const BASE = `http://localhost:${PORT}`;
+let PORT = 0;
+let BASE = "";
 
-let httpServer: ReturnType<typeof serve>;
+let httpServer: FreePortServer;
 
 interface RetrieveResponse {
   partial: boolean;
@@ -24,7 +24,11 @@ const retrieve = (body: unknown) =>
 const retrieveJson = async (body: unknown): Promise<RetrieveResponse> =>
   (await (await retrieve(body)).json()) as RetrieveResponse;
 
-beforeAll(() => {
+beforeAll(async () => {
+  // A port the system chooses, held from the start (see serveOnFreePort).
+  httpServer = await serveOnFreePort();
+  PORT = httpServer.port;
+  BASE = `http://localhost:${PORT}`;
   const { app, store } = createServer(contextPlugin, {
     port: PORT,
     baseUrl: BASE,
@@ -43,12 +47,10 @@ beforeAll(() => {
       { domain: "Enriching.Example", title: "Enriching", partial: true },
     ],
   });
-  httpServer = serve({ fetch: app.fetch, port: PORT });
+  httpServer.use(app.fetch);
 });
 
-afterAll(() => {
-  httpServer.close();
-});
+afterAll(() => httpServer.close());
 
 describe("brand/retrieve", () => {
   it("resolves a seeded company from a work email address", async () => {

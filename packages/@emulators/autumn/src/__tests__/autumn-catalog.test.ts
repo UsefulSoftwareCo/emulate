@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createServer, serve } from "@emulators/core";
+import { createServer, serveOnFreePort, type FreePortServer } from "@emulators/core";
 import { Autumn } from "autumn-js";
 
 import { autumnPlugin, seedFromConfig } from "../index.js";
@@ -16,8 +16,8 @@ import { manifest } from "../manifest.js";
 // executions feature and a non-consumable members feature, and a paid team
 // plan with unlimited executions and a per-seat usage price.
 
-const PORT = 41881;
-const BASE = `http://localhost:${PORT}`;
+let PORT = 0;
+let BASE = "";
 const NS = "app-stage";
 const FREE = `${NS}-free`;
 const TEAM = `${NS}-team`;
@@ -27,7 +27,7 @@ const MEMBERS = `${NS}-members`;
 /** The tiny plan's whole allowance, small enough to exhaust from a test. */
 const TINY_INCLUDED = 50;
 
-let httpServer: ReturnType<typeof serve>;
+let httpServer: FreePortServer;
 let autumn: Autumn;
 
 const post = (path: string, body: unknown) =>
@@ -77,7 +77,11 @@ const check = (customerId: string, featureId: string, requiredBalance: number, s
     send_event: sendEvent,
   });
 
-beforeAll(() => {
+beforeAll(async () => {
+  // A port the system chooses, held from the start (see serveOnFreePort).
+  httpServer = await serveOnFreePort();
+  PORT = httpServer.port;
+  BASE = `http://localhost:${PORT}`;
   const { app, store } = createServer(autumnPlugin, {
     port: PORT,
     baseUrl: BASE,
@@ -122,12 +126,12 @@ beforeAll(() => {
       },
     ],
   });
-  httpServer = serve({ fetch: app.fetch, port: PORT });
+  httpServer.use(app.fetch);
   autumn = new Autumn({ secretKey: "am_test_emulate", serverURL: BASE });
 });
 
 afterAll(async () => {
-  await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+  await httpServer.close();
 });
 
 describe("customers.get_or_create honours auto_enable_plan_id", () => {

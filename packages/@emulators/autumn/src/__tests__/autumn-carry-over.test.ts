@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createServer, serve } from "@emulators/core";
+import { createServer, serveOnFreePort, type FreePortServer } from "@emulators/core";
 
 import { autumnPlugin, seedFromConfig } from "../index.js";
 import { manifest } from "../manifest.js";
@@ -10,12 +10,12 @@ import { manifest } from "../manifest.js";
 // old plan's Stripe subscription. Raw fetch, since these routes postdate the
 // pinned SDK.
 
-const PORT = 41941;
-const BASE = `http://localhost:${PORT}`;
+let PORT = 0;
+let BASE = "";
 const PERIOD_END = Date.UTC(2030, 0, 15);
 const TRIAL_END = Date.UTC(2030, 0, 8);
 
-let httpServer: ReturnType<typeof serve>;
+let httpServer: FreePortServer;
 
 const post = async (path: string, body: unknown) => {
   const response = await fetch(`${BASE}/v1/${path}`, {
@@ -57,7 +57,11 @@ const subscribed = (sub: Record<string, unknown>) => ({
   ...sub,
 });
 
-beforeAll(() => {
+beforeAll(async () => {
+  // A port the system chooses, held from the start (see serveOnFreePort).
+  httpServer = await serveOnFreePort();
+  PORT = httpServer.port;
+  BASE = `http://localhost:${PORT}`;
   const { app, store } = createServer(autumnPlugin, {
     port: PORT,
     baseUrl: BASE,
@@ -95,11 +99,11 @@ beforeAll(() => {
       { id: "org_taken", subscriptions: [{ plan_id: "free", status: "active" }] },
     ],
   });
-  httpServer = serve({ fetch: app.fetch, port: PORT });
+  httpServer.use(app.fetch);
 });
 
 afterAll(async () => {
-  await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+  await httpServer.close();
 });
 
 describe("autumn emulator: carrying a subscription over to another catalog", () => {

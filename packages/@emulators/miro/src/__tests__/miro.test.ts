@@ -1,30 +1,32 @@
 import { createHash, randomBytes } from "crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { decodeProtectedHeader, jwtVerify } from "jose";
-import { createServer, serve, type Store } from "@emulators/core";
+import { createServer, type Store, serveOnFreePort, type FreePortServer } from "@emulators/core";
 
 import { miroPlugin, seedFromConfig } from "../index.js";
 import { manifest } from "../manifest.js";
 
-const PORT = 41933;
-const BASE = `http://localhost:${PORT}`;
+let PORT = 0;
+let BASE = "";
 const REDIRECT = "http://127.0.0.1:8765/callback";
 const SCOPES = ["boards:read", "boards:write", "openid", "email"];
 const GRANTS = ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:jwt-bearer"];
 
-let httpServer: ReturnType<typeof serve>;
+let httpServer: FreePortServer;
 let store: Store;
 
-beforeAll(() => {
+beforeAll(async () => {
+  // A port the system chooses, held from the start (see serveOnFreePort).
+  httpServer = await serveOnFreePort();
+  PORT = httpServer.port;
+  BASE = `http://localhost:${PORT}`;
   const server = createServer(miroPlugin, { port: PORT, baseUrl: BASE, manifest });
   store = server.store;
   miroPlugin.seed?.(store, BASE);
-  httpServer = serve({ fetch: server.app.fetch, port: PORT });
+  httpServer.use(server.app.fetch);
 });
 
-afterAll(() => {
-  httpServer.close();
-});
+afterAll(() => httpServer.close());
 
 interface Registration {
   client_id: string;
@@ -418,12 +420,12 @@ describe("refresh and revocation", () => {
 });
 
 describe("MCP server", () => {
-  const challenge = `Bearer resource_metadata="${BASE}/.well-known/oauth-protected-resource"`;
+  const challenge = () => `Bearer resource_metadata="${BASE}/.well-known/oauth-protected-resource"`;
 
   it("challenges unauthenticated requests like Miro's gateway", async () => {
     const res = await mcp({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
     expect(res.status).toBe(401);
-    expect(res.headers.get("www-authenticate")).toBe(challenge);
+    expect(res.headers.get("www-authenticate")).toBe(challenge());
     expect(await res.json()).toEqual({ error: "Authentication required" });
 
     const invalid = await mcp({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }, "not-a-token");
@@ -432,7 +434,7 @@ describe("MCP server", () => {
     for (const path of ["/", "/.well-known/oauth-protected-resource/", "/.well-known/jwks.json"]) {
       const probe = await fetch(`${BASE}${path}`);
       expect(probe.status).toBe(401);
-      expect(probe.headers.get("www-authenticate")).toBe(challenge);
+      expect(probe.headers.get("www-authenticate")).toBe(challenge());
     }
   });
 
