@@ -389,6 +389,41 @@ export function serve(options: ServeOptions): Server {
   return server;
 }
 
+export interface FreePortServer {
+  server: Server;
+  /** The port the system chose, held for the server's whole life. */
+  port: number;
+  /** Serve requests with this handler; until it is set they answer 503. */
+  use(fetch: ServeOptions["fetch"]): void;
+  close(): Promise<void>;
+}
+
+/**
+ * Listen on a port the system chooses and keep it. An emulator's address names its
+ * port, so the emulator is built once the port is known and handed to `use`. Holding
+ * the socket from the start means nothing else can take the port in between, unlike
+ * choosing a fixed or "free" port and binding it later.
+ */
+export async function serveOnFreePort(options: { hostname?: string } = {}): Promise<FreePortServer> {
+  let handler: ServeOptions["fetch"] = () => new Response(null, { status: 503 });
+  const server = serve({ fetch: (request) => handler(request), port: 0, hostname: options.hostname });
+  await new Promise<void>((resolve, reject) => {
+    if (server.listening) return resolve();
+    server.once("listening", () => resolve());
+    server.once("error", reject);
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("The server has no port.");
+  return {
+    server,
+    port: address.port,
+    use(fetch) {
+      handler = fetch;
+    },
+    close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+  };
+}
+
 function compilePath(pattern: string): CompiledPath {
   if (pattern === "*" || pattern === "/*") {
     return { pattern, regex: /^.*$/, paramNames: [] };

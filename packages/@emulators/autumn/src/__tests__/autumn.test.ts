@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createServer, serve } from "@emulators/core";
+import { createServer, serveOnFreePort, type FreePortServer } from "@emulators/core";
 import { Autumn } from "autumn-js";
 
 import { autumnPlugin, seedFromConfig } from "../index.js";
@@ -7,16 +7,17 @@ import { manifest } from "../manifest.js";
 
 // The real autumn-js SDK (zod-validated responses) against the emulator.
 
-// Not 41874: workos.test.ts's TTL scenario binds PORT + 1 = 41874, and the
-// package suites run concurrently under turbo, so sharing it is a latent
-// EADDRINUSE flake.
-const PORT = 41880;
-const BASE = `http://localhost:${PORT}`;
+let PORT = 0;
+let BASE = "";
 
-let httpServer: ReturnType<typeof serve>;
+let httpServer: FreePortServer;
 let autumn: Autumn;
 
-beforeAll(() => {
+beforeAll(async () => {
+  // A port the system chooses, held from the start (see serveOnFreePort).
+  httpServer = await serveOnFreePort();
+  PORT = httpServer.port;
+  BASE = `http://localhost:${PORT}`;
   const { app, store } = createServer(autumnPlugin, {
     port: PORT,
     baseUrl: BASE,
@@ -42,12 +43,12 @@ beforeAll(() => {
       { id: "org_seats", subscriptions: [{ plan_id: "scale", status: "active" }] },
     ],
   });
-  httpServer = serve({ fetch: app.fetch, port: PORT });
+  httpServer.use(app.fetch);
   autumn = new Autumn({ secretKey: "am_test_emulate", serverURL: BASE });
 });
 
 afterAll(async () => {
-  await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+  await httpServer.close();
 });
 
 describe("autumn emulator with the real autumn-js SDK", () => {

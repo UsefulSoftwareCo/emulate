@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createServer, serve } from "@emulators/core";
+import { createServer, serveOnFreePort, type FreePortServer } from "@emulators/core";
 import { WorkOS } from "@workos-inc/node";
 import { createRemoteJWKSet, decodeProtectedHeader, jwtVerify } from "jose";
 
@@ -10,18 +10,22 @@ import { manifest } from "../manifest.js";
 // it unmodified, including sealed-session crypto (local iron seal with the
 // cookie password) and JWT verification against the emulator's JWKS.
 
-const PORT = 41873;
-const BASE = `http://localhost:${PORT}`;
+let PORT = 0;
+let BASE = "";
 const CLIENT_ID = "client_emulate_test";
 const COOKIE_PASSWORD = "emulate-cookie-password-0123456789abcdef0123456789";
 const TOKEN_EXCHANGE_GRANT_TYPE = "urn:ietf:params:oauth:grant-type:token-exchange";
 const ID_JAG_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:id-jag";
 const ACCESS_TOKEN_TYPE = "urn:ietf:params:oauth:token-type:access_token";
 
-let httpServer: ReturnType<typeof serve>;
+let httpServer: FreePortServer;
 let workos: WorkOS;
 
 beforeAll(async () => {
+  // A port the system chooses, held from the start (see serveOnFreePort).
+  httpServer = await serveOnFreePort();
+  PORT = httpServer.port;
+  BASE = `http://localhost:${PORT}`;
   const { app, store } = createServer(workosPlugin, {
     port: PORT,
     baseUrl: BASE,
@@ -31,7 +35,7 @@ beforeAll(async () => {
   seedFromConfig(store, BASE, {
     users: [{ email: "seeded@example.com", first_name: "Seeded" }],
   });
-  httpServer = serve({ fetch: app.fetch, port: PORT });
+  httpServer.use(app.fetch);
   workos = new WorkOS("sk_test_emulate", {
     clientId: CLIENT_ID,
     apiHostname: "localhost",
@@ -41,7 +45,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+  await httpServer.close();
 });
 
 async function signInAndGetCode(email: string): Promise<string> {
@@ -302,7 +306,7 @@ describe("workos emulator with the real @workos-inc/node SDK", () => {
   });
 
   it("seeds organization metadata", async () => {
-    const { store } = createServer(workosPlugin, { port: PORT + 1, baseUrl: BASE, manifest });
+    const { store } = createServer(workosPlugin, { baseUrl: BASE, manifest });
     seedFromConfig(store, BASE, { organizations: [{ name: "Seeded Metadata Org", metadata: { plan: "free" } }] });
     const org = getWorkosStoreFor(store).organizations.findOneBy("name", "Seeded Metadata Org");
     expect(org?.metadata).toEqual({ plan: "free" });
@@ -620,21 +624,19 @@ describe("workos emulator with the real @workos-inc/node SDK", () => {
 
   it("honors the seeded default access-token TTL for plain DCR clients", async () => {
     const redirectUri = "http://127.0.0.1:9/callback";
+    const server = await serveOnFreePort();
+    const base = `http://localhost:${server.port}`;
     const { app, store } = createServer(workosPlugin, {
-      port: PORT + 1,
-      baseUrl: `http://localhost:${PORT + 1}`,
+      port: server.port,
+      baseUrl: base,
       manifest,
       fallbackUser: { login: "sk_emulate_admin", id: 1, scopes: [] },
     });
-    seedFromConfig(store, `http://localhost:${PORT + 1}`, {
+    seedFromConfig(store, base, {
       oauth: { default_access_token_ttl_seconds: 5 },
     });
-    const server = serve({ fetch: app.fetch, port: PORT + 1 });
-    // serve() returns before the socket is listening; without this wait the
-    // first fetch races the listen and fails with ECONNREFUSED on slow runners.
-    await new Promise<void>((resolve) => server.once("listening", resolve));
+    server.use(app.fetch);
     try {
-      const base = `http://localhost:${PORT + 1}`;
       const registered = (await (
         await fetch(`${base}/oauth2/register`, {
           method: "POST",
@@ -662,7 +664,7 @@ describe("workos emulator with the real @workos-inc/node SDK", () => {
       ).json()) as { expires_in?: number };
       expect(tokens.expires_in).toBe(5);
     } finally {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
+      await server.close();
     }
   });
 

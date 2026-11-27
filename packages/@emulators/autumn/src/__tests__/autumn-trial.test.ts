@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { createServer, serve } from "@emulators/core";
+import { createServer, serveOnFreePort, type FreePortServer } from "@emulators/core";
 import { Autumn } from "autumn-js";
 
 import { autumnPlugin, seedFromConfig } from "../index.js";
@@ -9,14 +9,18 @@ import { manifest } from "../manifest.js";
 // SDK (zod-validated responses) plus raw fetch for the hosted checkout page.
 // This is the contract the cloud app's billing UI depends on.
 
-const PORT = 41875;
-const BASE = `http://localhost:${PORT}`;
-const SUCCESS_URL = `${BASE}/back-to-billing`;
+let PORT = 0;
+let BASE = "";
+const successUrl = () => `${BASE}/back-to-billing`;
 
-let httpServer: ReturnType<typeof serve>;
+let httpServer: FreePortServer;
 let autumn: Autumn;
 
-beforeAll(() => {
+beforeAll(async () => {
+  // A port the system chooses, held from the start (see serveOnFreePort).
+  httpServer = await serveOnFreePort();
+  PORT = httpServer.port;
+  BASE = `http://localhost:${PORT}`;
   const { app, store } = createServer(autumnPlugin, {
     port: PORT,
     baseUrl: BASE,
@@ -36,12 +40,12 @@ beforeAll(() => {
       },
     ],
   });
-  httpServer = serve({ fetch: app.fetch, port: PORT });
+  httpServer.use(app.fetch);
   autumn = new Autumn({ secretKey: "am_test_emulate", serverURL: BASE });
 });
 
 afterAll(async () => {
-  await new Promise<void>((resolve) => httpServer.close(() => resolve()));
+  await httpServer.close();
 });
 
 const teamPlan = async (customerId: string) => {
@@ -67,7 +71,7 @@ describe("autumn emulator: card-required free-trial checkout", () => {
   });
 
   it("attach returns a checkout payment URL (card required)", async () => {
-    const res = await autumn.billing.attach({ customerId: CUSTOMER, planId: "team", successUrl: SUCCESS_URL });
+    const res = await autumn.billing.attach({ customerId: CUSTOMER, planId: "team", successUrl: successUrl() });
     expect(res.paymentUrl, "a checkout URL is returned").toContain("/checkout/");
 
     // Attaching alone must NOT activate the subscription: the customer is still
@@ -80,7 +84,7 @@ describe("autumn emulator: card-required free-trial checkout", () => {
     const { paymentUrl } = await autumn.billing.attach({
       customerId: CUSTOMER,
       planId: "team",
-      successUrl: SUCCESS_URL,
+      successUrl: successUrl(),
     });
     const sessionId = new URL(paymentUrl!).pathname.split("/").pop()!;
 
@@ -93,7 +97,7 @@ describe("autumn emulator: card-required free-trial checkout", () => {
       redirect: "manual",
     });
     expect(completed.status, "completion redirects").toBe(302);
-    expect(completed.headers.get("location"), "back to the app").toBe(SUCCESS_URL);
+    expect(completed.headers.get("location"), "back to the app").toBe(successUrl());
 
     // The webhook has not landed yet: the customer is STILL on free. This is the
     // exact window in which the billing UI shows the stale plan.

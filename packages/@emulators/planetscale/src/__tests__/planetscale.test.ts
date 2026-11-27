@@ -1,33 +1,35 @@
 import { createHash, randomBytes } from "crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as oauth from "oauth4webapi";
-import { createServer, serve } from "@emulators/core";
+import { createServer, serveOnFreePort, type FreePortServer } from "@emulators/core";
 
 import { planetscalePlugin, seedFromConfig } from "../index.js";
 import { manifest } from "../manifest.js";
 
-const PORT = 41921;
-const BASE = `http://localhost:${PORT}`;
+let PORT = 0;
+let BASE = "";
 const REDIRECT = "http://127.0.0.1:8765/callback";
 const INVALID_CLIENT_DESCRIPTION =
   "Client authentication failed due to unknown client, no client authentication included, or unsupported authentication method.";
 const INVALID_GRANT_DESCRIPTION =
   "The provided authorization grant is invalid, expired, revoked, does not match the redirection URI used in the authorization request, or was issued to another client.";
 
-let httpServer: ReturnType<typeof serve>;
+let httpServer: FreePortServer;
 
-beforeAll(() => {
+beforeAll(async () => {
+  // A port the system chooses, held from the start (see serveOnFreePort).
+  httpServer = await serveOnFreePort();
+  PORT = httpServer.port;
+  BASE = `http://localhost:${PORT}`;
   const { app, store } = createServer(planetscalePlugin, { port: PORT, baseUrl: BASE, manifest });
   planetscalePlugin.seed?.(store, BASE);
   seedFromConfig(store, BASE, {
     organizations: [{ name: "globex", databases: [{ name: "orders", kind: "postgresql" }] }],
   });
-  httpServer = serve({ fetch: app.fetch, port: PORT });
+  httpServer.use(app.fetch);
 });
 
-afterAll(() => {
-  httpServer.close();
-});
+afterAll(() => httpServer.close());
 
 interface Registration {
   client_id: string;
@@ -346,9 +348,10 @@ describe("oauth4webapi against the emulator", () => {
 });
 
 describe("MCP server", () => {
-  const MCP = `${BASE}/mcp/planetscale`;
+  // Read when called: the base is known only once beforeAll has bound the port.
+  const mcpUrl = () => `${BASE}/mcp/planetscale`;
   const rpc = (token: string | undefined, body: unknown) =>
-    fetch(MCP, {
+    fetch(mcpUrl(), {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -376,7 +379,7 @@ describe("MCP server", () => {
     });
 
     const prm = await fetch(`${BASE}/.well-known/oauth-protected-resource/mcp/planetscale`);
-    expect(await prm.json()).toEqual({ resource: MCP, authorization_servers: [BASE] });
+    expect(await prm.json()).toEqual({ resource: mcpUrl(), authorization_servers: [BASE] });
   });
 
   it("serves tools after the full authorize, PKCE, and token flow", async () => {
