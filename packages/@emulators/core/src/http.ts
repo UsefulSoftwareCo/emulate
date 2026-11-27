@@ -1,4 +1,6 @@
 import { createServer as createNodeServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
+import { takeWebSocketSession } from "./websocket.js";
+import { acceptNodeWebSocket } from "./websocket-node.js";
 
 type BodyInit = ConstructorParameters<typeof Response>[0];
 type HeadersInit = ConstructorParameters<typeof Headers>[0];
@@ -189,6 +191,8 @@ export class Context<E = unknown, _P extends string = string> {
 
   finalize(response: Response): Response {
     if (!hasHeaders(this.responseHeaders)) return response;
+    // A WebSocket upgrade (101, carrying the socket) must reach the host untouched.
+    if (response.status === 101) return response;
     const headers = new Headers(response.headers);
     this.responseHeaders.forEach((value, key) => {
       headers.set(key, value);
@@ -389,6 +393,24 @@ export function serve(options: ServeOptions): Server {
       res.statusCode = 500;
       res.setHeader("Content-Type", "text/plain; charset=UTF-8");
       res.end(message);
+    }
+  });
+  // WebSocket upgrades go through the same handler; a route that accepts one
+  // answers with a session (see websocket.ts), and anything else is sent back as
+  // a plain HTTP answer before the socket is closed.
+  server.on("upgrade", async (req: IncomingMessage, socket, head: Buffer) => {
+    try {
+      const response = await options.fetch(nodeRequestToFetchRequest(req));
+      const session = takeWebSocketSession(response);
+      if (session && acceptNodeWebSocket(req.headers, socket, head, session)) return;
+      const status = session ? 400 : response.status;
+      const body = session ? "Invalid WebSocket handshake." : await response.text();
+      socket.end(
+        `HTTP/1.1 ${status} ${status === 400 ? "Bad Request" : response.statusText || "Error"}\r\n` +
+          `Content-Type: text/plain; charset=utf-8\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`,
+      );
+    } catch {
+      socket.destroy();
     }
   });
   server.listen(port, options.hostname);

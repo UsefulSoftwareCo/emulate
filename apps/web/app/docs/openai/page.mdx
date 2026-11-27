@@ -38,6 +38,8 @@ openai:
 
 Rules match on `model`, `contains` (any text in the request), `last_user_equals` and `instructions_contains`; `times` limits how often a rule applies. `stream` paces a streamed answer as exactly `chunks` deltas `interval_ms` apart. Control calls: `POST /_emulate/openai/answers/queue`, `POST /_emulate/openai/answers/rules`, `GET /_emulate/openai/answers`.
 
+A WebSocket endpoint, an emulator control and not OpenAI's Realtime or WebSocket-mode protocol: `GET /_emulate/openai/websocket` (`ws://` locally, `wss://` hosted) accepts the upgrade and echoes each message, text or binary, as it was received. With `?chunks=N&interval_ms=M`, the same controls as the paced answers, it also sends N messages of its own (`{"type":"emulate.message","n":1,"of":N,"at":...}`) M ms apart, then stays open, so a client can hold a busy connection or an idle one for as long as it likes. It closes when the client closes, answering with the client's close code (1000 for a normal close).
+
 ## Per-key limits
 
 ```bash

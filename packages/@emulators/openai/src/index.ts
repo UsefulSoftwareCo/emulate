@@ -6,6 +6,7 @@ import { responsesRoutes } from "./routes/responses.js";
 import { chatRoutes } from "./routes/chat.js";
 import { modelRoutes } from "./routes/models.js";
 import { controlRoutes } from "./routes/control.js";
+import { websocketRoutes } from "./routes/websocket.js";
 import { MAX_REQUEST_BYTES, requestTooLargeResponse } from "./common.js";
 
 export { getOpenAIStore, type OpenAIStore } from "./store.js";
@@ -77,6 +78,7 @@ export const openaiPlugin: ServicePlugin = {
       return next();
     });
     controlRoutes(ctx);
+    websocketRoutes(ctx);
     responsesRoutes(ctx);
     chatRoutes(ctx);
     modelRoutes(ctx);

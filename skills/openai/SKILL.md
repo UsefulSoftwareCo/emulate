@@ -51,6 +51,15 @@ curl -X POST "$OPENAI_EMULATOR_URL/_emulate/openai/keys/primary/rate-limit" -H "
 curl "$OPENAI_EMULATOR_URL/_emulate/openai/usage"
 ```
 
+## WebSocket endpoint
+
+An emulator control, not OpenAI's Realtime or WebSocket protocol: it echoes each message and can send messages of its own at a pace.
+
+```bash
+# Echo only; or add ?chunks=600&interval_ms=1000 for 600 messages a second apart
+npx wscat -c "wss://emulators.dev/openai/<instance>/_emulate/openai/websocket?chunks=600&interval_ms=1000"
+```
+
 ## Discovery
 
 `GET /_emulate/manifest` lists what is supported, partial and unsupported (tools, images, audio, embeddings, stored responses and Realtime are not emulated). `GET /_emulate/ledger` records each call with its operation id, status and key name; request bodies over 64 KiB are recorded by size only, and bodies over 32 MiB are refused with `413 request_too_large`. Per-service docs live at `https://docs.emulators.dev/openai`.
