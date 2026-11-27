@@ -1,8 +1,16 @@
 # Changelog
 
-## 0.17.1
+## 0.17.2
 
 <!-- release:start -->
+
+### Changes
+
+- **X accepts local webhook addresses in CRC control mode.** With `webhook_crc_delivery: "control"`, `POST /2/webhooks` on an https instance (every hosted one) also accepts an `http` address or one with a port, so a test can register a local receiver, subscribe it and preview its deliveries. It is an emulator-only relaxation of X's rule, listed as such in the manifest; outbound mode keeps X's rule (https, no port, at most 200 characters).
+
+<!-- release:end -->
+
+## 0.17.1
 
 ### Fixes
 
@@ -10,8 +18,6 @@
 - **Hosted saves cost what changed and never fail a request.** Each ledger entry is written once, so a read at a full ledger of 1,000 entries writes about 2 KB. Values over the storage limit for a single value are split, so an 8 MB body saves like any other. A save that fails no longer fails the request; the failure is listed at `GET /_emulate/persistence` and the next save catches up.
 - **Hosted emulators are HTTPS only.** Plain `http` is redirected to the same address over `https` with a `308`, which keeps the method and body. A client on the wrong scheme used to rebuild the instance on every switch.
 - **Docs answer at every service's bare address.** `docs.emulators.dev/<service>` redirects to the service's page for every page, as the manifests advertise, not only the older ones.
-
-<!-- release:end -->
 
 ## 0.17.0
 
