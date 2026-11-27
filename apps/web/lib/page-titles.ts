@@ -21,6 +21,7 @@ export const PAGE_TITLES: Record<string, string> = {
   x: "X API",
   planetscale: "PlanetScale",
   miro: "Miro",
+  openai: "OpenAI API",
   posthog: "PostHog",
   authentication: "Authentication",
   manifest: "Service Manifest",

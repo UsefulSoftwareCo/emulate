@@ -1,0 +1,53 @@
+# OpenAI API
+
+OpenAI API emulation for text models: the Responses API and Chat Completions, streamed or not, with API-key auth and deterministic answers a test seeds. Shapes follow OpenAI's API reference and are checked with the official `openai` SDK.
+
+## Keys
+
+Requests send `Authorization: Bearer <key>`. The default instance has `sk-proj-emulate-default-key`. Seed `api_keys`, or create one:
+
+```bash
+curl -X POST http://localhost:4022/_emulate/openai/keys \
+  -H "Content-Type: application/json" \
+  -d '{"name":"primary"}'
+```
+
+`POST /_emulate/credentials` with type `api-key` issues one too. Unknown keys answer `401` with code `invalid_api_key`. The ledger records each call's key by name.
+
+## Operations
+
+- `POST /v1/responses` — `input` as a string or message items, `instructions`, `max_output_tokens`, `stream`. Streamed responses send `response.created`, `response.in_progress`, `response.output_item.added`, `response.content_part.added`, `response.output_text.delta`, `response.output_text.done`, `response.content_part.done`, `response.output_item.done` and `response.completed` (or `response.incomplete`), each with `sequence_number`.
+- `POST /v1/chat/completions` — text messages, `max_tokens` or `max_completion_tokens`, `stream` with `stream_options.include_usage`; streams end with `data: [DONE]`.
+- `GET /v1/models`, `GET /v1/models/:model` — seeded models. With none seeded, any model id is accepted; with models seeded, an unknown one answers `404 model_not_found`.
+
+Tools, images, audio, files, embeddings, stored responses (`previous_response_id`, `GET /v1/responses/:id`) and the Realtime and WebSocket transports are not emulated; requests that need them answer `400` or `404` in OpenAI's error shape.
+
+## Deterministic answers
+
+Each request takes, in order: the next queued answer, the first matching rule, or the fixed default `Emulated response from <model> to: <last user message>`.
+
+```yaml
+openai:
+  answer_rules:
+    - match: { contains: summarise }
+      answer: A short summary.
+    - match: { model: gpt-5-mini, last_user_equals: slow }
+      answer: { text: "...600 or more characters...", stream: { chunks: 600, interval_ms: 500 } }
+  answer_queue: [First answer, Second answer]
+```
+
+Rules match on `model`, `contains` (any text in the request), `last_user_equals` and `instructions_contains`; `times` limits how often a rule applies. `stream` paces a streamed answer as exactly `chunks` deltas `interval_ms` apart. Control calls: `POST /_emulate/openai/answers/queue`, `POST /_emulate/openai/answers/rules`, `GET /_emulate/openai/answers`.
+
+## Per-key limits
+
+```bash
+curl -X POST http://localhost:4022/_emulate/openai/keys/primary/rate-limit \
+  -H "Content-Type: application/json" \
+  -d '{"requests":2,"window_seconds":60}'
+```
+
+That key answers `429` with code `rate_limit_exceeded`, `Retry-After` in seconds and `x-ratelimit-limit-requests`, `x-ratelimit-remaining-requests` and `x-ratelimit-reset-requests`, while other keys go on working. Token limits are not emulated.
+
+## Usage and the ledger
+
+Token counts are approximate: one token per four characters of text, rounded up. They are the same in every response and in `GET /_emulate/openai/usage`, which lists each call with its key, model, input and output tokens, whether it streamed and the request size, with totals. Request bodies over 64 KiB are recorded in `/_emulate/ledger` by size only.

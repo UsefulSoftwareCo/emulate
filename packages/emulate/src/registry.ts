@@ -63,6 +63,7 @@ const SERVICE_NAME_LIST = [
   "context",
   "planetscale",
   "miro",
+  "openai",
 ] as const;
 export type ServiceName = (typeof SERVICE_NAME_LIST)[number];
 export const SERVICE_NAMES: readonly ServiceName[] = SERVICE_NAME_LIST;
@@ -1064,6 +1065,32 @@ export const SERVICE_REGISTRY: Record<ServiceName, ServiceEntry> = {
         users: [{ email: "user@example.com", name: "Miro User" }],
         boards: [{ name: "Product Roadmap", items: [{ type: "sticky_note", content: "Ship OAuth for MCP" }] }],
         id_token_nonce: "omit",
+      },
+    },
+  },
+  openai: {
+    label: "OpenAI API emulator",
+    endpoints:
+      "Responses API and Chat Completions (text, streamed or not), models, API keys with per-key request limits, deterministic seeded answers",
+    async load() {
+      const mod = await import("@emulators/openai");
+      return {
+        plugin: mod.openaiPlugin,
+        manifest: mod.manifest,
+        seedFromConfig: mod.seedFromConfig,
+        issueCredential(store: Store, baseUrl: string, _tokenMap: TokenMap, request: CredentialRequest) {
+          return mod.issueCredential(store, baseUrl, request);
+        },
+      };
+    },
+    defaultFallback() {
+      return { login: "default", id: 1, scopes: [] };
+    },
+    initConfig: {
+      openai: {
+        api_keys: [{ name: "primary", key: "sk-proj-emulate-primary" }],
+        models: [{ id: "gpt-5-mini" }],
+        answer_rules: [{ match: { contains: "hello" }, answer: "Hello from the OpenAI emulator." }],
       },
     },
   },

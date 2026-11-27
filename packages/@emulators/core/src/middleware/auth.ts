@@ -79,6 +79,12 @@ export type AppEnv = {
      * placeholder instead of reading the body. Unset by default.
      */
     ledgerOmitResponseBody?: boolean;
+    /**
+     * Set by a handler to have the ledger record the request body's size in
+     * bytes instead of its content (for example a request of several megabytes).
+     * Unset by default, so every other request is recorded as before.
+     */
+    ledgerRequestBodyBytes?: number;
   };
 };
 

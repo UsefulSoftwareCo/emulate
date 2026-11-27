@@ -26,6 +26,7 @@ export const allDocsPages: NavItem[] = [
   { name: "X API", href: "/docs/x" },
   { name: "PlanetScale", href: "/docs/planetscale" },
   { name: "Miro", href: "/docs/miro" },
+  { name: "OpenAI API", href: "/docs/openai" },
   { name: "PostHog", href: "/docs/posthog" },
   { name: "Authentication", href: "/docs/authentication" },
   { name: "Service Manifest", href: "/docs/manifest" },
