@@ -13,6 +13,7 @@ import {
 import { clearRateWindows, getRateLimitConfig, rateLimitState, setRateLimitConfig } from "../rate-limits.js";
 import { ensureOneToOne, recordHeldDeliveries, storeAndDeliverMessage } from "./dm.js";
 import type { XSeedAttachment } from "../dm-seed.js";
+import { getMediaPacing, parseMediaPacing, setMediaPacing } from "../media-pacing.js";
 
 /**
  * X-specific control calls under `/_emulate/x`. They are emulator controls, not
@@ -59,6 +60,12 @@ export function controlRoutes({ app, store, baseUrl, webhooks }: RouteContext): 
     const mediaKeys: string[] = [];
     if (body.attachment && typeof body.attachment === "object") {
       const a = body.attachment as XSeedAttachment;
+      let pacing = null;
+      try {
+        pacing = a.stream === undefined ? null : parseMediaPacing(a.stream, "attachment.stream");
+      } catch (err) {
+        return bad(c, err instanceof Error ? err.message : "Invalid attachment.stream.");
+      }
       const mediaType = a.media_type ?? "image/jpeg";
       const category = mediaType === "image/gif" ? "dm_gif" : mediaType.startsWith("video/") ? "dm_video" : "dm_image";
       const mediaId = nextStoredId(store);
@@ -78,6 +85,7 @@ export function controlRoutes({ app, store, baseUrl, webhooks }: RouteContext): 
         created_at_ms: Date.now(),
         expires_at_ms: Date.now() + 24 * 3600 * 1000,
       });
+      if (pacing) setMediaPacing(store, key, pacing);
       mediaKeys.push(key);
     }
     if (!text && mediaKeys.length === 0) return bad(c, "Give `text`, `attachment`, or both.");
@@ -182,7 +190,25 @@ export function controlRoutes({ app, store, baseUrl, webhooks }: RouteContext): 
   /** GET /_emulate/x/media/:media_key: metadata for a media key (uploaded, seeded or generated). */
   app.get("/_emulate/x/media/:media_key", (c) => {
     const media = findMediaByKey(store, c.req.param("media_key"));
-    return media ? c.json({ media }) : bad(c, "No such media.", 404);
+    return media ? c.json({ media, stream: getMediaPacing(store, media.media_key) }) : bad(c, "No such media.", 404);
+  });
+
+  /**
+   * POST /_emulate/x/media/:media_key/stream: pace this attachment's download, an
+   * emulator control: `{ chunks, interval_ms }` sends exactly `chunks` pieces
+   * `interval_ms` apart; `{ "stream": null }` (or an empty body) sends it unpaced again.
+   */
+  app.post("/_emulate/x/media/:media_key/stream", async (c) => {
+    const media = findMediaByKey(store, c.req.param("media_key"));
+    if (!media) return bad(c, "No such media.", 404);
+    const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const clear = Object.keys(body).length === 0 || body.stream === null;
+    try {
+      setMediaPacing(store, media.media_key, clear ? null : parseMediaPacing(body.stream ?? body));
+    } catch (err) {
+      return bad(c, err instanceof Error ? err.message : "Invalid stream.");
+    }
+    return c.json({ media_key: media.media_key, stream: getMediaPacing(store, media.media_key) });
   });
 
   // Rate limits: configuration and the open windows.

@@ -53,4 +53,4 @@ curl "$OPENAI_EMULATOR_URL/_emulate/openai/usage"
 
 ## Discovery
 
-`GET /_emulate/manifest` lists what is supported, partial and unsupported (tools, images, audio, embeddings, stored responses and Realtime are not emulated). `GET /_emulate/ledger` records each call with its operation id, status and key name; request bodies over 64 KiB are recorded by size only. Per-service docs live at `https://docs.emulators.dev/openai`.
+`GET /_emulate/manifest` lists what is supported, partial and unsupported (tools, images, audio, embeddings, stored responses and Realtime are not emulated). `GET /_emulate/ledger` records each call with its operation id, status and key name; request bodies over 64 KiB are recorded by size only, and bodies over 32 MiB are refused with `413 request_too_large`. Per-service docs live at `https://docs.emulators.dev/openai`.

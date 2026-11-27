@@ -1,5 +1,6 @@
 import type { Store } from "@emulators/core";
 import { getXStore, xNumericId } from "./store.js";
+import { parseMediaPacing, setMediaPacing } from "./media-pacing.js";
 import type { XDmConversation } from "./entities.js";
 import {
   DM_RETENTION_MS,
@@ -16,6 +17,8 @@ export interface XSeedAttachment {
   media_category?: string;
   width?: number;
   height?: number;
+  /** Pace the download: exactly `chunks` pieces, `interval_ms` apart (an emulator control). */
+  stream?: { chunks: number; interval_ms?: number };
 }
 
 export interface XSeedDmConversation {
@@ -148,6 +151,7 @@ export function seedDmConversation(store: Store, spec: XSeedDmConversation, now 
         created_at_ms: at,
         expires_at_ms: at + 24 * 3600 * 1000,
       });
+      if (a.stream) setMediaPacing(store, key, parseMediaPacing(a.stream, "attachment.stream"));
       mediaKeys.push(key);
     }
     xs.dmEvents.insert({

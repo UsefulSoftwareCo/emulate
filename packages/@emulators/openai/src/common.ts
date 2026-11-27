@@ -143,9 +143,62 @@ export function checkKeyLimit(
 /** Request bodies above this many bytes are recorded in the ledger by size only. */
 export const LEDGER_BODY_LIMIT = 64 * 1024;
 
+/**
+ * The largest request body the emulator accepts, in bytes. OpenAI documents no
+ * overall limit for these endpoints (only 50 MB across the files in one request),
+ * so this is the emulator's own, stated in its docs and manifest. A larger body is
+ * refused with a 413 before it is read.
+ */
+export const MAX_REQUEST_BYTES = 32 * 1024 * 1024;
+
+/** The 413 for a body over MAX_REQUEST_BYTES, in OpenAI's error shape. */
+export function requestTooLargeResponse(limit = MAX_REQUEST_BYTES): Response {
+  return new Response(
+    JSON.stringify({
+      error: {
+        message: `Request body too large. The emulator accepts request bodies of up to ${limit} bytes.`,
+        type: "invalid_request_error",
+        param: null,
+        code: "request_too_large",
+      },
+    }),
+    { status: 413, headers: { "content-type": "application/json" } },
+  );
+}
+
+/** The declared body size, or null when the request does not say. */
+function declaredLength(c: Context): number | null {
+  const n = Number(c.req.header("content-length") ?? NaN);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** The body as text, or null once it passes `limit` bytes (reading stops there). */
+async function readLimitedText(c: Context, limit: number): Promise<string | null> {
+  const stream = c.req.raw.body;
+  if (!stream) return "";
+  const reader = stream.getReader();
+  const parts: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.length;
+    if (total > limit) {
+      // Not awaited: the rest of the body may never arrive, and cancelling must not hold the answer.
+      void reader.cancel().catch(() => {});
+      return null;
+    }
+    parts.push(value);
+  }
+  return Buffer.concat(parts).toString("utf8");
+}
+
 /** Read and parse the JSON body, recording a large one in the ledger by size only. */
 export async function readJsonBody(c: Context): Promise<{ body: Record<string, unknown>; bytes: number } | Response> {
-  const raw = await c.req.text();
+  const declared = declaredLength(c);
+  if (declared !== null && declared > MAX_REQUEST_BYTES) return requestTooLargeResponse();
+  const raw = await readLimitedText(c, MAX_REQUEST_BYTES);
+  if (raw === null) return requestTooLargeResponse();
   const bytes = Buffer.byteLength(raw, "utf8");
   if (bytes > LEDGER_BODY_LIMIT) c.set("ledgerRequestBodyBytes", bytes);
   try {

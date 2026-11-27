@@ -3,6 +3,7 @@ import { recordSideEffect } from "@emulators/core";
 import { getXStore } from "../store.js";
 import type { XMedia, XUser } from "../entities.js";
 import { requireUserContext } from "./auth.js";
+import { getMediaPacing, pacedStream } from "../media-pacing.js";
 import { PROBLEM, invalidRequest, problem } from "./problems.js";
 import {
   findEvent,
@@ -318,7 +319,9 @@ export function mediaRoutes({ app, store }: RouteContext): void {
     }
     c.set("ledgerOmitResponseBody", true);
     recordSideEffect(c, { type: "custom", collection: "x.media", id: media.media_key, summary: `${media.size} bytes` });
-    return new Response(withLength(mediaStream(store, media), media.size), {
+    const pacing = getMediaPacing(store, media.media_key);
+    const body = pacing ? pacedStream(mediaStream(store, media), media.size, pacing) : mediaStream(store, media);
+    return new Response(withLength(body, media.size), {
       status: 200,
       headers: {
         // The spec declares the body as application/octet-stream.

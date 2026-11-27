@@ -20,7 +20,7 @@ export const manifest: ServiceManifest = {
       title: "Server-sent event streaming",
       status: "supported",
       notes:
-        "Responses API events in the documented order with sequence_number; Chat Completions chunks ending with data: [DONE]. Pacing (chunks and interval) is set per answer.",
+        "Responses API events in the documented order with sequence_number; Chat Completions chunks ending with data: [DONE]. Pacing (chunks and interval) is set per answer. Request bodies are limited to 32 MiB (the emulator's own limit; OpenAI documents none for these endpoints): a larger one answers 413 request_too_large before it is read.",
     },
     {
       id: "realtime",

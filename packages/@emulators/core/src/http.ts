@@ -377,7 +377,13 @@ export function serve(options: ServeOptions): Server {
     try {
       const request = nodeRequestToFetchRequest(req);
       const response = await options.fetch(request);
+      // A handler that answered without reading the whole body (a 413, say) ends
+      // the connection once the answer is sent, as a server does, rather than leave
+      // a client that is still uploading waiting on a peer that stopped reading.
+      const unread = !req.complete;
+      if (unread) res.setHeader("Connection", "close");
       await writeFetchResponse(res, response, req.method?.toUpperCase() === "HEAD");
+      if (unread) res.once("finish", () => req.socket.destroy());
     } catch (err) {
       const message = err instanceof Error ? err.message : "Internal Server Error";
       res.statusCode = 500;

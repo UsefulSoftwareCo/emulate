@@ -76,6 +76,8 @@ export interface LedgerSnapshot {
 
 const DEFAULT_MAX_ENTRIES = 1000;
 const DEFAULT_MAX_BODY_CHARS = 20000;
+/** Request bodies declared larger than this are recorded by size only, without a clone. */
+export const LEDGER_CLONE_LIMIT = 1024 * 1024;
 const REDACTED = "[redacted]";
 const STREAMING_BODY_OMITTED = "<streaming body omitted>";
 const BINARY_BODY_OMITTED = "<binary body omitted>";
@@ -166,8 +168,12 @@ export function createLedgerMiddleware(ledger: RequestLedger, options: LedgerOpt
     c.header("X-Correlation-Id", correlationId);
 
     // Cloned now, read once the handler has run, so a handler can ask for the
-    // body to be recorded by size only.
-    const requestClone = c.req.raw.clone();
+    // body to be recorded by size only. A body declared larger than
+    // LEDGER_CLONE_LIMIT is not cloned at all: the clone would hold a second
+    // full copy until the response, and only its first characters are kept.
+    const declaredBytes = Number(c.req.header("content-length") ?? NaN);
+    const recordBySize = Number.isFinite(declaredBytes) && declaredBytes > LEDGER_CLONE_LIMIT;
+    const requestClone = recordBySize ? undefined : c.req.raw.clone();
     const requestHeaders = redactHeaders(rawHeaders);
 
     // Snapshot existing webhook delivery ids so we can correlate the ones this
@@ -176,10 +182,12 @@ export function createLedgerMiddleware(ledger: RequestLedger, options: LedgerOpt
     const beforeDeliveryIds = webhooks ? new Set(webhooks.getDeliveries().map((d) => d.id)) : undefined;
 
     const response = await next();
-    const omittedRequestBytes = c.get("ledgerRequestBodyBytes");
+    const handlerBytes = c.get("ledgerRequestBodyBytes");
+    const omittedRequestBytes =
+      typeof handlerBytes === "number" ? handlerBytes : recordBySize ? declaredBytes : undefined;
     let requestBody: { body?: unknown; bodyTruncated?: boolean; bodyBytes?: number };
-    if (typeof omittedRequestBytes === "number") {
-      await requestClone.body?.cancel().catch(() => {});
+    if (typeof omittedRequestBytes === "number" || !requestClone) {
+      await requestClone?.body?.cancel().catch(() => {});
       requestBody = { body: `<request body omitted: ${omittedRequestBytes} bytes>`, bodyBytes: omittedRequestBytes };
     } else {
       requestBody = await readBody(requestClone, maxBodyChars);

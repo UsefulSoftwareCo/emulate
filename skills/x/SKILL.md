@@ -38,7 +38,7 @@ Seed a large history with `dm_conversations[].generate` or `dm_bulk` (computed o
 
 ## Media
 
-Upload with `POST /2/media/upload` or the chunked `initialize`/`append`/`finalize`, attach with `attachments: [{ media_id }]`, and download from the `url` in `includes.media` (`GET /2/dm_conversations/media/:dm_id/:media_key/:media_id`, streamed).
+Upload with `POST /2/media/upload` or the chunked `initialize`/`append`/`finalize`, attach with `attachments: [{ media_id }]`, and download from the `url` in `includes.media` (`GET /2/dm_conversations/media/:dm_id/:media_key/:media_id`, streamed). To send a download slowly (an emulator control), set `stream: { chunks, interval_ms }` on the attachment or `POST /_emulate/x/media/:media_key/stream` with `{"chunks":300,"interval_ms":100}`, as with the OpenAI emulator's paced answers.
 
 ## Webhooks
 

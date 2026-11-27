@@ -50,4 +50,4 @@ That key answers `429` with code `rate_limit_exceeded`, `Retry-After` in seconds
 
 ## Usage and the ledger
 
-Token counts are approximate: one token per four characters of text, rounded up. They are the same in every response and in `GET /_emulate/openai/usage`, which lists each call with its key, model, input and output tokens, whether it streamed and the request size, with totals. Request bodies over 64 KiB are recorded in `/_emulate/ledger` by size only.
+Token counts are approximate: one token per four characters of text, rounded up. They are the same in every response and in `GET /_emulate/openai/usage`, which lists each call with its key, model, input and output tokens, whether it streamed and the request size, with totals. Request bodies over 64 KiB are recorded in `/_emulate/ledger` by size only. Request bodies are limited to 32 MiB (33,554,432 bytes), the emulator's own limit since OpenAI documents no overall one for these endpoints (only 50 MB across the files in one request); a larger body is refused before it is read with `413` and `{"error":{"type":"invalid_request_error","code":"request_too_large"}}`.

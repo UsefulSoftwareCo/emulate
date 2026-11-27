@@ -80,7 +80,9 @@ import {
 import {
   issueCredential as openaiIssueCredential,
   manifest as openaiManifest,
+  MAX_REQUEST_BYTES as OPENAI_MAX_REQUEST_BYTES,
   openaiPlugin,
+  requestTooLargeResponse as openaiRequestTooLarge,
   seedFromConfig as openaiSeed,
 } from "@emulators/openai";
 import {
@@ -130,6 +132,30 @@ export interface ServiceEntry {
   // Provider-specific credential issuance (e.g. AWS access keys) that doesn't fit
   // the bearer / api-key / oauth-client paths below.
   issueCredential?: (store: Store, baseUrl: string, request: CredentialRequest) => IssuedCredential;
+  // The largest request body this service accepts on the hosted surface, when it is
+  // not HOSTED_MAX_REQUEST_BYTES, and its refusal in the provider's own error shape.
+  maxRequestBytes?: number;
+  requestTooLarge?: (limit: number) => Response;
+  // True when the service never keeps a request body (it reads and answers), so a
+  // request's size does not count against the instance's store budget.
+  requestBodiesNotStored?: boolean;
+}
+
+/**
+ * The largest request body any hosted instance accepts. An instance runs in a
+ * Durable Object with 128 MB of memory, and an isolate that runs out is reset with
+ * every request in it, so a larger body is refused with a 413 before it is read.
+ */
+export const HOSTED_MAX_REQUEST_BYTES = 16 * 1024 * 1024;
+
+export function hostedRequestTooLarge(limit: number): Response {
+  return Response.json(
+    {
+      error: "request_too_large",
+      message: `Request body too large. Hosted emulators accept request bodies of up to ${limit} bytes.`,
+    },
+    { status: 413 },
+  );
 }
 
 export const SERVICES: Record<string, ServiceEntry> = {
@@ -417,6 +443,9 @@ export const SERVICES: Record<string, ServiceEntry> = {
     seedFromConfig: openaiSeed,
     defaultFallback: () => ({ login: "default", id: 1, scopes: [] }),
     issueCredential: openaiIssueCredential,
+    maxRequestBytes: OPENAI_MAX_REQUEST_BYTES,
+    requestTooLarge: openaiRequestTooLarge,
+    requestBodiesNotStored: true,
   },
   zapier: {
     plugin: zapierPlugin,

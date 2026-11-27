@@ -704,3 +704,101 @@ describe("X media", () => {
     expect(((await steal.json()) as Json).type).toBe("https://api.x.com/2/problems/dm-bad-media");
   });
 });
+
+describe("paced DM media download (an emulator control)", () => {
+  async function download(call: (path: string, token?: string) => Promise<Response>, path: string, token: string) {
+    const started = Date.now();
+    const dl = await call(path, token);
+    const reader = dl.body!.getReader();
+    const parts: Uint8Array[] = [];
+    const gaps: number[] = [];
+    let last = Date.now();
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      gaps.push(Date.now() - last);
+      last = Date.now();
+      parts.push(value);
+    }
+    return { dl, bytes: Buffer.concat(parts), parts: parts.length, ms: Date.now() - started, gaps };
+  }
+
+  it("sends a seeded attachment in exactly the asked pieces, interval apart, and the same bytes as unpaced", async () => {
+    const size = 1024 * 1024 + 7;
+    const { call, mint, control } = setup({
+      dm_conversations: [
+        {
+          participants: ["developer", "alice"],
+          messages: [
+            { from: "alice", text: "paced", attachment: { bytes: size, stream: { chunks: 8, interval_ms: 60 } } },
+            { from: "alice", text: "plain", attachment: { bytes: size } },
+          ],
+        },
+      ],
+    });
+    const dev = mint(DEV);
+    const read = (await (
+      await call(`/2/dm_events?expansions=attachments.media_keys&media.fields=url`, dev)
+    ).json()) as Json;
+    const byText = new Map<string, string>(
+      (read.data as Json[]).map((e) => [
+        e.text,
+        read.includes.media.find((m: Json) => m.media_key === e.attachments.media_keys[0]).url,
+      ]),
+    );
+    const paced = await download(call, new URL(byText.get("paced")!).pathname, dev);
+    const plain = await download(call, new URL(byText.get("plain")!).pathname, dev);
+    expect(paced.dl.headers.get("content-length")).toBe(String(size));
+    expect(paced.bytes.length).toBe(size);
+    expect(paced.parts).toBe(8);
+    expect(paced.ms).toBeGreaterThanOrEqual(7 * 60 - 10);
+    expect(Math.min(...paced.gaps.slice(1))).toBeGreaterThanOrEqual(50);
+    // Unpaced stays the default.
+    expect(plain.bytes.length).toBe(size);
+    expect(plain.ms).toBeLessThan(paced.ms);
+
+    // The same file unpaced is byte for byte what was paced.
+    const pacedKey = read.includes.media.find((m: Json) => m.url === byText.get("paced")).media_key;
+    expect(((await (await control(`/media/${pacedKey}`)).json()) as Json).stream).toEqual({
+      chunks: 8,
+      interval_ms: 60,
+    });
+    await control(`/media/${pacedKey}/stream`, {});
+    const again = await download(call, new URL(byText.get("paced")!).pathname, dev);
+    expect(again.bytes.equals(paced.bytes)).toBe(true);
+  });
+
+  it("paces any attachment through the control plane, rejects bad values, and clears", async () => {
+    const { call, mint, control } = setup();
+    const dev = mint(DEV);
+    const arrived = (await (
+      await control("/dm/arrive", { to: "developer", from: "alice", attachment: { bytes: 300_000 } })
+    ).json()) as Json;
+    const key = arrived.media_keys[0] as string;
+    expect((await control(`/media/${key}/stream`, { chunks: 0 })).status).toBe(400);
+    expect((await control(`/media/${key}/stream`, { chunks: 3, interval_ms: 60001 })).status).toBe(400);
+    expect(
+      ((await (await control(`/media/${key}/stream`, { chunks: 3, interval_ms: 40 })).json()) as Json).stream,
+    ).toEqual({
+      chunks: 3,
+      interval_ms: 40,
+    });
+    const read = (await (
+      await call(`/2/dm_events?expansions=attachments.media_keys&media.fields=url`, dev)
+    ).json()) as Json;
+    const path = new URL(read.includes.media[0].url).pathname;
+    const paced = await download(call, path, dev);
+    expect([paced.parts, paced.bytes.length]).toEqual([3, 300_000]);
+    expect(paced.ms).toBeGreaterThanOrEqual(2 * 40 - 10);
+    expect(((await (await control(`/media/${key}/stream`, { stream: null })).json()) as Json).stream).toBeNull();
+    expect(
+      (
+        await control("/dm/arrive", {
+          to: "developer",
+          from: "alice",
+          attachment: { bytes: 10, stream: { chunks: -1 } },
+        })
+      ).status,
+    ).toBe(400);
+  });
+});
