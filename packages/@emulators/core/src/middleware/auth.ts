@@ -41,22 +41,37 @@ export interface TokenEntry {
   login: string;
   id: number;
   scopes: string[];
+  externalId?: string;
 }
 
-export function serializeTokenMap(tokenMap: TokenMap): TokenEntry[] {
-  return [...tokenMap.entries()].map(([token, user]) => ({
+/** One issued token as a storable record. */
+export function tokenEntry(token: string, user: AuthUser): TokenEntry {
+  return {
     token,
     login: user.login,
     id: user.id,
     scopes: user.scopes,
-  }));
+    ...(user.externalId !== undefined ? { externalId: user.externalId } : {}),
+  };
+}
+
+/** The identity a stored token record stands for. */
+export function tokenUser(entry: TokenEntry): AuthUser {
+  return {
+    login: entry.login,
+    id: entry.id,
+    scopes: entry.scopes ?? [],
+    ...(entry.externalId !== undefined ? { externalId: entry.externalId } : {}),
+  };
+}
+
+export function serializeTokenMap(tokenMap: TokenMap): TokenEntry[] {
+  return [...tokenMap.entries()].map(([token, user]) => tokenEntry(token, user));
 }
 
 export function restoreTokenMap(tokenMap: TokenMap, tokens: TokenEntry[]): void {
   tokenMap.clear();
-  for (const t of tokens) {
-    tokenMap.set(t.token, { login: t.login, id: t.id, scopes: t.scopes });
-  }
+  for (const t of tokens) tokenMap.set(t.token, tokenUser(t));
 }
 
 export type AppEnv = {

@@ -9,6 +9,10 @@ import {
   type Store,
   type StoreSnapshot,
   type TokenMap,
+  type WebhookDispatcher,
+  type WebhookDispatcherSnapshot,
+  tokenEntry,
+  tokenUser,
 } from "@emulators/core";
 import { SERVICES, issueCloudflareCredential } from "./services.js";
 
@@ -37,6 +41,7 @@ interface TokenEntry {
   login: string;
   id: number;
   scopes: string[];
+  externalId?: string;
 }
 interface PersistedState {
   seed?: SeedConfig;
@@ -54,6 +59,7 @@ interface Live {
   tokenMap: TokenMap;
   ledger: RequestLedger;
   faults: FaultRegistry;
+  webhooks: WebhookDispatcher;
   service: string;
   instance: string;
   baseUrl: string;
@@ -67,7 +73,15 @@ const SNAPSHOT_ITEM_PREFIX = "snapshot:item:";
 const SNAPSHOT_DATA_PREFIX = "snapshot:data:";
 const LEDGER_META_KEY = "ledger:meta";
 const LEDGER_ENTRY_PREFIX = "ledger:entry:";
+// Every token the instance recognises, one record each, kept in step with the live token
+// map after every request: what a service issues (OAuth access tokens, API keys, sessions)
+// outlives an unload or a deploy, and a revocation stays revoked.
 const MINTED_PREFIX = "minted:";
+// Present once the records under MINTED_PREFIX are the whole token map. Instances saved
+// before that recorded only control-plane tokens, so their seeded tokens are rebuilt from the seed.
+const TOKENS_COMPLETE_KEY = "minted-complete";
+// Webhook subscriptions held by the core dispatcher (GitHub's repository and org hooks).
+const WEBHOOKS_KEY = "webhooks";
 // Armed faults and the next fault id. Cloudflare can replace an instance at any time, even
 // between a test arming a fault and the request it targets, so faults persist with the store.
 const FAULTS_KEY = "faults";
@@ -119,6 +133,8 @@ export class EmulatorDurableObject {
   // storage writes and the cost of a request does not grow with stored history.
   // Undefined until read from storage for the current live instance.
   private written?: Map<string, string>;
+  // Storage key of each token, by token (a SHA-256, so computing it is async).
+  private readonly tokenKeys = new Map<string, string>();
 
   constructor(
     private readonly state: DurableObjectState,
@@ -258,6 +274,8 @@ export class EmulatorDurableObject {
 
   private async clearMinted(): Promise<void> {
     await this.deletePrefix(MINTED_PREFIX);
+    await this.state.storage.delete(TOKENS_COMPLETE_KEY);
+    this.tokenKeys.clear();
   }
 
   private async migrateLegacyState(persisted: PersistedState): Promise<void> {
@@ -279,8 +297,14 @@ export class EmulatorDurableObject {
     seed: SeedConfig | undefined,
     strict: boolean,
     minted: TokenEntry[] | undefined,
-  ): Record<string, { login: string; id: number; scopes?: string[] }> {
-    const tokens: Record<string, { login: string; id: number; scopes?: string[] }> = {};
+    complete: boolean,
+  ): Record<string, { login: string; id: number; scopes?: string[]; externalId?: string }> {
+    const tokens: Record<string, { login: string; id: number; scopes?: string[]; externalId?: string }> = {};
+    if (complete) {
+      // The stored records are the token map as it was, revocations included.
+      for (const m of minted ?? []) tokens[m.token] = tokenUser(m);
+      return tokens;
+    }
     if (seed?.tokens) {
       let id = 100;
       for (const [token, user] of Object.entries(seed.tokens)) {
@@ -290,7 +314,7 @@ export class EmulatorDurableObject {
       // Permissive convenience token only — strict mode requires explicit creds.
       tokens["test_token_admin"] = { login: "admin", id: 2, scopes: ["repo", "user", "admin:org", "admin:repo_hook"] };
     }
-    for (const m of minted ?? []) tokens[m.token] = { login: m.login, id: m.id, scopes: m.scopes };
+    for (const m of minted ?? []) tokens[m.token] = tokenUser(m);
     return tokens;
   }
 
@@ -305,6 +329,9 @@ export class EmulatorDurableObject {
   // restoring a persisted snapshot if present, else seeding fresh.
   private async ensure(service: string, instance: string, baseUrl: string, preset?: string): Promise<Live> {
     if (this.live && this.live.service === service && this.live.baseUrl === baseUrl) return this.live;
+    // The same instance reached under another base address (http and https, say) is rebuilt
+    // for that address. Save everything first, so the rebuild starts from the state as it is.
+    if (this.live) await this.persist(true);
     const entry = SERVICES[service];
     if (!entry) throw new Error(`unknown emulator service: ${service}`);
 
@@ -316,7 +343,9 @@ export class EmulatorDurableObject {
     const ledgerSnapshot = await this.readLedger(persisted.ledger);
     const faultSnapshot = await this.state.storage.get<FaultRegistrySnapshot>(FAULTS_KEY);
     const minted = await this.readMinted(persisted.minted);
-    const tokens = this.buildTokens(persisted.seed, strict, minted);
+    const complete = (await this.state.storage.get<boolean>(TOKENS_COMPLETE_KEY)) === true;
+    const tokens = this.buildTokens(persisted.seed, strict, minted, complete);
+    const webhookSnapshot = await this.state.storage.get<WebhookDispatcherSnapshot>(WEBHOOKS_KEY);
 
     // eslint-disable-next-line prefer-const
     let cachedResolver: AppKeyResolver | undefined;
@@ -348,14 +377,11 @@ export class EmulatorDurableObject {
       },
       issueCredential: async (request) => {
         const credential = issueCloudflareCredential(service, entry, store, baseUrl, tokenMap as TokenMap, request);
-        // Persist minted bearer/API-key tokens so credentials created via
-        // /_emulate/credentials survive Durable Object eviction (rebuilds restore
-        // tokens from split credential records), matching the legacy /__token endpoint.
-        if (typeof credential.token === "string" && credential.token.length > 0) {
-          await this.writeMinted({
-            token: credential.token,
+        // A bearer or API-key credential is a token-map entry like any other, saved below.
+        if (typeof credential.token === "string" && credential.token.length > 0 && !tokenMap.has(credential.token)) {
+          tokenMap.set(credential.token, {
             login: credential.login ?? "admin",
-            id: (tokenMap as TokenMap).get(credential.token)?.id ?? Date.now(),
+            id: Date.now(),
             scopes: credential.scopes ?? [],
           });
         }
@@ -369,6 +395,7 @@ export class EmulatorDurableObject {
     else this.seedInto(store, service, baseUrl, persisted.seed);
     ledger.restore(ledgerSnapshot);
     faults.restore(faultSnapshot);
+    webhooks.restore(webhookSnapshot);
     resetService = async () => {
       store.reset();
       webhooks.clear();
@@ -394,6 +421,7 @@ export class EmulatorDurableObject {
       tokenMap: tokenMap as TokenMap,
       ledger,
       faults,
+      webhooks,
       service,
       instance,
       baseUrl,
@@ -408,17 +436,25 @@ export class EmulatorDurableObject {
     return this.live;
   }
 
-  /** Every snapshot and ledger value the live state needs in storage, by key. */
-  private persistedEntries(live: Live): Map<string, unknown> {
+  /**
+   * Every value the live state needs in storage, by key. Without `withStore`, the
+   * store snapshot is left out: it changes only on writes and is the costly part.
+   */
+  private persistedEntries(live: Live, withStore: boolean): Map<string, unknown> {
     const entries = new Map<string, unknown>();
-    const snapshot = live.store.snapshot();
-    const meta: SnapshotMeta = { collections: {} };
-    for (const [key, value] of Object.entries(snapshot.data)) entries.set(snapshotDataKey(key), value);
-    for (const [name, collection] of Object.entries(snapshot.collections)) {
-      meta.collections[name] = { autoId: collection.autoId, indexFields: collection.indexFields };
-      for (const item of collection.items) entries.set(snapshotItemKey(name, item.id), item);
+    if (withStore) {
+      const snapshot = live.store.snapshot();
+      const meta: SnapshotMeta = { collections: {} };
+      for (const [key, value] of Object.entries(snapshot.data)) entries.set(snapshotDataKey(key), value);
+      for (const [name, collection] of Object.entries(snapshot.collections)) {
+        meta.collections[name] = { autoId: collection.autoId, indexFields: collection.indexFields };
+        for (const item of collection.items) entries.set(snapshotItemKey(name, item.id), item);
+      }
+      entries.set(SNAPSHOT_META_KEY, meta);
     }
-    entries.set(SNAPSHOT_META_KEY, meta);
+    for (const [token, user] of live.tokenMap) entries.set(this.tokenKeys.get(token)!, tokenEntry(token, user));
+    entries.set(TOKENS_COMPLETE_KEY, true);
+    entries.set(WEBHOOKS_KEY, live.webhooks.serialize());
     // The request ledger is intentionally durable, agent-readable history. Entries
     // are split by id so each request writes only its own entry.
     const ledger = live.ledger.serialize();
@@ -433,29 +469,38 @@ export class EmulatorDurableObject {
 
   private async readWritten(): Promise<Map<string, string>> {
     const written = new Map<string, string>();
-    for (const prefix of [SNAPSHOT_ITEM_PREFIX, SNAPSHOT_DATA_PREFIX, LEDGER_ENTRY_PREFIX]) {
+    for (const prefix of [SNAPSHOT_ITEM_PREFIX, SNAPSHOT_DATA_PREFIX, LEDGER_ENTRY_PREFIX, MINTED_PREFIX]) {
       for (const [key, value] of await this.state.storage.list({ prefix })) written.set(key, JSON.stringify(value));
     }
-    for (const key of [SNAPSHOT_META_KEY, LEDGER_META_KEY, FAULTS_KEY]) {
+    for (const key of [SNAPSHOT_META_KEY, LEDGER_META_KEY, FAULTS_KEY, TOKENS_COMPLETE_KEY, WEBHOOKS_KEY]) {
       const value = await this.state.storage.get(key);
       if (value !== undefined) written.set(key, JSON.stringify(value));
     }
     return written;
   }
 
-  private async persist(): Promise<void> {
+  /**
+   * Bring storage in step with the live state. Called after every request: reads
+   * too, since a read is recorded on the ledger and can issue or revoke a token.
+   */
+  private async persist(withStore = true): Promise<void> {
     const live = this.live;
     if (!live) return;
     const written = (this.written ??= await this.readWritten());
+    for (const token of live.tokenMap.keys()) {
+      if (!this.tokenKeys.has(token)) this.tokenKeys.set(token, await this.mintedKey(token));
+    }
     const puts: Array<{ key: string; value: unknown }> = [];
-    const entries = this.persistedEntries(live);
+    const entries = this.persistedEntries(live, withStore);
     for (const [key, value] of entries) {
       const json = JSON.stringify(value);
       if (written.get(key) === json) continue;
       puts.push({ key, value });
       written.set(key, json);
     }
-    const deletes = [...written.keys()].filter((key) => !entries.has(key));
+    const isStoreKey = (key: string) =>
+      key === SNAPSHOT_META_KEY || key.startsWith(SNAPSHOT_ITEM_PREFIX) || key.startsWith(SNAPSHOT_DATA_PREFIX);
+    const deletes = [...written.keys()].filter((key) => !entries.has(key) && (withStore || !isStoreKey(key)));
     for (const key of deletes) written.delete(key);
     if (puts.length === 0 && deletes.length === 0) return;
     try {
@@ -490,6 +535,7 @@ export class EmulatorDurableObject {
       await this.clearLedger();
       await this.clearMinted();
       await this.state.storage.delete(FAULTS_KEY);
+      await this.state.storage.delete(WEBHOOKS_KEY);
       await this.writeStateMeta({ seed, strict: strict !== false });
       this.live = undefined;
       this.written = undefined;
@@ -516,7 +562,6 @@ export class EmulatorDurableObject {
       const token = `emu_${service}_${crypto.randomUUID().replace(/-/g, "")}`;
       const scopeList = scopes ?? [];
       live.tokenMap.set(token, { login, id, scopes: scopeList });
-      await this.writeMinted({ token, login, id, scopes: scopeList });
       await this.persist();
       return Response.json({ token, login, scopes: scopeList });
     }
@@ -526,7 +571,7 @@ export class EmulatorDurableObject {
     // A plugin can ask for a save after a read that changed state (X counts GETs
     // against its rate limits and records them in the ledger). Others never do.
     const persistRequested = live.store.takePersistRequest();
-    if (MUTATES(request.method) || persistRequested) await this.persist();
+    await this.persist(MUTATES(request.method) || persistRequested);
     return res;
   }
 }

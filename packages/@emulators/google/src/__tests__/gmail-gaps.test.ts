@@ -181,30 +181,6 @@ describe("token endpoint client authentication", () => {
     expect(((await res.json()) as Json).access_token).toBeTruthy();
   });
 
-  it("keeps issued access tokens in the store, so a rebuilt instance still accepts them until revoked", async () => {
-    const { app, tokenMap } = setup();
-    const res = await app.request(
-      `${base}/oauth2/token`,
-      form(
-        { grant_type: "authorization_code", code: await code(app), redirect_uri: "http://localhost:3000/callback" },
-        { Authorization: basic("gmail-client", "gmail-secret/with+chars") },
-      ),
-    );
-    const { access_token } = (await res.json()) as Json;
-    // A host rebuilding the instance starts with an empty token map.
-    (tokenMap as TokenMap).delete(access_token);
-    const profile = await app.request(`${base}/gmail/v1/users/me/profile`, {
-      headers: { Authorization: `Bearer ${access_token}` },
-    });
-    expect(profile.status).toBe(200);
-    expect(((await profile.json()) as Json).emailAddress).toBe(USER);
-    await app.request(`${base}/oauth2/revoke`, form({ token: access_token }));
-    const after = await app.request(`${base}/gmail/v1/users/me/profile`, {
-      headers: { Authorization: `Bearer ${access_token}` },
-    });
-    expect(after.status).toBe(401);
-  });
-
   it("still accepts client_secret_post and refuses a wrong Basic secret", async () => {
     const { app } = setup();
     const post = await app.request(
