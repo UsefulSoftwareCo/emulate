@@ -28,7 +28,7 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
       title: "X API v2 (Emulated)",
       version: "2.0.0",
       description:
-        "Emulated subset of the X (formerly Twitter) API v2. Supports app-only Bearer tokens (client_credentials), the OAuth 2.0 Authorization Code flow with PKCE (user context), and a documented-partial legacy OAuth 1.0a user context.",
+        "Emulated subset of the X (formerly Twitter) API v2. Supports app-only Bearer tokens (client_credentials), the OAuth 2.0 Authorization Code flow with PKCE (user context), direct messages, DM media upload and download, webhooks with X Activity API DM subscriptions, and a documented-partial legacy OAuth 1.0a user context. Limited responses carry x-rate-limit-limit, x-rate-limit-remaining and x-rate-limit-reset (epoch seconds); a spent window answers 429.",
     },
     servers: [{ url: baseUrl }],
     components: {
@@ -125,6 +125,7 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
           responses: { "200": ok("Deletion result."), "403": ok("Insufficient scope.") },
         },
       },
+      ...dmPaths(),
       "/2/tweets": {
         get: {
           operationId: "findTweetsById",
@@ -147,6 +148,263 @@ function buildSpec(baseUrl: string): Record<string, unknown> {
           },
           responses: { "201": ok("Created Tweet."), "403": ok("Insufficient scope.") },
         },
+      },
+    },
+  };
+}
+
+const path = (name: string) => ({ name, in: "path", required: true, schema: { type: "string" } });
+const query = (name: string, schema: Record<string, unknown> = { type: "string" }) => ({
+  name,
+  in: "query",
+  required: false,
+  schema,
+});
+const rateLimited = { "429": ok("Rate limit exceeded: {errors:[{code:88,message}]}.") };
+const dmListParams = [
+  query("max_results", { type: "integer", minimum: 1, maximum: 100, default: 100 }),
+  query("pagination_token", { type: "string", minLength: 16 }),
+  query("event_types"),
+  query("dm_event.fields"),
+  query("expansions"),
+  query("user.fields"),
+  query("media.fields"),
+];
+const DM_READ = [{ OAuth2UserToken: ["dm.read", "tweet.read", "users.read"] }];
+const DM_WRITE = [{ OAuth2UserToken: ["dm.write", "tweet.read", "users.read"] }];
+const MEDIA_WRITE = [{ OAuth2UserToken: ["media.write"] }];
+const ANY = [{ BearerToken: [] }, { OAuth2UserToken: [] }];
+const json = (properties: Record<string, unknown>, required: string[] = []) => ({
+  required: true,
+  content: { "application/json": { schema: { type: "object", required, properties } } },
+});
+const sendBody = json({
+  text: { type: "string", minLength: 1 },
+  attachments: { type: "array", items: { type: "object", properties: { media_id: { type: "string" } } } },
+});
+
+function dmPaths(): Record<string, unknown> {
+  return {
+    "/2/dm_events": {
+      get: {
+        operationId: "getDirectMessagesEvents",
+        summary: "Get DM events across the user's conversations",
+        parameters: dmListParams,
+        security: DM_READ,
+        responses: { "200": ok("DM events, newest first."), ...rateLimited },
+      },
+    },
+    "/2/dm_events/{event_id}": {
+      get: {
+        operationId: "getDirectMessagesEventsById",
+        summary: "Get a DM event by id",
+        parameters: [path("event_id"), query("dm_event.fields"), query("expansions")],
+        security: DM_READ,
+        responses: { "200": ok("DM event."), ...rateLimited },
+      },
+      delete: {
+        operationId: "deleteDirectMessagesEvents",
+        summary: "Delete a DM event you sent",
+        parameters: [path("event_id")],
+        security: [{ OAuth2UserToken: ["dm.read", "dm.write"] }],
+        responses: { "200": ok("Deleted."), ...rateLimited },
+      },
+    },
+    "/2/dm_conversations/with/{participant_id}/dm_events": {
+      get: {
+        operationId: "getDirectMessagesEventsByParticipantId",
+        summary: "Get events of the one-to-one conversation with a participant",
+        parameters: [path("participant_id"), ...dmListParams],
+        security: DM_READ,
+        responses: { "200": ok("DM events."), ...rateLimited },
+      },
+    },
+    "/2/dm_conversations/{id}/dm_events": {
+      get: {
+        operationId: "getDirectMessagesEventsByConversationId",
+        summary: "Get events of a conversation by id",
+        parameters: [path("id"), ...dmListParams],
+        security: DM_READ,
+        responses: { "200": ok("DM events."), ...rateLimited },
+      },
+    },
+    "/2/dm_conversations/with/{participant_id}/messages": {
+      post: {
+        operationId: "createDirectMessagesByParticipantId",
+        summary: "Send a DM to a participant",
+        parameters: [path("participant_id")],
+        security: DM_WRITE,
+        requestBody: sendBody,
+        responses: { "201": ok("{data:{dm_conversation_id, dm_event_id}}."), ...rateLimited },
+      },
+    },
+    "/2/dm_conversations/{dm_conversation_id}/messages": {
+      post: {
+        operationId: "createDirectMessagesByConversationId",
+        summary: "Send a DM to a conversation",
+        parameters: [path("dm_conversation_id")],
+        security: DM_WRITE,
+        requestBody: sendBody,
+        responses: { "201": ok("{data:{dm_conversation_id, dm_event_id}}."), ...rateLimited },
+      },
+    },
+    "/2/dm_conversations": {
+      post: {
+        operationId: "createDirectMessagesConversation",
+        summary: "Create a group conversation",
+        security: DM_WRITE,
+        requestBody: json(
+          { conversation_type: { type: "string", enum: ["Group"] }, participant_ids: { type: "array" }, message: {} },
+          ["conversation_type", "participant_ids", "message"],
+        ),
+        responses: { "201": ok("{data:{dm_conversation_id, dm_event_id}}."), ...rateLimited },
+      },
+    },
+    "/2/dm_conversations/media/{dm_id}/{media_id}/{resource_id}": {
+      get: {
+        operationId: "dmConversationsMediaDownload",
+        summary: "Download DM media",
+        parameters: [path("dm_id"), path("media_id"), path("resource_id")],
+        security: [{ OAuth2UserToken: ["dm.read"] }],
+        responses: {
+          "200": {
+            description: "Raw bytes.",
+            content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } },
+          },
+        },
+      },
+    },
+    "/2/media/upload": {
+      post: {
+        operationId: "mediaUpload",
+        summary: "Upload media in one request",
+        security: MEDIA_WRITE,
+        requestBody: json({ media: { type: "string", format: "byte" }, media_category: { type: "string" } }, [
+          "media",
+          "media_category",
+        ]),
+        responses: { "200": ok("{data:{id, media_key, size, ...}}."), ...rateLimited },
+      },
+      get: {
+        operationId: "getMediaUploadStatus",
+        summary: "Media upload status",
+        parameters: [query("media_id"), query("command")],
+        security: MEDIA_WRITE,
+        responses: { "200": ok("Processing info."), ...rateLimited },
+      },
+    },
+    "/2/media/upload/initialize": {
+      post: {
+        operationId: "initializeMediaUpload",
+        summary: "Start a chunked upload",
+        security: MEDIA_WRITE,
+        requestBody: json({
+          media_category: { type: "string" },
+          media_type: { type: "string" },
+          total_bytes: { type: "integer" },
+        }),
+        responses: { "200": ok("{data:{id, media_key, expires_after_secs}}."), ...rateLimited },
+      },
+    },
+    "/2/media/upload/{id}/append": {
+      post: {
+        operationId: "appendMediaUpload",
+        summary: "Append a segment",
+        parameters: [path("id")],
+        security: MEDIA_WRITE,
+        requestBody: json({ media: { type: "string", format: "byte" }, segment_index: { type: "integer" } }, [
+          "media",
+          "segment_index",
+        ]),
+        responses: { "200": ok("{data:{expires_at}}."), ...rateLimited },
+      },
+    },
+    "/2/media/upload/{id}/finalize": {
+      post: {
+        operationId: "finalizeMediaUpload",
+        summary: "Finalize a chunked upload",
+        parameters: [path("id")],
+        security: MEDIA_WRITE,
+        responses: { "200": ok("{data:{id, media_key, size, processing_info?}}."), ...rateLimited },
+      },
+    },
+    "/2/webhooks": {
+      get: {
+        operationId: "getWebhooks",
+        summary: "List webhook configs",
+        security: ANY,
+        responses: { "200": ok("Webhooks.") },
+      },
+      post: {
+        operationId: "createWebhooks",
+        summary: "Create a webhook (sends the CRC first)",
+        security: ANY,
+        requestBody: json({ url: { type: "string", maxLength: 200 } }, ["url"]),
+        responses: { "200": ok("{data:{id, url, valid, created_at}}."), "400": ok("CrcValidationFailed and others.") },
+      },
+    },
+    "/2/webhooks/{webhook_id}": {
+      put: {
+        operationId: "validateWebhooks",
+        summary: "Trigger a CRC",
+        parameters: [path("webhook_id")],
+        security: ANY,
+        responses: { "200": ok("{data:{valid}}.") },
+      },
+      delete: {
+        operationId: "deleteWebhooks",
+        summary: "Delete a webhook config",
+        parameters: [path("webhook_id")],
+        security: ANY,
+        responses: { "200": ok("{data:{deleted}}.") },
+      },
+    },
+    "/2/activity/subscriptions": {
+      post: {
+        operationId: "createActivitySubscription",
+        summary: "Subscribe a webhook to a user's DM events (dm.sent, dm.received)",
+        security: ANY,
+        requestBody: json(
+          {
+            event_type: { type: "string", enum: ["dm.sent", "dm.received", "dm.read", "dm.indicate_typing"] },
+            filter: { type: "object", properties: { user_id: { type: "string" } } },
+            webhook_id: { type: "string" },
+            tag: { type: "string" },
+            expires_at: { type: "string" },
+          },
+          ["event_type", "filter"],
+        ),
+        responses: { "200": ok("{data:{subscription}}.") },
+      },
+      get: {
+        operationId: "getActivitySubscriptions",
+        summary: "List the app's subscriptions",
+        parameters: [query("user_id"), query("max_results", { type: "integer", minimum: 1, maximum: 1000 })],
+        security: ANY,
+        responses: { "200": ok("Subscriptions.") },
+      },
+      delete: {
+        operationId: "deleteActivitySubscriptionsByIds",
+        summary: "Delete several subscriptions",
+        parameters: [{ ...query("ids"), required: true }],
+        security: [{ BearerToken: [] }],
+        responses: { "200": ok("Per-id results.") },
+      },
+    },
+    "/2/activity/subscriptions/{subscription_id}": {
+      put: {
+        operationId: "updateActivitySubscription",
+        summary: "Update tag or webhook_id",
+        parameters: [path("subscription_id")],
+        security: ANY,
+        responses: { "200": ok("{data:{subscription}}.") },
+      },
+      delete: {
+        operationId: "deleteActivitySubscription",
+        summary: "Delete a subscription",
+        parameters: [path("subscription_id")],
+        security: ANY,
+        responses: { "200": ok("{data:{deleted}}.") },
       },
     },
   };

@@ -221,6 +221,24 @@ export class Collection<T extends Entity> {
 export class Store {
   private collections = new Map<string, Collection<any>>();
   private _data = new Map<string, unknown>();
+  private persistRequested = false;
+
+  /**
+   * Ask a persisting host to save state after the current request even when its
+   * method would not normally write (a GET that counted against a rate limit,
+   * say). Hosts that persist only after writes check `takePersistRequest()`.
+   * Nothing calls this unless a plugin opts in, so other services are unchanged.
+   */
+  requestPersist(): void {
+    this.persistRequested = true;
+  }
+
+  /** Whether a save was requested since the last call; clears the request. */
+  takePersistRequest(): boolean {
+    const requested = this.persistRequested;
+    this.persistRequested = false;
+    return requested;
+  }
 
   collection<T extends Entity>(name: string, indexFields: (keyof T)[] = []): Collection<T> {
     const existing = this.collections.get(name);

@@ -43,6 +43,9 @@ export const X_SCOPES = [
   "block.write",
   "bookmark.read",
   "bookmark.write",
+  "dm.read",
+  "dm.write",
+  "media.write",
 ] as const;
 
 interface ClientCredentials {

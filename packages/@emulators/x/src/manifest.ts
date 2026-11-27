@@ -15,7 +15,7 @@ export const manifest: ServiceManifest = {
   id: "x",
   name: "X",
   description:
-    "Stateful X (formerly Twitter) API v2 emulator focused on faithful auth: app-only Bearer tokens, OAuth 2.0 Authorization Code with PKCE, and a documented-partial legacy OAuth 1.0a surface.",
+    "Stateful X (formerly Twitter) API v2 emulator: app-only Bearer tokens, OAuth 2.0 Authorization Code with PKCE, users, Posts, direct messages, DM media upload and download, webhooks with the CRC and X Activity API DM events, and X's per-endpoint rate limits.",
   docsUrl: "https://docs.emulators.dev/x",
   surfaces: [
     { id: "rest", kind: "rest", title: "X API v2 (REST)", status: "partial", basePath: "/2" },
@@ -32,6 +32,32 @@ export const manifest: ServiceManifest = {
       title: "App-only Bearer token (client credentials)",
       status: "supported",
       basePath: "/2/oauth2/token",
+    },
+    {
+      id: "webhooks",
+      kind: "webhooks",
+      title: "Webhooks (CRC) and X Activity API DM events",
+      status: "partial",
+      basePath: "/2/webhooks",
+      notes:
+        "Webhook configs with the CRC at creation and on PUT; X Activity API subscriptions for dm.sent and dm.received, delivered as the documented envelope and signed with X-Twitter-Webhooks-Signature-OAuth2 (client secret) plus X-Twitter-Webhooks-Signature when a consumer_secret is seeded. Other XAA event types, the persistent stream, replay, filter qualifiers and the hourly CRC are not emulated. CRC delivery mode `control` (POST /_emulate/x/webhooks/crc-delivery) is an emulator mode, not X behaviour.",
+    },
+    {
+      id: "account-activity",
+      kind: "webhooks",
+      title: "Account Activity API (deprecated by X)",
+      status: "unsupported",
+      basePath: "/2/account_activity",
+      notes:
+        "X marks the Account Activity API as deprecated in favour of the X Activity API (https://docs.x.com/x-api/account-activity/introduction); its subscription routes are not emulated.",
+    },
+    {
+      id: "rate-limits",
+      kind: "provider-specific",
+      title: "Rate limits (x-rate-limit-* headers, 429 code 88)",
+      status: "supported",
+      notes:
+        "Per-endpoint fixed windows from https://docs.x.com/x-api/fundamentals/rate-limits, per user for user tokens and per app for app-only tokens (and as an app-wide cap on user-only endpoints). Overridable per instance with the rate_limits seed field or POST /_emulate/x/rate-limits.",
     },
     {
       id: "oauth1",
@@ -113,6 +139,155 @@ export const manifest: ServiceManifest = {
         },
         { operationId: "usersIdFollow", method: "POST", path: "/2/users/:id/following", status: "unsupported" },
         { operationId: "usersIdLike", method: "POST", path: "/2/users/:id/likes", status: "unsupported" },
+        {
+          operationId: "getDirectMessagesEventsByParticipantId",
+          method: "GET",
+          path: "/2/dm_conversations/with/:participant_id/dm_events",
+          status: "hand-authored",
+          summary: "One-to-one conversation events. dm.read, tweet.read, users.read.",
+        },
+        {
+          operationId: "createDirectMessagesByParticipantId",
+          method: "POST",
+          path: "/2/dm_conversations/with/:participant_id/messages",
+          status: "hand-authored",
+          summary: "Send to a participant. dm.write, tweet.read, users.read.",
+        },
+        {
+          operationId: "dmConversationsMediaDownload",
+          method: "GET",
+          path: "/2/dm_conversations/media/:dm_id/:media_id/:resource_id",
+          status: "partial",
+          summary:
+            "Streams a DM attachment to a participant with dm.read. Seeded and generated media are deterministic placeholder bytes; the media url X returns is not documented, so includes.media.url points here.",
+        },
+        {
+          operationId: "getDirectMessagesEventsByConversationId",
+          method: "GET",
+          path: "/2/dm_conversations/:id/dm_events",
+          status: "hand-authored",
+        },
+        {
+          operationId: "createDirectMessagesByConversationId",
+          method: "POST",
+          path: "/2/dm_conversations/:dm_conversation_id/messages",
+          status: "hand-authored",
+        },
+        {
+          operationId: "createDirectMessagesConversation",
+          method: "POST",
+          path: "/2/dm_conversations",
+          status: "hand-authored",
+          summary: "Group conversation with an initial message.",
+        },
+        {
+          operationId: "getDirectMessagesEvents",
+          method: "GET",
+          path: "/2/dm_events",
+          status: "hand-authored",
+          summary:
+            "All of the user's DM events, newest first, 30-day retention, max_results 1-100, base32hex pagination tokens. referenced_posts are never present.",
+        },
+        {
+          operationId: "getDirectMessagesEventsById",
+          method: "GET",
+          path: "/2/dm_events/:event_id",
+          status: "hand-authored",
+        },
+        {
+          operationId: "deleteDirectMessagesEvents",
+          method: "DELETE",
+          path: "/2/dm_events/:event_id",
+          status: "hand-authored",
+          summary: "Sender only. dm.read, dm.write.",
+        },
+        {
+          operationId: "initializeMediaUpload",
+          method: "POST",
+          path: "/2/media/upload/initialize",
+          status: "hand-authored",
+        },
+        {
+          operationId: "appendMediaUpload",
+          method: "POST",
+          path: "/2/media/upload/:id/append",
+          status: "hand-authored",
+          summary: "JSON (base64) or multipart segments of up to 8 MB.",
+        },
+        {
+          operationId: "finalizeMediaUpload",
+          method: "POST",
+          path: "/2/media/upload/:id/finalize",
+          status: "partial",
+          summary: "No processing: video reports processing_info.state succeeded at once; dimensions are not decoded.",
+        },
+        {
+          operationId: "mediaUpload",
+          method: "POST",
+          path: "/2/media/upload",
+          status: "partial",
+          summary: "Single-request upload, JSON or multipart. media.write. Dimensions are not decoded.",
+        },
+        { operationId: "getMediaUploadStatus", method: "GET", path: "/2/media/upload", status: "hand-authored" },
+        { operationId: "getMediaByMediaKey", method: "GET", path: "/2/media/:media_key", status: "unsupported" },
+        {
+          operationId: "chatMediaUploadInitialize",
+          method: "POST",
+          path: "/2/chat/media/upload/initialize",
+          status: "unsupported",
+        },
+        { operationId: "getWebhooks", method: "GET", path: "/2/webhooks", status: "hand-authored" },
+        {
+          operationId: "createWebhooks",
+          method: "POST",
+          path: "/2/webhooks",
+          status: "hand-authored",
+          summary: "Sends the CRC first and refuses a wrong answer (CrcValidationFailed).",
+        },
+        { operationId: "validateWebhooks", method: "PUT", path: "/2/webhooks/:webhook_id", status: "hand-authored" },
+        { operationId: "deleteWebhooks", method: "DELETE", path: "/2/webhooks/:webhook_id", status: "hand-authored" },
+        { operationId: "createWebhookReplayJob", method: "POST", path: "/2/webhooks/replay", status: "unsupported" },
+        {
+          operationId: "createActivitySubscription",
+          method: "POST",
+          path: "/2/activity/subscriptions",
+          status: "partial",
+          summary:
+            "dm.sent and dm.received are delivered; dm.read and dm.indicate_typing are accepted but never fire; other event types are refused.",
+        },
+        {
+          operationId: "getActivitySubscriptions",
+          method: "GET",
+          path: "/2/activity/subscriptions",
+          status: "partial",
+          summary: "No pagination_token; up to max_results are returned.",
+        },
+        {
+          operationId: "deleteActivitySubscriptionsByIds",
+          method: "DELETE",
+          path: "/2/activity/subscriptions",
+          status: "hand-authored",
+        },
+        {
+          operationId: "updateActivitySubscription",
+          method: "PUT",
+          path: "/2/activity/subscriptions/:subscription_id",
+          status: "hand-authored",
+        },
+        {
+          operationId: "deleteActivitySubscription",
+          method: "DELETE",
+          path: "/2/activity/subscriptions/:subscription_id",
+          status: "hand-authored",
+        },
+        { operationId: "activityStream", method: "GET", path: "/2/activity/stream", status: "unsupported" },
+        {
+          operationId: "createAccountActivitySubscription",
+          method: "POST",
+          path: "/2/account_activity/webhooks/:webhook_id/subscriptions/all",
+          status: "unsupported",
+          summary: "Account Activity API is deprecated by X; use the X Activity API.",
+        },
       ],
     },
     {
@@ -126,6 +301,12 @@ export const manifest: ServiceManifest = {
       id: "default",
       title: "Single developer account",
       description: "One verified user with a seeded confidential and public OAuth client.",
+    },
+    {
+      id: "dm-backfill",
+      title: "Direct-message backfill",
+      description:
+        "Seed dm_bulk (or dm_conversations with generate) to give a user thousands of computed DM events to page through under X's rate limits.",
     },
   ],
   seedSchema: {
@@ -159,6 +340,51 @@ export const manifest: ServiceManifest = {
         description: "Tweets authored by a seeded user (referenced by username or id).",
         example: [{ text: "Hello from X.", author: "developer", like_count: 42 }],
       },
+      {
+        key: "dm_conversations",
+        title: "Direct-message conversations",
+        description:
+          "Participants by username or id (two make a one-to-one conversation). Explicit messages are stored; generate:{count, start?, interval_seconds?, attachment_every?, attachment_bytes?} describes history computed on demand and never stored.",
+        example: [
+          {
+            participants: ["developer", "alice"],
+            messages: [{ from: "alice", text: "Hi!", attachment: { bytes: 4194304, media_type: "image/jpeg" } }],
+            generate: { count: 2000, interval_seconds: 60, attachment_every: 50 },
+          },
+        ],
+      },
+      {
+        key: "dm_bulk",
+        title: "Many generated conversations",
+        description: "One user with N partners (created as users dm_partner_1..N), each with generated history.",
+        example: { user: "developer", conversations: 50, events_per_conversation: 1000 },
+      },
+      {
+        key: "rate_limits",
+        title: "Rate-limit overrides",
+        description:
+          "{ enabled?, default?: {limit, window_seconds}, endpoints?: { <operationId>: {limit, window_seconds} } }. An override replaces X's windows for that endpoint with one window per user (user tokens) or per app (app-only tokens).",
+        example: { endpoints: { getDirectMessagesEvents: { limit: 3, window_seconds: 5 } } },
+      },
+      {
+        key: "webhooks",
+        title: "Webhook configs",
+        description: "Registered without a CRC, as if already validated.",
+        example: [{ url: "https://example.test/webhooks/x", client_id: "x-confidential-client" }],
+      },
+      {
+        key: "activity_subscriptions",
+        title: "X Activity API subscriptions",
+        description: "dm.sent or dm.received for a user, delivered to a webhook (id or url).",
+        example: [{ event_type: "dm.received", user: "developer", webhook: "https://example.test/webhooks/x" }],
+      },
+      {
+        key: "webhook_crc_delivery",
+        title: "CRC delivery mode",
+        description:
+          "outbound (default, X's behaviour) or control: an emulator mode in which webhook creation sends no challenge and each challenge is held at GET /_emulate/x/webhooks/:id/challenge for the test to deliver.",
+        example: "control",
+      },
     ],
     example: {
       users: [{ username: "developer", name: "Developer", verified: true, followers_count: 1200 }],
@@ -184,6 +410,14 @@ export const manifest: ServiceManifest = {
       { name: "x.auth_codes", title: "Authorization codes" },
       { name: "x.access_tokens", title: "Access tokens" },
       { name: "x.refresh_tokens", title: "Refresh tokens" },
+      { name: "x.dm_conversations", title: "DM conversations (with any generated history spec)" },
+      { name: "x.dm_events", title: "Stored DM events (sent, arrived, seeded)" },
+      { name: "x.media", title: "Media" },
+      { name: "x.media_chunks", title: "Uploaded media bytes, in parts" },
+      { name: "x.webhooks", title: "Webhook configs" },
+      { name: "x.activity_subscriptions", title: "X Activity API subscriptions" },
+      { name: "x.pending_challenges", title: "CRC challenges held in control mode" },
+      { name: "x.rate_windows", title: "Open rate-limit windows" },
     ],
   },
   connections: [

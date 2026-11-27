@@ -27,7 +27,7 @@ All services start with sensible defaults. No config file needed:
 - **MongoDB Atlas** on `http://localhost:4010`
 - **Clerk** on `http://localhost:4011`
 - **Spotify** on `http://localhost:4012`
-- **X** on `http://localhost:4013`
+- **X** on `http://localhost:4013` (OAuth 2.0, users, Posts, direct messages, DM media, webhooks with X Activity API DM events, X rate limits)
 - **WorkOS** on `http://localhost:4014` (AuthKit, user directory, organizations, organization domains, Vault, and OAuth)
 - **Autumn** on `http://localhost:4015`
 - **PostHog** on `http://localhost:4016`
@@ -1043,6 +1043,54 @@ Modal opens and pushes require values from `/api/views.generateTriggerId`. Pass 
 Slack scope checks are relaxed by default so local tests can use simple bearer tokens. Set `slack.strict_scopes: true` in seed config to make supported Web API methods return Slack-style `missing_scope` errors with `needed` and `provided` fields. Strict mode checks `chat:write`, `channels:read`, `channels:history`, `channels:join`, `channels:manage`, `channels:write`, `groups:read`, `groups:history`, `groups:write`, `im:read`, `im:history`, `im:write`, `mpim:read`, `mpim:history`, `mpim:write`, `users:read`, `users:read.email`, `users.profile:read`, `users.profile:write`, `users:write`, `files:read`, `files:write`, `pins:read`, `pins:write`, `bookmarks:read`, `bookmarks:write`, `reactions:read`, `reactions:write`, and `team:read`. Slack lists no method-specific scopes for `views.publish`, `views.open`, `views.update`, or `views.push`, so the emulator requires auth but does not add strict-scope checks for those methods.
 
 Current Slack limits: Slack Connect, Enterprise Grid admin APIs, Audit Logs API, SCIM, Legal Holds, Socket Mode, slash command and interaction simulation, user groups, reminders, stars, calls, canvases, lists, functions, workflows, chat streaming, legacy `files.upload`, exact rate limiting, and paid-plan behavior are not implemented.
+
+## X API v2
+
+When all services run together, X uses `http://localhost:4013`. Tokens come from the real OAuth 2.0 flows (`/2/oauth2/authorize`, `/2/oauth2/token`); the `dm.read`, `dm.write` and `media.write` scopes are accepted and enforced per route as X's OpenAPI spec lists them.
+
+### Direct messages
+
+- `GET /2/dm_events`, `GET /2/dm_conversations/with/:participant_id/dm_events`, `GET /2/dm_conversations/:id/dm_events`, `GET` and `DELETE /2/dm_events/:event_id`
+- `POST /2/dm_conversations/with/:participant_id/messages`, `POST /2/dm_conversations/:dm_conversation_id/messages`, `POST /2/dm_conversations` (group)
+- `max_results`, `pagination_token`, `event_types`, `dm_event.fields`, `expansions` (`sender_id`, `participant_ids`, `attachments.media_keys`), `user.fields`, `media.fields`; events from the last 30 days, newest first
+
+Seed history cheaply: `generate` describes events computed on demand, never stored.
+
+```yaml
+x:
+  users:
+    - username: developer
+    - username: alice
+  dm_conversations:
+    - participants: [developer, alice]
+      messages:
+        - from: alice
+          text: Hi!
+          attachment: { bytes: 4194304, media_type: image/jpeg }
+      generate: { count: 2000, interval_seconds: 60, attachment_every: 50 }
+  dm_bulk: { user: developer, conversations: 50, events_per_conversation: 1000 }
+  rate_limits:
+    endpoints:
+      getDirectMessagesEvents: { limit: 3, window_seconds: 5 }
+```
+
+### Media
+
+`POST /2/media/upload` (one request), `POST /2/media/upload/initialize`, `/:id/append`, `/:id/finalize` and `GET /2/media/upload?command=STATUS` (all `media.write`). Attach with `attachments: [{ media_id }]` on a send. Participants download with `GET /2/dm_conversations/media/:dm_id/:media_key/:media_id` (`dm.read`), streamed; `includes.media[].url` points there.
+
+### Webhooks and the X Activity API
+
+`/2/webhooks` (create, list, `PUT` for a CRC, delete) and `/2/activity/subscriptions` for `dm.sent` and `dm.received`. Creating a webhook sends `GET <url>?crc_token=...` and refuses a wrong answer. Deliveries use X's envelope and are signed over the raw body with `X-Twitter-Webhooks-Signature-OAuth2` (the client secret), plus `X-Twitter-Webhooks-Signature` when a `consumer_secret` is seeded. The deprecated Account Activity API is not emulated.
+
+For a test the emulator cannot reach:
+
+- `POST /_emulate/x/webhooks/crc-delivery` with `{"mode":"control"}` (or seed `webhook_crc_delivery: control`) is an emulator mode: creation sends no challenge, and `GET /_emulate/x/webhooks/:id/challenge` returns the GET X would send for the test to deliver; report the answer with `POST /_emulate/x/webhooks/:id/challenge`.
+- `POST /_emulate/x/dm/arrive` with `{"to":"developer","from":"alice","text":"hi"}` makes a message arrive (stored, then delivered).
+- `POST /_emulate/x/dm/preview-delivery` with `{"dm_event_id":"..."}` returns the exact URL, headers and body of each delivery without sending it.
+
+### Rate limits
+
+Limited responses carry `x-rate-limit-limit`, `x-rate-limit-remaining` and `x-rate-limit-reset` (epoch seconds); a spent window answers `429` with `{"errors":[{"code":88,"message":"Rate limit exceeded"}]}`. Windows follow X's table (for example 15 DM reads per 15 minutes per user). Override them with the `rate_limits` seed field or `POST /_emulate/x/rate-limits`; `GET /_emulate/x/rate-limits` shows the open windows. Every request, including 429s, is in `/_emulate/ledger` with its operation id, status and user.
 
 ## Apple Sign In
 

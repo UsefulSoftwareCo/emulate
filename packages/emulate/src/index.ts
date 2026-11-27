@@ -78,6 +78,11 @@ Global catalog:
   see the MCP manifest seed schema for issuer, resource, DCR, and token-auth knobs.
   Microsoft Graph includes OneDrive file content upload/download routes under
   /v1.0/me/drive and /v1.0/drives/:driveId.
+  X emulates v2 direct messages, DM media, webhooks with X Activity API DM
+  events, and X's rate limits (x-rate-limit-* headers, 429). Seed rate_limits
+  or POST /_emulate/x/rate-limits to set a limit and window per instance;
+  POST /_emulate/x/dm/arrive makes a message arrive, and
+  POST /_emulate/x/dm/preview-delivery returns a signed delivery unsent.
   Service host:    <service>.emulators.dev (control plane only, no shared
                    instance; create one via POST /_emulate/instances)
   Instance host:   <service>.<instance>.emulators.dev
