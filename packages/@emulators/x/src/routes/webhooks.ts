@@ -104,6 +104,7 @@ export function webhookRoutes({ app, store, baseUrl }: RouteContext): void {
       client_id: client.client_id,
       url,
       valid: true,
+      crc_proven: mode === "outbound",
       created_at_x: new Date().toISOString(),
     });
     if (mode === "control") holdChallenge(store, webhook);
@@ -142,7 +143,7 @@ export function webhookRoutes({ app, store, baseUrl }: RouteContext): void {
     }
     const client = xs.oauthClients.findOneBy("client_id", webhook.client_id)!;
     const crc = await runCrc(client, webhook.url);
-    xs.webhooks.update(webhook.id, { valid: crc.valid });
+    xs.webhooks.update(webhook.id, { valid: crc.valid, crc_proven: crc.valid });
     if (!crc.valid) return webhookFailure(c, "CrcValidationFailed", crc.reason ?? "The CRC check failed.");
     return c.json({ data: { valid: true } });
   });

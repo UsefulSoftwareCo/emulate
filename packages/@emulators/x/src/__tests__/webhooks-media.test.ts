@@ -257,6 +257,127 @@ describe("webhook addresses in each CRC mode on an https instance", () => {
   });
 });
 
+describe("deliveries go only to an address whose owner answered the challenge", () => {
+  const answer = async (control: (path: string, body?: unknown) => Promise<Response>, id: string) => {
+    const challenge = (await (await control(`/webhooks/${id}/challenge`)).json()) as Json;
+    return (await (
+      await control(`/webhooks/${id}/challenge`, { response_token: sign(SECRET, challenge.crc_token) })
+    ).json()) as Json;
+  };
+
+  it("never calls an address accepted only through control mode's relaxation, even once answered", async () => {
+    const r = await receiver(SECRET); // http://127.0.0.1:<port>: http and a port
+    const host = "https://x.example.test";
+    const server = createServer(xPlugin, { baseUrl: host });
+    seedFromConfig(server.store, host, {
+      users: [
+        { username: "developer", user_id: DEV },
+        { username: "alice", user_id: ALICE },
+      ],
+      oauth_clients: [{ client_id: "dm-app", client_secret: SECRET, client_type: "confidential" }],
+      webhook_crc_delivery: "control",
+    });
+    const xs = getXStore(server.store);
+    for (const [t, user] of [
+      ["app", null],
+      ["dev", DEV],
+      ["alice", ALICE],
+    ] as const) {
+      xs.accessTokens.insert({
+        token: t,
+        client_id: "dm-app",
+        user_id: user,
+        scopes: ["dm.read", "dm.write", "tweet.read", "users.read"],
+        app_only: !user,
+        expires: 0,
+      });
+    }
+    const req = (path: string, token: string | null, body?: unknown) =>
+      server.app.request(`${host}${path}`, {
+        method: body === undefined ? "GET" : "POST",
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}), "Content-Type": "application/json" },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    const control = (path: string, body?: unknown) => req(`/_emulate/x${path}`, null, body);
+    const hook = ((await (await req("/2/webhooks", "app", { url: r.url })).json()) as Json).data;
+    await req("/2/activity/subscriptions", "dev", {
+      event_type: "dm.received",
+      filter: { user_id: DEV },
+      webhook_id: hook.id,
+    });
+    expect((await answer(control, hook.id)).valid).toBe(true);
+
+    const arrived = (await (
+      await control("/dm/arrive", { to: "developer", from: "alice", text: "hi" })
+    ).json()) as Json;
+    expect(arrived.deliveries).toHaveLength(1);
+    expect(arrived.deliveries[0].held).toMatch(/never calls such an address/);
+    expect(arrived.deliveries[0].success).toBe(false);
+    expect(r.received).toHaveLength(0);
+    const preview = (await (
+      await control("/dm/preview-delivery", { dm_event_id: arrived.dm_event_id })
+    ).json()) as Json;
+    expect(preview.deliveries[0].url).toBe(r.url);
+    expect(preview.deliveries[0].headers["x-twitter-webhooks-signature-oauth2"]).toBe(
+      sign(SECRET, preview.deliveries[0].body),
+    );
+    // A DM sent through X's own route is on the ledger, with the held delivery.
+    const sent = await req(`/2/dm_conversations/with/${DEV}/messages`, "alice", { text: "via the API" });
+    expect(sent.status).toBe(201);
+    expect(r.received).toHaveLength(0);
+    const entry = server.ledger.list().find((e) => e.method === "POST" && e.path.endsWith("/messages"))!;
+    expect(entry.summary).toBeDefined();
+    expect(entry.sideEffects.find((e) => e.collection === "x.dm_events")!.summary).toMatch(
+      /0 webhook deliveries sent, 1 held/,
+    );
+    expect(
+      entry.sideEffects.some((e) => e.collection === "x.webhook_deliveries" && /never calls/.test(e.summary ?? "")),
+    ).toBe(true);
+  });
+
+  it("holds deliveries in control mode until the test answers the challenge, then sends them", async () => {
+    const r = await receiver(SECRET);
+    const { call, mint, control } = setup({ webhook_crc_delivery: "control" });
+    const hook = (
+      (await (
+        await call("/2/webhooks", mint(null), { method: "POST", body: JSON.stringify({ url: r.url }) })
+      ).json()) as Json
+    ).data;
+    await call("/2/activity/subscriptions", mint(DEV), {
+      method: "POST",
+      body: JSON.stringify({ event_type: "dm.received", filter: { user_id: DEV }, webhook_id: hook.id }),
+    });
+    const before = (await (
+      await control("/dm/arrive", { to: "developer", from: "alice", text: "one" })
+    ).json()) as Json;
+    expect(before.deliveries[0].held).toMatch(/no challenge has been answered/);
+    expect(r.received).toHaveLength(0);
+
+    expect((await answer(control, hook.id)).valid).toBe(true);
+    const after = (await (await control("/dm/arrive", { to: "developer", from: "alice", text: "two" })).json()) as Json;
+    expect(after.deliveries[0]).toMatchObject({ success: true });
+    expect(after.deliveries[0].held).toBeUndefined();
+    expect(r.received.filter((x) => x.method === "POST")).toHaveLength(1);
+  });
+
+  it("holds deliveries to a seeded webhook until PUT passes X's CRC", async () => {
+    const r = await receiver(SECRET);
+    const { call, mint, control } = setup({
+      webhooks: [{ client_id: "dm-app", url: r.url }],
+      activity_subscriptions: [{ event_type: "dm.received", user: "developer", webhook: r.url }],
+    });
+    const before = (await (
+      await control("/dm/arrive", { to: "developer", from: "alice", text: "one" })
+    ).json()) as Json;
+    expect(before.deliveries[0].held).toMatch(/no challenge has been answered/);
+    const hooks = (await (await call("/2/webhooks", mint(null))).json()) as Json;
+    expect((await call(`/2/webhooks/${hooks.data[0].id}`, mint(null), { method: "PUT" })).status).toBe(200);
+    const after = (await (await control("/dm/arrive", { to: "developer", from: "alice", text: "two" })).json()) as Json;
+    expect(after.deliveries[0].success).toBe(true);
+    expect(r.received.filter((x) => x.method === "POST")).toHaveLength(1);
+  });
+});
+
 describe("X Activity API DM deliveries", () => {
   async function subscribed(extra: Partial<XSeedConfig> = {}) {
     const r = await receiver(SECRET);

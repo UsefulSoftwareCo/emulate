@@ -212,6 +212,19 @@ export async function storeAndDeliverMessage(
   return { view, deliveries };
 }
 
+/** Put each held delivery on the request's ledger entry, with the reason it was held. */
+export function recordHeldDeliveries(c: Context, deliveries: DeliveryResult[]): void {
+  for (const d of deliveries) {
+    if (!d.held) continue;
+    recordSideEffect(c, {
+      type: "custom",
+      collection: "x.webhook_deliveries",
+      id: d.webhook_id,
+      summary: `${d.event_type} for ${d.for_user_id} to ${d.url} ${d.held}`,
+    });
+  }
+}
+
 /** Find or create the one-to-one conversation between two users. */
 export function ensureOneToOne(store: Store, a: string, b: string): XDmConversation {
   const xs = getXStore(store);
@@ -409,12 +422,14 @@ export function dmRoutes({ app, store, baseUrl, webhooks }: RouteContext): void 
       text: parsed.text,
       mediaKeys: parsed.mediaKeys,
     });
+    const held = deliveries.filter((d) => d.held).length;
     recordSideEffect(c, {
       type: "create",
       collection: "x.dm_events",
       id: view.id,
-      summary: `DM sent in ${conv.conversation_id}; ${deliveries.length} webhook deliveries`,
+      summary: `DM sent in ${conv.conversation_id}; ${deliveries.length - held} webhook deliveries sent, ${held} held`,
     });
+    recordHeldDeliveries(c, deliveries);
     return c.json({ data: { dm_conversation_id: conv.conversation_id, dm_event_id: view.id } }, 201);
   }
 

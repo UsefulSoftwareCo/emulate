@@ -48,7 +48,9 @@ When the emulator cannot reach the app under test:
 
 ```bash
 # Emulator mode: hold CRC challenges for the test to deliver itself. In this mode a webhook
-# address may also be http or carry a port (an emulator-only relaxation of X's rule).
+# address may also be http or carry a port (an emulator-only relaxation of X's rule); the emulator
+# never calls such an address and holds its deliveries (preview them instead). Any webhook gets
+# deliveries only after its challenge is answered.
 curl -X POST "$X_EMULATOR_URL/_emulate/x/webhooks/crc-delivery" -H "Content-Type: application/json" -d '{"mode":"control"}'
 curl "$X_EMULATOR_URL/_emulate/x/webhooks/$WEBHOOK_ID/challenge"
 
