@@ -1,14 +1,20 @@
 # Changelog
 
-## 0.17.2
+## 0.17.3
 
 <!-- release:start -->
+
+### Fixes
+
+- **X delivers only to webhooks whose challenge was answered.** As on X, a webhook gets DM deliveries only once its challenge has been answered: the CRC at creation or on `PUT /2/webhooks/:id`, or, in control mode, a correct answer at `POST /_emulate/x/webhooks/:id/challenge`. Until then, and for a seeded webhook until `PUT`, deliveries are held, listed as held, and previewable. An address accepted only through control mode's relaxation (`http`, or a port, on an https instance) is never called at all.
+
+<!-- release:end -->
+
+## 0.17.2
 
 ### Changes
 
 - **X accepts local webhook addresses in CRC control mode.** With `webhook_crc_delivery: "control"`, `POST /2/webhooks` on an https instance (every hosted one) also accepts an `http` address or one with a port, so a test can register a local receiver, subscribe it and preview its deliveries. It is an emulator-only relaxation of X's rule, listed as such in the manifest; outbound mode keeps X's rule (https, no port, at most 200 characters).
-
-<!-- release:end -->
 
 ## 0.17.1
 
